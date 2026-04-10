@@ -35,17 +35,19 @@ class HeaderSpoofer:
         self.session = self._create_session()
         self.build_number = 284054
         self.xsp_hash = self._generate_xsp_hash()
-    
+        from proxy_manager import ProxyManager
+        self.proxy_manager = ProxyManager()
+
     def _create_session(self):
         context = ssl.create_default_context()
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
         return Session(impersonate="chrome120")
-    
+
     def _create_consistent_profile(self):
         timestamp = int(time.time())
         random.seed(timestamp % 1000)
-        
+
         locations = [
             {"timezone": "America/New_York", "locale": "en-US"},
             {"timezone": "America/Chicago", "locale": "en-US"},
@@ -55,31 +57,31 @@ class HeaderSpoofer:
             {"timezone": "Asia/Tokyo", "locale": "ja-JP"},
             {"timezone": "Australia/Sydney", "locale": "en-AU"}
         ]
-        
+
         location_idx = timestamp % len(locations)
         location = locations[location_idx]
-        
+
         chrome_versions = [
             {"major": "125", "full": "125.0.6422.113"},
             {"major": "124", "full": "124.0.6367.207"},
             {"major": "123", "full": "123.0.6312.122"},
         ]
-        
+
         version_idx = (timestamp // 3600) % len(chrome_versions)
         chrome = chrome_versions[version_idx]
-        
+
         os_versions = {
             "Windows": ["10", "11"],
             "Mac": ["13_6", "14_4"],
             "Linux": ["x86_64"]
         }
-        
+
         os_type = "Windows"
         os_version = random.choice(os_versions[os_type])
-        
+
         resolutions = ["1920x1080", "2560x1440", "3840x2160", "1366x768", "1536x864"]
         resolution_idx = (timestamp // 1000) % len(resolutions)
-        
+
         return BrowserProfile(
             user_agent=f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome['full']} Safari/537.36",
             os=os_type,
@@ -94,57 +96,57 @@ class HeaderSpoofer:
             fonts=["Arial", "Helvetica", "Times New Roman", "Verdana", "Georgia", "Courier New"],
             plugins=["Chrome PDF Plugin", "Chrome PDF Viewer", "Native Client", "Widevine Content Decryption Module"]
         )
-    
+
     def _generate_xsp_hash(self):
         data = f"{self.profile.os}{self.profile.browser}{self.profile.locale}{self.build_number}"
         return hashlib.md5(data.encode()).hexdigest()[:8]
-    
+
     def fetch_fingerprint(self):
         if time.time() - self.cache_time < 3600 and self.fingerprint:
             return self.fingerprint, self.cookies
-        
+
         try:
             headers = {
                 "User-Agent": self.profile.user_agent,
                 "Accept": "application/json",
                 "Accept-Language": self.profile.locale,
             }
-            
+
             response = self.session.get(
                 "https://discord.com/api/v9/experiments",
                 headers=headers,
                 timeout=10
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 self.fingerprint = data.get("fingerprint", self._fallback_fingerprint())
-                
+
                 cookie_parts = []
                 for cookie_name, cookie_value in response.cookies.items():
                     cookie_parts.append(f"{cookie_name}={cookie_value}")
-                
+
                 self.cookies = "; ".join(cookie_parts) + f"; locale={self.profile.locale}"
                 self.cache_time = time.time()
             else:
                 self.fingerprint = self._fallback_fingerprint()
                 self.cookies = self._default_cookies()
-                
+
         except Exception as e:
             print(f"Fingerprint fetch error: {e}")
             self.fingerprint = self._fallback_fingerprint()
             self.cookies = self._default_cookies()
-        
+
         return self.fingerprint, self.cookies
-    
+
     def _fallback_fingerprint(self):
         base = int(time.time() * 1000)
         return f"{base}.{random.randint(100000000000000000, 999999999999999999)}"
-    
+
     def _default_cookies(self):
         timestamp = int(time.time())
         return f"__dcfduid={timestamp}abcdef; __sdcfduid={timestamp}ghijkl; locale={self.profile.locale}"
-    
+
     def generate_super_properties(self):
         props = {
             "os": self.profile.os,
@@ -161,18 +163,18 @@ class HeaderSpoofer:
             "client_event_source": None,
             "design_id": 0
         }
-        
+
         xsp_json = json.dumps(props, separators=(',', ':'))
         xsp_b64 = base64.b64encode(xsp_json.encode()).decode()
         return xsp_b64
-    
+
     def generate_sec_ch_ua(self):
         major_version = self.profile.browser_version.split('.')[0]
         return f'"Chromium";v="{major_version}", "Google Chrome";v="{major_version}", "Not=A?Brand";v="99"'
-    
+
     def get_headers(self, additional_headers: Dict = None):
         fingerprint, cookies = self.fetch_fingerprint()
-        
+
         headers = {
             "Authorization": self.token,
             "User-Agent": self.profile.user_agent,
@@ -199,12 +201,12 @@ class HeaderSpoofer:
             "X-Track": hashlib.md5(str(time.time()).encode()).hexdigest(),
             "X-Super-Properties-Hash": self.xsp_hash
         }
-        
+
         if additional_headers:
             headers.update(additional_headers)
-        
+
         return headers
-    
+
     def get_websocket_headers(self):
         return {
             "User-Agent": self.profile.user_agent,
@@ -220,7 +222,7 @@ class HeaderSpoofer:
             "Origin": "https://discord.com",
             "Sec-WebSocket-Protocol": "json"
         }
-    
+
     def rotate_profile(self):
         self.profile = self._create_consistent_profile()
         self.xsp_hash = self._generate_xsp_hash()

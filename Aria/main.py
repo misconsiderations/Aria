@@ -325,7 +325,7 @@ def send_vr_headless_status(
             "Content-Type": "application/json",
         }
         payload = {
-            "activities": [
+            "activitis": [
                 {
                     "application_id": str(application_id),
                     "name": activity_name,
@@ -660,7 +660,7 @@ def main():
     voice_manager = SimpleVoice(bot.api, token)
     backup_manager = BackupManager(bot.api)
     mod_manager = ModerationManager(bot.api)
-    web_panel = WebPanel(bot.api, bot, host='127.0.0.1', port=8080, client_id=config.get("discord_client_id"), client_secret=config.get("discord_client_secret"))
+    web_panel = WebPanel(bot.api, bot, host='127.0.0.1', port=8080)
     afk_system.load_state()
     bot._afk_system_ref = afk_system
     anti_gc_trap = AntiGCTrap(bot.api)
@@ -706,7 +706,7 @@ def main():
             label = "Hosted users only"
         else:
             label = "Owner only"
-        msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| {title} |\n{label}```")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| {title} |\n{label}```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
         return False
@@ -728,7 +728,7 @@ def main():
     def nitro_cmd(ctx, args):
         if not args:
             status = "ON" if ctx["bot"].nitro_sniper.enabled else "OFF"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Nitro Sniper |\nStatus: {status}\nCodes checked: {len(ctx['bot'].nitro_sniper.used_codes)}\n\n+nitro on/off\n+nitro clear\n+nitro stats```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Nitro Sniper |\nStatus: {status}\nCodes checked: {len(ctx['bot'].nitro_sniper.used_codes)}\n\n+nitro on/off\n+nitro clear\n+nitro stats```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -743,12 +743,12 @@ def main():
         
         elif args[0] == "clear":
             count = ctx["bot"].nitro_sniper.clear_codes()
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Nitro |\nCleared {count} codes```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Nitro |\nCleared {count} codes```")
         
         elif args[0] == "stats":
             stats = ctx["bot"].nitro_sniper.get_stats()
             status = "ON" if stats["enabled"] else "OFF"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Nitro Stats |\nStatus: {status}\nCodes checked: {stats['used_codes']}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Nitro Stats |\nStatus: {status}\nCodes checked: {stats['used_codes']}```")
         
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -769,7 +769,7 @@ def main():
             status = "ON" if s["enabled"] else "OFF"
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Giveaway Sniper |\nStatus  :: {status}\nEntered :: {s['entered']}\nWon     :: {s['won']}\nFailed  :: {s['failed']}```",
+                f"```| Giveaway Sniper |\nStatus  :: {status}\nEntered :: {s['entered']}\nWon     :: {s['won']}\nFailed  :: {s['failed']}```",
             )
 
         if msg:
@@ -782,7 +782,7 @@ def main():
         if not args:
             status = "ON" if agct.enabled else "OFF"
             block = "ON" if agct.block_creators else "OFF"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Anti-GC Trap |\nStatus: {status}\nBlock Creators: {block}\nWhitelisted: {len(agct.whitelist)}\n\n+agct on/off\n+agct block on/off\n+agct msg <text>\n+agct name <name>\n+agct icon <url>\n+agct webhook <url>\n+agct wl add <user_id>\n+agct wl remove <user_id>\n+agct wl list```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Anti-GC Trap |\nStatus: {status}\nBlock Creators: {block}\nWhitelisted: {len(agct.whitelist)}\n\n+agct on/off\n+agct block on/off\n+agct msg <text>\n+agct name <name>\n+agct icon <url>\n+agct webhook <url>\n+agct wl add <user_id>\n+agct wl remove <user_id>\n+agct wl list```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -809,35 +809,35 @@ def main():
         elif args[0] == "msg" and len(args) >= 2:
             message = " ".join(args[1:])
             agct.leave_message = message
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Anti-GC Trap |\nLeave message set: {message[:50]}...```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Anti-GC Trap |\nLeave message set: {message[:50]}...```")
         
         elif args[0] == "name" and len(args) >= 2:
             name = " ".join(args[1:])
             agct.gc_name = name
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Anti-GC Trap |\nGC name set: {name}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Anti-GC Trap |\nGC name set: {name}```")
         
         elif args[0] == "icon" and len(args) >= 2:
             url = args[1]
             agct.gc_icon_url = url
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Anti-GC Trap |\nGC icon URL set```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Anti-GC Trap |\nGC icon URL set```")
         
         elif args[0] == "webhook" and len(args) >= 2:
             url = args[1]
             agct.webhook_url = url
             agct.save_whitelist()
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Anti-GC Trap |\nWebhook set```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Anti-GC Trap |\nWebhook set```")
         
         elif args[0] == "wl":
             if len(args) >= 3:
                 if args[1] == "add":
                     user_id = args[2]
                     success = agct.add_to_whitelist(user_id)
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Anti-GC Trap |\nAdded {user_id} to whitelist```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Anti-GC Trap |\nAdded {user_id} to whitelist```")
                 
                 elif args[1] == "remove":
                     user_id = args[2]
                     success = agct.remove_from_whitelist(user_id)
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Anti-GC Trap |\nRemoved {user_id} from whitelist```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Anti-GC Trap |\nRemoved {user_id} from whitelist```")
                 
                 elif args[1] == "list":
                     whitelist = agct.get_whitelist()
@@ -845,9 +845,9 @@ def main():
                         wl_list = "\n".join([f"• {uid}" for uid in whitelist[:10]])
                         if len(whitelist) > 10:
                             wl_list += f"\n• ... and {len(whitelist) - 10} more"
-                        msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Whitelist |\n{wl_list}```")
+                        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Whitelist |\n{wl_list}```")
                     else:
-                        msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Anti-GC Trap |\nWhitelist empty```")
+                        msg = ctx["api"].send_message(ctx["channel_id"], "```| Anti-GC Trap |\nWhitelist empty```")
         
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -882,10 +882,10 @@ def main():
         success = afk_system.set_afk(ctx["author_id"], reason)
         
         if success:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| AFK |\nSet AFK: {reason}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| AFK |\nSet AFK: {reason}```")
             afk_system.save_state()
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| AFK |\nFailed to set AFK```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| AFK |\nFailed to set AFK```")
         
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -895,7 +895,7 @@ def main():
         if not args:
             current = afk_system.webhook_url or "None"
             display = current if len(current) < 50 else current[:47] + "..."
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| AFK Webhook |\nUsage: +afkwebhook <webhook_url>\nCurrent: {display}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| AFK Webhook |\nUsage: +afkwebhook <webhook_url>\nCurrent: {display}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -906,9 +906,9 @@ def main():
         afk_system.save_state()
         
         if success:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| AFK Webhook |\nWebhook set successfully```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| AFK Webhook |\nWebhook set successfully```")
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| AFK Webhook |\nFailed to set webhook```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| AFK Webhook |\nFailed to set webhook```")
         
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -930,9 +930,9 @@ def main():
             if minutes > 0 or hours == 0:
                 time_str += f"{minutes}m"
             
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| AFK Status |\nUser: {target_id}\nStatus: AFK\nReason: {afk_data['reason']}\nDuration: {time_str}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| AFK Status |\nUser: {target_id}\nStatus: AFK\nReason: {afk_data['reason']}\nDuration: {time_str}```")
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| AFK Status |\nUser: {target_id}\nStatus: Online```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| AFK Status |\nUser: {target_id}\nStatus: Online```")
         
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -942,7 +942,7 @@ def main():
         if len(args) < 2:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Spam |\nUsage: {bot.prefix}spam <count> <message>```",
+                f"```| Spam |\nUsage: {bot.prefix}spam <count> <message>```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -951,7 +951,7 @@ def main():
         try:
             count = min(int(args[0]), 100)
         except ValueError:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Spam |\nCount must be a number```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Spam |\nCount must be a number```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -976,7 +976,7 @@ def main():
 
         status = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```asciidoc\n| Purge |\nScanning {amount} messages{' for user ' + target_user if target_user else ''}...```",
+            f"> **Purging** {amount} messages{' for user ' + target_user if target_user else ''}...",
         )
         messages = ctx["api"].get_messages(ctx["channel_id"], amount)
         deleted = 0
@@ -1003,7 +1003,7 @@ def main():
         if status:
             ctx["api"].edit_message(
                 ctx["channel_id"], status.get("id"),
-                f"```asciidoc\n| Purge Complete |\nDeleted {deleted} | Skipped {skipped}```",
+                f"> **Purge** Complete |\nDeleted {deleted}..",
             )
             delete_after_delay(ctx["api"], ctx["channel_id"], status.get("id"))
     
@@ -1016,16 +1016,16 @@ def main():
                 
                 option_names = {1: "DM History", 2: "Friends", 3: "Both"}
                 if option not in [1, 2, 3]:
-                    msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| DM Sender |\nInvalid option. Use 1, 2, or 3```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], "```| DM Sender |\nInvalid option. Use 1, 2, or 3```")
                     if msg:
                         delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                     return
                 
-                status_msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| DM Sender |\nMode: {option_names[option]}\nMessage: {message[:30]}...\nFetching targets...```")
+                status_msg = ctx["api"].send_message(ctx["channel_id"], f"```| DM Sender |\nMode: {option_names[option]}\nMessage: {message[:30]}...\nFetching targets...```")
                 
                 dms_response = ctx["api"].request("GET", "/users/@me/channels")
                 if not dms_response or dms_response.status_code != 200:
-                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```asciidoc\n| DM Sender |\nFailed to fetch DMs```")
+                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```| DM Sender |\nFailed to fetch DMs```")
                     delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
                     return
                 
@@ -1063,7 +1063,7 @@ def main():
                                         target_names.append(username)
                 
                 if not targets:
-                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```asciidoc\n| DM Sender |\nNo targets found```")
+                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```| DM Sender |\nNo targets found```")
                     delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
                     return
                 
@@ -1072,7 +1072,7 @@ def main():
                 failed = 0
                 current_target = ""
                 
-                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| DM Sender |\nMode: {option_names[option]}\nTargets: {total}\nStatus: Starting...\nSent: 0/{total}\nFailed: 0```")
+                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| DM Sender |\nMode: {option_names[option]}\nTargets: {total}\nStatus: Starting...\nSent: 0/{total}\nFailed: 0```")
                 
                 for i, (channel_id, user_id, username) in enumerate(targets):
                     current_target = username
@@ -1083,11 +1083,11 @@ def main():
                         failed += 1
                     
                     if (i + 1) % 3 == 0 or i == total - 1:
-                        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| DM Sender |\nMode: {option_names[option]}\nTargets: {total}\nStatus: Sending...\nSent: {sent}/{total}\nFailed: {failed}\nCurrent: {username}```")
+                        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| DM Sender |\nMode: {option_names[option]}\nTargets: {total}\nStatus: Sending...\nSent: {sent}/{total}\nFailed: {failed}\nCurrent: {username}```")
                     
                     time.sleep(random.uniform(2.5, 4.0))
                 
-                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| DM Sender |\nMode: {option_names[option]}\nStatus: Complete\nSent: {sent}/{total}\nFailed: {failed}\nTime: {time.strftime('%H:%M:%S')}```")
+                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| DM Sender |\nMode: {option_names[option]}\nStatus: Complete\nSent: {sent}/{total}\nFailed: {failed}\nTime: {time.strftime('%H:%M:%S')}```")
                 delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
                 
             except Exception as e:
@@ -1109,7 +1109,7 @@ Example: +massdm 1 Hello everyone!```"""
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                "```asciidoc\n| Join |\nUsage: join <invite_code_or_url>```"
+                "```| Join |\nUsage: join <invite_code_or_url>```"
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -1122,7 +1122,7 @@ Example: +massdm 1 Hello everyone!```"""
 
         status = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```asciidoc\n| Join |\nJoining {invite}...```"
+            f"```| Join |\nJoining {invite}...```"
         )
 
         try:
@@ -1156,14 +1156,14 @@ Example: +massdm 1 Hello everyone!```"""
         if status:
             ctx["api"].edit_message(
                 ctx["channel_id"], status.get("id"),
-                f"```asciidoc\n| Join |\n{result}```"
+                f"```| Join |\n{result}```"
             )
             delete_after_delay(ctx["api"], ctx["channel_id"], status.get("id"))
 
     @bot.command(name="block", aliases=["blockuser", "bu"])
     def block_user(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Block |\nUsage: {bot.prefix}block <user_id> [user_id2] ...```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Block |\nUsage: {bot.prefix}block <user_id> [user_id2] ...```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -1193,7 +1193,7 @@ Example: +massdm 1 Hello everyone!```"""
             parts.append(f"Blocked: {', '.join(blocked)}")
         if failed:
             parts.append(f"Failed: {', '.join(failed)}")
-        msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Block |\n" + " | ".join(parts) + "```")
+        msg = api.send_message(ctx["channel_id"], "```| Block |\n" + " | ".join(parts) + "```")
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
 
@@ -1204,7 +1204,7 @@ Example: +massdm 1 Hello everyone!```"""
         if house not in houses:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Hypesquad |\nUsage: {bot.prefix}hypesquad bravery/brilliance/balance```",
+                f"```| Hypesquad |\nUsage: {bot.prefix}hypesquad bravery/brilliance/balance```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -1217,9 +1217,9 @@ Example: +massdm 1 Hello everyone!```"""
             timeout=8,
         )
         if resp.status_code == 204:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Hypesquad |\nChanged to {house.title()}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Hypesquad |\nChanged to {house.title()}```")
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Hypesquad |\nFailed ({resp.status_code})```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Hypesquad |\nFailed ({resp.status_code})```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -1232,9 +1232,9 @@ Example: +massdm 1 Hello everyone!```"""
             timeout=8,
         )
         if resp.status_code == 204:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Hypesquad |\nLeft hypesquad```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Hypesquad |\nLeft hypesquad```")
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Hypesquad |\nFailed ({resp.status_code})```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Hypesquad |\nFailed ({resp.status_code})```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -1245,7 +1245,7 @@ Example: +massdm 1 Hello everyone!```"""
         if status not in valid:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Status |\nUsage: {bot.prefix}status online/idle/dnd/invisible```",
+                f"```| Status |\nUsage: {bot.prefix}status online/idle/dnd/invisible```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -1253,7 +1253,7 @@ Example: +massdm 1 Hello everyone!```"""
         ok = ctx["bot"].set_status(status)
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```asciidoc\n| Status |\n{'Set to ' + status if ok else 'Failed (not connected)'}```",
+            f"```| Status |\n{'Set to ' + status if ok else 'Failed (not connected)'}```",
         )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -1266,7 +1266,7 @@ Example: +massdm 1 Hello everyone!```"""
             current = getattr(ctx["bot"], "_client_type", "web")
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Client |\nCurrent :: {current}\nUsage   :: {bot.prefix}client web/desktop/mobile```",
+                f"```| Client |\nCurrent :: {current}\nUsage   :: {bot.prefix}client web/desktop/mobile```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -1275,7 +1275,7 @@ Example: +massdm 1 Hello everyone!```"""
         labels = {"web": "Web (Chrome)", "desktop": "Discord Desktop", "mobile": "Discord Android"}
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```asciidoc\n| Client |\n{'Switched to ' + labels[ctype] + ' — reconnecting...' if ok else 'Failed'}```",
+            f"```| Client |\n{'Switched to ' + labels[ctype] + ' — reconnecting...' if ok else 'Failed'}```",
         )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -1288,9 +1288,9 @@ Example: +massdm 1 Hello everyone!```"""
             if target_id.isdigit():
                 super_react_client.add_target(target_id, emoji)
                 if not super_react_client.is_running():
-                    msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| SuperReact |\n✓ Target added. Use +superreactstart to begin reacting.```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\n✓ Target added. Use +superreactstart to begin reacting.```")
                 else:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| SuperReact |\n✓ Enabled for user\nTarget: <@{target_id}>\nEmoji: {emoji}```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| SuperReact |\n✓ Enabled for user\nTarget: <@{target_id}>\nEmoji: {emoji}```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -1301,9 +1301,9 @@ Example: +massdm 1 Hello everyone!```"""
         ssr_targets = super_react_client.get_ssr_targets()
         
         if not targets and not msr_targets and not ssr_targets:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| SuperReact |\nNo active super-reactions```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\nNo active super-reactions```")
         else:
-            response = "```asciidoc\n| SuperReact Status |\n"
+            response = "```| SuperReact Status |\n"
             if targets:
                 response += "\nSingle SuperReactions:\n"
                 for target, emoji in targets.items():
@@ -1328,19 +1328,19 @@ Example: +massdm 1 Hello everyone!```"""
     # @bot.command(name="superreactrandom", aliases=["srrandom"])
     # def superreact_random_cmd(ctx, args):
     #     if not args:
-    #         msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| SuperReact Random |\nUsage: +srrandom <message_id>```")
+    #         msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact Random |\nUsage: +srrandom <message_id>```")
     #         if msg:
     #             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     #         return
     #     
     #     target_msg_id = args[0].strip()
     #     if not target_msg_id.isdigit():
-    #         msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| SuperReact Random |\nError: Invalid message ID```")
+    #         msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact Random |\nError: Invalid message ID```")
     #         if msg:
     #             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     #         return
     #     
-    #     msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| SuperReact Random |\nAdding super-reactions to message {target_msg_id}...```")
+    #     msg = ctx["api"].send_message(ctx["channel_id"], f"```| SuperReact Random |\nAdding super-reactions to message {target_msg_id}...```")
     #     
     #     added_emojis = []
     #     available_emojis = super_react.emojis.copy()
@@ -1355,7 +1355,7 @@ Example: +massdm 1 Hello everyone!```"""
     #             print(f"[ERROR]: Failed to add {emoji} to {target_msg_id}: {e}")
     #             break
     #     
-    #     msg2 = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| SuperReact Random |\nComplete!\nMessage: {target_msg_id}\nAdded: {', '.join(added_emojis)}\nTotal: {len(added_emojis)}```")
+    #     msg2 = ctx["api"].send_message(ctx["channel_id"], f"```| SuperReact Random |\nComplete!\nMessage: {target_msg_id}\nAdded: {', '.join(added_emojis)}\nTotal: {len(added_emojis)}```")
     #     
     #     if msg:
     #         delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -1365,12 +1365,12 @@ Example: +massdm 1 Hello everyone!```"""
     @bot.command(name="superreactstart", aliases=["srstart"])
     def superreact_start_cmd(ctx, args):
         if super_react_client and super_react_client.is_running():
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| SuperReact |\nAlready running```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\nAlready running```")
         else:
             if super_react_client.start():
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| SuperReact |\n✓ Started```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\n✓ Started```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| SuperReact |\n✗ Failed to start```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\n✗ Failed to start```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -1378,9 +1378,9 @@ Example: +massdm 1 Hello everyone!```"""
     def superreact_stop_cmd(ctx, args):
         if super_react_client and super_react_client.is_running():
             super_react_client.stop()
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| SuperReact |\n✗ Stopped```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\n✗ Stopped```")
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| SuperReact |\nNot running```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\nNot running```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -1414,14 +1414,14 @@ Example: +massdm 1 Hello everyone!```"""
             mc_str = f" | {mc}" if mc else ""
             lines.append(f"> {name}{owner}{mc_str} :: {gid}")
 
-        msg = api.send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+        msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="setprefix", aliases=["prefix"])
     def setprefix_cmd(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Prefix |\nCurrent :: {bot.prefix}\nUsage   :: {bot.prefix}setprefix <symbol>```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Prefix |\nCurrent :: {bot.prefix}\nUsage   :: {bot.prefix}setprefix <symbol>```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -1446,7 +1446,7 @@ Example: +massdm 1 Hello everyone!```"""
             saved = False
 
         status = "Saved" if saved else "Changed (save failed)"
-        msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Prefix |\nOld    :: {old_prefix}\nNew    :: {new_prefix}\nStatus :: {status}```")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Prefix |\nOld    :: {old_prefix}\nNew    :: {new_prefix}\nStatus :: {status}```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -1686,12 +1686,12 @@ Example Usage:
     def set_autoreact(ctx, args):
         if args:
             bot.auto_react_emoji = args[0]
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Auto-React |\nSet to: {args[0]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Auto-React |\nSet to: {args[0]}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
         else:
             bot.auto_react_emoji = None
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Auto-React |\nDisabled```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Auto-React |\nDisabled```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
@@ -1704,7 +1704,7 @@ Example Usage:
         
         user_info = ctx["api"].request("GET", f"/users/{target_id}")
         if not user_info or user_info.status_code != 200:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Mutual Info |\nCould not find user with ID {target_id}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Mutual Info |\nCould not find user with ID {target_id}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -1730,9 +1730,9 @@ Example Usage:
             if len(mutual_guilds) > 10:
                 guilds_text += f"\n- ... and {len(mutual_guilds) - 10} more"
             
-            msg_text = f"```asciidoc\n| Mutual Info |\nUser: {username}#{discriminator}\nMutual Servers ({len(mutual_guilds)}):\n- {guilds_text}```"
+            msg_text = f"**User:** {username}#{discriminator}\nMutual Servers ({len(mutual_guilds)}):\n- {guilds_text}."
         else:
-            msg_text = f"```asciidoc\n| Mutual Info |\nUser: {username}#{discriminator}\nNo mutual servers found```"
+            msg_text = f"**User:** {username}#{discriminator}\nNo mutual servers found."
         
         msg = ctx["api"].send_message(ctx["channel_id"], msg_text)
         if msg:
@@ -1740,11 +1740,11 @@ Example Usage:
     
     @bot.command(name="closedms")
     def closedms(ctx, args):
-        status_msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Close DMs |\nFetching DM channels...```")
+        status_msg = ctx["api"].send_message(ctx["channel_id"], "> **Fetching** DM channels...")
         
         dms_response = ctx["api"].request("GET", "/users/@me/channels")
         if not dms_response or dms_response.status_code != 200:
-            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```asciidoc\n| Close DMs |\nFailed to fetch DMs```")
+            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> **Failed** to fetch DMs.")
             delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
             return
         
@@ -1756,14 +1756,14 @@ Example Usage:
                 dm_channels.append(dm)
         
         if not dm_channels:
-            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```asciidoc\n| Close DMs |\nNo DM channels to close```")
+            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> No **DM channels** to close.")
             delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
             return
         
         closed_count = 0
         total = len(dm_channels)
         
-        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Close DMs |\nClosing {total} DM channels...\nClosed: 0/{total}```")
+        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **Closing** {total} DM channels...\nClosed: 0/{total}")
         
         for i, dm in enumerate(dm_channels):
             try:
@@ -1772,19 +1772,19 @@ Example Usage:
                     closed_count += 1
                 
                 if (i + 1) % 5 == 0 or i == total - 1:
-                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Close DMs |\nClosing {total} DM channels...\nClosed: {closed_count}/{total}```")
+                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"Closing {total} DM channels...\nClosed: {closed_count}/{total}```")
                 
                 time.sleep(0.5)
             except:
                 pass
         
-        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Close DMs |\nSuccessfully closed {closed_count}/{total} DM channels```")
+        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **Successfully*** closed {closed_count}/{total} DM channels.")
         delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
     
     @bot.command(name="setpfp")
     def setpfp(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Set PFP |\nPlease provide an image URL```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Please** provide an **image URL**.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -1794,7 +1794,7 @@ Example Usage:
         try:
             response = ctx["api"].session.get(image_url, timeout=10)
             if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Set PFP |\nFailed to download image```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Failed** to download image.")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -1816,15 +1816,15 @@ Example Usage:
             result = ctx["api"].request("PATCH", "/users/@me", data=data)
             
             if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Set PFP |\nSuccessfully updated profile picture```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Successfully** updated profile picture.")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Set PFP |\nFailed to update PFP: {result.status_code if result else 'No response'}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Failed** to update PFP: {result.status_code if result else 'No response'}.")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Set PFP |\nError: {str(e)}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"Error: {str(e)}")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
@@ -1833,18 +1833,18 @@ Example Usage:
         global LAST_SERVER_COPY
         
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Server Copy |\nPlease provide a server ID to copy```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> Please **provide** a **server ID** to copy.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
         
         server_id = args[0]
         
-        status_msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Server Copy |\nFetching server data for {server_id}...```")
+        status_msg = ctx["api"].send_message(ctx["channel_id"], f"> **Fetching** server data for {server_id}...")
         
         guild_response = ctx["api"].request("GET", f"/guilds/{server_id}")
         if not guild_response or guild_response.status_code != 200:
-            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```asciidoc\n| Server Copy |\nCould not find server or no access```")
+            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> **Could** not find **server** or no **access**.")
             delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
             return
         
@@ -1918,7 +1918,7 @@ Example Usage:
         
         LAST_SERVER_COPY = copy_data
         
-        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Server Copy |\nSuccessfully copied server: {guild_data.get('name', 'Unknown')}\nUse +serverload <target_id> to apply```")
+        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **Successfully** copied server: {guild_data.get('name', 'Unknown')}\nUse +serverload <target_id> to apply.")
         delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
     
     @bot.command(name="serverload")
@@ -1926,20 +1926,20 @@ Example Usage:
         global LAST_SERVER_COPY
         
         if not LAST_SERVER_COPY:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Server Load |\nNo server data to load. Use +servercopy first```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **No server** data to load. Use **servercopy** first.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
         
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Server Load |\nPlease provide a target server ID```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> Please **provide** a target server ID.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
         
         target_id = args[0]
         
-        status_msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Server Load |\nLoading template into server {target_id}...```")
+        status_msg = ctx["api"].send_message(ctx["channel_id"], f"> **Loading** template into server {target_id}...```")
         
         try:
             if LAST_SERVER_COPY.get("icon"):
@@ -1960,7 +1960,7 @@ Example Usage:
             
             guild_update = ctx["api"].request("PATCH", f"/guilds/{target_id}", data=update_data)
             if not guild_update or guild_update.status_code != 200:
-                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```asciidoc\n| Server Load |\nFailed to update server name/icon```")
+                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> **Failed** to update **server name/icon**.")
                 delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
                 return
             
@@ -2061,11 +2061,11 @@ Example Usage:
             
             LAST_SERVER_COPY = None
             
-            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```asciidoc\n| Server Load |\nSuccessfully loaded server template!```")
+            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> **Successfully** loaded **server* template!")
             delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
             
         except Exception as e:
-            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Server Load |\nError: {str(e)}```")
+            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Server Load |\nError: {str(e)}```")
             delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
     
     @bot.command(name="rpc", aliases=["rich_presence"])
@@ -2095,13 +2095,13 @@ Examples:
         
         if parts == "stop":
             bot.set_activity(None)
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| RPC |\nCleared all activities```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Cleared** all **activities**.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
         
         if not remaining:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| RPC |\nMissing arguments```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Missing** arguments.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2171,21 +2171,21 @@ Examples:
                     duration_val = float(duration) if duration else 3.5
                     current_pos_val = float(current_pos) if 'current_pos' in locals() else 0
                     send_spotify_with_spoofing(bot, details, state, name, duration_val, current_pos_val, image_url)
-                    msg_text = f"```asciidoc\n| Spotify RPC |\nSong: {details}\nArtist: {state}\nAlbum: {name}\nDuration: {duration_val}min```"
+                    msg_text = f"```| Spotify RPC |\nSong: {details}\nArtist: {state}\nAlbum: {name}\nDuration: {duration_val}min```"
                     if current_pos_val > 0:
                         msg_text = msg_text.replace("```", f"\nPosition: {current_pos_val}min```")
                     if image_url:
                         msg_text = msg_text.replace("```", f"\nImage: Yes```")
                 else:
-                    msg_text = "```asciidoc\n| Spotify RPC |\nFormat: Song | Artist | Album | Duration [| image_url] [| position]\nExample: +rpc spotify \"Song Name | Artist Name | Album Name | 3.5 | https://image.url | 1.5\"```"
+                    msg_text = "```| Spotify RPC |\nFormat: Song | Artist | Album | Duration [| image_url] [| position]\nExample: +rpc spotify \"Song Name | Artist Name | Album Name | 3.5 | https://image.url | 1.5\"```"
             except Exception as e:
-                msg_text = f"```asciidoc\n| Spotify RPC |\nError: {str(e)}```"
+                msg_text = f"```| Spotify RPC |\nError: {str(e)}```"
 
         elif parts == "listening":
             try:
                 if name:
                     send_listening_activity(bot, name, button_label, button_url, image_url, state, details)
-                    msg_text = f"```asciidoc\n| Listening RPC |\nName: {name}```"
+                    msg_text = f"```| Listening RPC |\nName: {name}```"
                     if details:
                         msg_text = msg_text.replace("```", f"\nDetails: {details}```")
                     if state:
@@ -2195,15 +2195,15 @@ Examples:
                     if image_url:
                         msg_text = msg_text.replace("```", f"\nImage: Yes```")
                 else:
-                    msg_text = "```asciidoc\n| Listening RPC |\nFormat: Details | State | Name [| image_url] [>> Button >> URL]\nExample: +rpc listening \"Playing playlist | 15 tracks | Spotify | https://image.url >> Listen Now >> https://spotify.com\"```"
+                    msg_text = "```| Listening RPC |\nFormat: Details | State | Name [| image_url] [>> Button >> URL]\nExample: +rpc listening \"Playing playlist | 15 tracks | Spotify | https://image.url >> Listen Now >> https://spotify.com\"```"
             except Exception as e:
-                msg_text = f"```asciidoc\n| Listening RPC |\nError: {str(e)}```"
+                msg_text = f"```| Listening RPC |\nError: {str(e)}```"
 
         elif parts == "streaming":
             try:
                 if name:
                     send_streaming_activity(bot, name, button_label, button_url, image_url, state, details)
-                    msg_text = f"```asciidoc\n| Streaming RPC |\nName: {name}```"
+                    msg_text = f"```| Streaming RPC |\nName: {name}```"
                     if details:
                         msg_text = msg_text.replace("```", f"\nDetails: {details}```")
                     if state:
@@ -2213,15 +2213,15 @@ Examples:
                     if image_url:
                         msg_text = msg_text.replace("```", f"\nImage: Yes```")
                 else:
-                    msg_text = "```asciidoc\n| Streaming RPC |\nFormat: Details | State | Name [| image_url] [>> Button >> URL]\nExample: +rpc streaming \"Playing GTA V | In session | Twitch | https://image.url >> Watch Live >> https://twitch.tv\"```"
+                    msg_text = "```| Streaming RPC |\nFormat: Details | State | Name [| image_url] [>> Button >> URL]\nExample: +rpc streaming \"Playing GTA V | In session | Twitch | https://image.url >> Watch Live >> https://twitch.tv\"```"
             except Exception as e:
-                msg_text = f"```asciidoc\n| Streaming RPC |\nError: {str(e)}```"
+                msg_text = f"```| Streaming RPC |\nError: {str(e)}```"
 
         elif parts == "playing":
             try:
                 if name:
                     send_playing_activity(bot, name, button_label, button_url, image_url, state, details)
-                    msg_text = f"```asciidoc\n| Playing RPC |\nGame: {name}```"
+                    msg_text = f"```| Playing RPC |\nGame: {name}```"
                     if details:
                         msg_text = msg_text.replace("```", f"\nDetails: {details}```")
                     if state:
@@ -2231,9 +2231,9 @@ Examples:
                     if image_url:
                         msg_text = msg_text.replace("```", f"\nImage: Yes```")
                 else:
-                    msg_text = "```asciidoc\n| Playing RPC |\nFormat: Details | State | Name [| image_url] [>> Button >> URL]\nExample: +rpc playing \"Level 85 | Questing | World of Warcraft | https://image.url\"```"
+                    msg_text = "```| Playing RPC |\nFormat: Details | State | Name [| image_url] [>> Button >> URL]\nExample: +rpc playing \"Level 85 | Questing | World of Warcraft | https://image.url\"```"
             except Exception as e:
-                msg_text = f"```asciidoc\n| Playing RPC |\nError: {str(e)}```"
+                msg_text = f"```| Playing RPC |\nError: {str(e)}```"
 
         elif parts == "timer":
             try:
@@ -2242,7 +2242,7 @@ Examples:
                     end_val = float(end_time) if end_time else time.time() + 3600
                     send_timer_activity(bot, name, start_val, end_val, details, state, image_url)
                     duration_min = int((end_val - start_val) / 60)
-                    msg_text = f"```asciidoc\n| Timer RPC |\nActivity: {name}\nDuration: {duration_min}min```"
+                    msg_text = f"```| Timer RPC |\nActivity: {name}\nDuration: {duration_min}min```"
                     if details:
                         msg_text = msg_text.replace("```", f"\nDetails: {details}```")
                     if state:
@@ -2250,12 +2250,12 @@ Examples:
                     if image_url:
                         msg_text = msg_text.replace("```", f"\nImage: Yes```")
                 else:
-                    msg_text = "```asciidoc\n| Timer RPC |\nFormat: Details | State | Name | Start | End [| image_url]\nExample: +rpc timer \"Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https://image.url\"```"
+                    msg_text = "```| Timer RPC |\nFormat: Details | State | Name | Start | End [| image_url]\nExample: +rpc timer \"Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https://image.url\"```"
             except Exception as e:
-                msg_text = f"```asciidoc\n| Timer RPC |\nError: {str(e)}```"
+                msg_text = f"```| Timer RPC |\nError: {str(e)}```"
 
         else:
-            msg_text = "```asciidoc\n| RPC |\nInvalid type. Use: spotify, listening, streaming, playing, timer```"
+            msg_text = "```| RPC |\nInvalid type. Use: spotify, listening, streaming, playing, timer```"
 
         msg = ctx["api"].send_message(ctx["channel_id"], msg_text)
         if msg:
@@ -2264,7 +2264,7 @@ Examples:
     @bot.command(name="setserverpfp", aliases=["serverspfp", "guildpfp"])
     def setserverpfp(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Server PFP |\nPlease provide an image URL```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Please** provide an **image URL**.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2274,7 +2274,7 @@ Examples:
         try:
             response = ctx["api"].session.get(image_url, timeout=10)
             if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Server PFP |\nFailed to download image```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Failed** to download image.")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2291,7 +2291,7 @@ Examples:
             
             guild_id = ctx["message"].get("guild_id")
             if not guild_id:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Server PFP |\nThis command only works in servers```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> This **command only works** in servers.")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2303,22 +2303,22 @@ Examples:
             result = ctx["api"].request("PATCH", f"/guilds/{guild_id}/members/@me", data=data)
             
             if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Server PFP |\nSuccessfully updated server profile picture```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Successfully** updated **server** profile picture.")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Server PFP |\nFailed to update server PFP: {result.status_code if result else 'No response'}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"\nFailed to update server PFP: {result.status_code if result else 'No response'}```")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Server PFP |\nError: {str(e)}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"\nError: {str(e)}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="stealpfp", aliases=["copypfp", "takepfp"])
     def stealpfp(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal PFP |\nPlease provide a user ID```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal PFP |\nPlease provide a user ID```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2328,7 +2328,7 @@ Examples:
         try:
             user_response = ctx["api"].request("GET", f"/users/{user_id}")
             if not user_response or user_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal PFP |\nCould not find user```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal PFP |\nCould not find user```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2337,7 +2337,7 @@ Examples:
             avatar_hash = user_data.get("avatar")
             
             if not avatar_hash:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal PFP |\nUser has no profile picture```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal PFP |\nUser has no profile picture```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2347,7 +2347,7 @@ Examples:
             
             response = ctx["api"].session.get(avatar_url, timeout=10)
             if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal PFP |\nFailed to download avatar```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal PFP |\nFailed to download avatar```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2377,7 +2377,7 @@ Examples:
     @bot.command(name="setbanner", aliases=["banner"])
     def setbanner(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Set Banner |\nPlease provide an image URL```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Banner |\nPlease provide an image URL```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2387,7 +2387,7 @@ Examples:
         try:
             response = ctx["api"].session.get(image_url, timeout=10)
             if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Set Banner |\nFailed to download image```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Banner |\nFailed to download image```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2424,7 +2424,7 @@ Examples:
     @bot.command(name="stealbanner", aliases=["copybanner", "takebanner"])
     def stealbanner(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal Banner |\nPlease provide a user ID```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Banner |\nPlease provide a user ID```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2434,7 +2434,7 @@ Examples:
         try:
             profile_response = ctx["api"].request("GET", f"/users/{user_id}/profile")
             if not profile_response or profile_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal Banner |\nCould not fetch user profile```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Banner |\nCould not fetch user profile```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2446,7 +2446,7 @@ Examples:
             banner_hash = user_profile.get("banner") or user.get("banner")
             
             if not banner_hash:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal Banner |\nUser has no banner```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Banner |\nUser has no banner```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2456,7 +2456,7 @@ Examples:
             
             response = ctx["api"].session.get(banner_url, timeout=10)
             if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal Banner |\nFailed to download banner```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Banner |\nFailed to download banner```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2471,15 +2471,15 @@ Examples:
             result = ctx["api"].request("PATCH", "/users/@me", data=data)
             
             if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal Banner |\n✓ Banner stolen successfully```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Banner |\n✓ Banner stolen successfully```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Steal Banner |\n✗ Failed to update banner (HTTP {result.status_code if result else 'No response'})```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Steal Banner |\n✗ Failed to update banner (HTTP {result.status_code if result else 'No response'})```")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Steal Banner |\nError: {str(e)[:80]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Steal Banner |\nError: {str(e)[:80]}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
@@ -2493,7 +2493,7 @@ Examples:
         try:
             profile_response = ctx["api"].request("GET", f"/users/{target_id}/profile")
             if not profile_response or profile_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Pronouns |\nCould not fetch user profile```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Pronouns |\nCould not fetch user profile```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2509,22 +2509,22 @@ Examples:
                 username = "Unknown"
             
             if pronouns:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Pronouns |\nUser: {username}\nPronouns: {pronouns}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Pronouns |\nUser: {username}\nPronouns: {pronouns}```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Pronouns |\nUser: {username}\nNo pronouns set```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Pronouns |\nUser: {username}\nNo pronouns set```")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Pronouns |\nError: {str(e)}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Pronouns |\nError: {str(e)}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="setpronouns", aliases=["setpronoun"])
     def setpronouns(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Set Pronouns |\nUsage: +setpronouns <pronouns>\nExamples: he/him, she/her, they/them```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Pronouns |\nUsage: +setpronouns <pronouns>\nExamples: he/him, she/her, they/them```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2539,15 +2539,15 @@ Examples:
             result = ctx["api"].request("PATCH", "/users/@me/profile", data=data)
             
             if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Set Pronouns |\n✓ Pronouns set to: {pronouns}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Pronouns |\n✓ Pronouns set to: {pronouns}```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Set Pronouns |\n✗ Failed (HTTP {result.status_code if result else 'No response'})```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Pronouns |\n✗ Failed (HTTP {result.status_code if result else 'No response'})```")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Set Pronouns |\nError: {str(e)[:80]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Pronouns |\nError: {str(e)[:80]}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
@@ -2561,7 +2561,7 @@ Examples:
         try:
             profile_response = ctx["api"].request("GET", f"/users/{target_id}/profile")
             if not profile_response or profile_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Bio |\nCould not fetch user profile```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Bio |\nCould not fetch user profile```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2577,22 +2577,22 @@ Examples:
                 username = "Unknown"
             
             if bio_text:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Bio |\nUser: {username}\nBio:\n{bio_text}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Bio |\nUser: {username}\nBio:\n{bio_text}```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Bio |\nUser: {username}\nNo bio set```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Bio |\nUser: {username}\nNo bio set```")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Bio |\nError: {str(e)}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Bio |\nError: {str(e)}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="setbio", aliases=["setaboutme"])
     def setbio(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Set Bio |\nUsage: +setbio <bio text>```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Bio |\nUsage: +setbio <bio text>```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2607,15 +2607,15 @@ Examples:
             result = ctx["api"].request("PATCH", "/users/@me/profile", data=data)
             
             if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Set Bio |\n✓ Bio updated```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Bio |\n✓ Bio updated```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Set Bio |\n✗ Failed (HTTP {result.status_code if result else 'No response'})```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Bio |\n✗ Failed (HTTP {result.status_code if result else 'No response'})```")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Set Bio |\nError: {str(e)[:80]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Bio |\nError: {str(e)[:80]}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
@@ -2629,7 +2629,7 @@ Examples:
         try:
             user_response = ctx["api"].request("GET", f"/users/{target_id}")
             if not user_response or user_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Display Name |\nCould not find user```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Display Name |\nCould not find user```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2639,22 +2639,22 @@ Examples:
             global_name = user_data.get("global_name", "")
             
             if global_name:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Display Name |\nUser: {username}\nDisplay Name: {global_name}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Display Name |\nUser: {username}\nDisplay Name: {global_name}```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Display Name |\nUser: {username}\nNo display name set```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Display Name |\nUser: {username}\nNo display name set```")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Display Name |\nError: {str(e)}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Display Name |\nError: {str(e)}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="setdisplayname", aliases=["setglobalname"])
     def setdisplayname(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Set Display Name |\nPlease provide a display name```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Display Name |\nPlease provide a display name```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2684,7 +2684,7 @@ Examples:
     @bot.command(name="stealname", aliases=["copyname"])
     def stealname(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal Name |\nPlease provide a user ID```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Name |\nPlease provide a user ID```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2694,7 +2694,7 @@ Examples:
         try:
             user_response = ctx["api"].request("GET", f"/users/{user_id}")
             if not user_response or user_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal Name |\nCould not find user```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Name |\nCould not find user```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2703,7 +2703,7 @@ Examples:
             global_name = user_data.get("global_name", "")
             
             if not global_name:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal Name |\nUser has no display name```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Name |\nUser has no display name```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2729,7 +2729,7 @@ Examples:
         
     @bot.command(name="stop", aliases=["exit", "quit"])
     def stop_bot(ctx, args):
-        msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| System |\nStopping bot...```")
+        msg = ctx["api"].send_message(ctx["channel_id"], "`Stopping bot...```")
         bot.stop()
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -2737,7 +2737,7 @@ Examples:
     @bot.command(name="setstatus", aliases=["customstatus"])
     def setstatus(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Set Status |\nPlease provide a status\nFormat: +setstatus [emoji,] status text\nExample: +setstatus 🎮 Gaming now\nExample: +setstatus <:pepe:123456789>, Custom status```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "` Set Status |\nPlease provide a status\nFormat: +setstatus [emoji,] status text\nExample: +setstatus 🎮 Gaming now\nExample: +setstatus <:pepe:123456789>, Custom status```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2755,7 +2755,7 @@ Examples:
             text_part = parts[1].strip() if len(parts) > 1 else ""
             
             if not text_part:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Set Status |\nPlease provide status text after comma```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Status |\nPlease provide status text after comma```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2771,7 +2771,7 @@ Examples:
                 emoji_name = emoji_part
             
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Set Status |\nInvalid emoji format\nUse standard emoji or <:name:id>```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Status |\nInvalid emoji format\nUse standard emoji or <:name:id>```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2779,7 +2779,7 @@ Examples:
             message = text_part
         
         if not message:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Set Status |\nPlease provide status text```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Status |\nPlease provide status text```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2813,7 +2813,7 @@ Examples:
     @bot.command(name="stealstatus", aliases=["copystatus"])
     def stealstatus(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Steal Status |\nPlease provide a user ID```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Status |\nPlease provide a user ID```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2830,13 +2830,13 @@ Examples:
             
             # Note: Custom status is not publicly available through Discord API
             # It can only be set on your own account via /users/@me/settings
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Steal Status |\nUser: {username}\nCustom status is private and cannot be retrieved```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Steal Status |\nUser: {username}\nCustom status is private and cannot be retrieved```")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Steal Status |\nError: {str(e)[:80]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Steal Status |\nError: {str(e)[:80]}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
@@ -4352,16 +4352,16 @@ Examples:
 
     @bot.command(name="restart")
     def restart_cmd(ctx, args):
-        msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| System |\nRestarting bot in 3 seconds...```")
+        msg = ctx["api"].send_message(ctx["channel_id"], "> **Restarting** bot in 3 seconds...```")
         
         def restart_sequence():
             time.sleep(1)
-            ctx["api"].edit_message(ctx["channel_id"], msg.get("id"), "```asciidoc\n| System |\nRestarting bot in 2 seconds...```")
+            ctx["api"].edit_message(ctx["channel_id"], msg.get("id"), "> **Restarting** bot in 2 seconds...")
             time.sleep(1)
-            ctx["api"].edit_message(ctx["channel_id"], msg.get("id"), "```asciidoc\n| System |\nRestarting bot in 1 second...```")
+            ctx["api"].edit_message(ctx["channel_id"], msg.get("id"), "> **Restarting** bot in 1 second...")
             time.sleep(1)
             
-            ctx["api"].send_message(ctx["channel_id"], "```diff\n+ Bot restarting...\n```")
+            ctx["api"].send_message(ctx["channel_id"], "> **System** restarting...")
             
             import subprocess
             import sys
@@ -4382,7 +4382,7 @@ Examples:
     @bot.command(name="vc", aliases=["voice", "joinvc"])
     def vc(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Voice |\nUsage: +vc <channel_id>\nFor servers: +vc 1234567890\nFor DMs/GCs: +vc <dm_channel_id>```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Voice |\nUsage: +vc <channel_id>\nFor servers: +vc 1234567890\nFor DMs/GCs: +vc <dm_channel_id>```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -4393,15 +4393,15 @@ Examples:
             success = voice_manager.join_vc(channel_id)
             
             if success:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Voice |\nConnected to voice\nID: {channel_id}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice |\nConnected to voice\nID: {channel_id}```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Voice |\nFailed to connect\nCheck if ID is correct (must be VOICE channel)```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice |\nFailed to connect\nCheck if ID is correct (must be VOICE channel)```")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Voice |\nError: {str(e)[:50]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice |\nError: {str(e)[:50]}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
@@ -4414,15 +4414,15 @@ Examples:
                 success = voice_manager.leave_vc()
             
             if success:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Voice |\nDisconnected from voice```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Voice |\nDisconnected from voice```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Voice |\nNot in a voice channel```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Voice |\nNot in a voice channel```")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Voice |\nError: {str(e)[:50]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice |\nError: {str(e)[:50]}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -4434,9 +4434,9 @@ Examples:
         channel_id = args[1] if len(args) > 1 else None
         try:
             ok, detail = voice_manager.set_video(channel_id, enabled)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Voice Cam |\n{detail}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice Cam |\n{detail}```")
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Voice Cam |\nError: {str(e)[:80]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice Cam |\nError: {str(e)[:80]}```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -4448,9 +4448,9 @@ Examples:
         channel_id = args[1] if len(args) > 1 else None
         try:
             ok, detail = voice_manager.set_stream(channel_id, enabled)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Voice Stream |\n{detail}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice Stream |\n{detail}```")
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Voice Stream |\nError: {str(e)[:80]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice Stream |\nError: {str(e)[:80]}```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -4479,7 +4479,7 @@ Examples:
             lines.append(f"> {quest_system._quest_name(q)} [claim now]")
         for q in s["completed"]:
             lines.append(f"> {quest_system._quest_name(q)} [done]")
-        text = "```asciidoc\n| " + " |\n".join(lines) + "```"
+        text = "```| " + " |\n".join(lines) + "```"
         msg = ctx["api"].send_message(ctx["channel_id"], text)
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -4490,9 +4490,9 @@ Examples:
         ok, detail = quest_system.start()
         s = quest_system.get_summary()
         if ok:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Quest **enabled**. {detail}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f" Quest **enabled**. {detail}.")
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Quest error: {detail}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"Quest error: {detail}.")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -4510,7 +4510,7 @@ Examples:
         status = "Refreshed" if ok else "Failed"
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```asciidoc\n| Quest |\n{status}: {detail}\nTotal: {s['total']} | Enrollable: {len(s['enrollable'])} | Claimable: {len(s['claimable'])}```",
+            f"```| Quest |\n{status}: {detail}\nTotal: {s['total']} | Enrollable: {len(s['enrollable'])} | Claimable: {len(s['claimable'])}```",
         )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -4521,7 +4521,7 @@ Examples:
         s = quest_system.get_summary()
         enrollable = s["enrollable"]
         if not enrollable:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Quest |\nNo enrollable quests```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Quest |\nNo enrollable quests```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -4537,7 +4537,7 @@ Examples:
             time.sleep(0.8)
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```asciidoc\n| Quest Enroll |\nEnrolled: {enrolled} | Failed: {failed}```",
+            f"```| Quest Enroll |\nEnrolled: {enrolled} | Failed: {failed}```",
         )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -4549,52 +4549,52 @@ Examples:
 
         if sub == "start":
             ok, detail = gr.start()
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\n{detail}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\n{detail}```")
 
         elif sub == "stop":
             ok, detail = gr.stop()
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\n{detail}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\n{detail}```")
 
         elif sub == "name" and len(args) >= 2:
             gr.config["tag_name"] = args[1]
             gr._save()
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\nTag name set to {args[1]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\nTag name set to {args[1]}```")
 
         elif sub == "delay" and len(args) >= 2:
             try:
                 secs = max(30, int(args[1]))
                 gr.config["delay"] = secs
                 gr._save()
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\nDelay set to {secs}s```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\nDelay set to {secs}s```")
             except ValueError:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\nInvalid number```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\nInvalid number```")
 
         elif sub == "addguild" and len(args) >= 2:
             gid = args[1]
             if gid not in gr.config["guilds"]:
                 gr.config["guilds"].append(gid)
                 gr._save()
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\nAdded guild {gid}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\nAdded guild {gid}```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\nGuild already in list```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\nGuild already in list```")
 
         elif sub == "removeguild" and len(args) >= 2:
             gid = args[1]
             if gid in gr.config["guilds"]:
                 gr.config["guilds"].remove(gid)
                 gr._save()
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\nRemoved guild {gid}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\nRemoved guild {gid}```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\nGuild not found```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\nGuild not found```")
 
         elif sub == "addcolor" and len(args) >= 3:
             p, s = args[1], args[2]
             if gr._hex_re.match(p) and gr._hex_re.match(s):
                 gr.config["colors"].append([p, s])
                 gr._save()
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\nAdded color {p} / {s}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\nAdded color {p} / {s}```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\nInvalid hex. Use #RRGGBB format```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\nInvalid hex. Use #RRGGBB format```")
 
         elif sub == "removecolor" and len(args) >= 2:
             try:
@@ -4603,15 +4603,15 @@ Examples:
                 if 0 <= idx < len(colors):
                     removed = colors.pop(idx)
                     gr._save()
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\nRemoved {removed[0]} / {removed[1]}```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\nRemoved {removed[0]} / {removed[1]}```")
                 else:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\nIndex out of range (1-{len(colors)})```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\nIndex out of range (1-{len(colors)})```")
             except ValueError:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge |\nInvalid index```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge |\nInvalid index```")
 
         elif sub == "listbadges":
             badge_str = "  ".join(f"{bid}:{name}" for bid, name in _GUILDBADGE_BADGES.items())
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Guild Badge Types |\n{badge_str}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Guild Badge Types |\n{badge_str}```")
 
         else:
             # Status panel
@@ -4634,7 +4634,7 @@ Examples:
                 f"> {bot.prefix}guildbadge removecolor <index>",
                 f"> {bot.prefix}guildbadge listbadges",
             ]
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
 
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -4642,14 +4642,14 @@ Examples:
     @bot.command(name="host")
     def host_cmd(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Host |\n{bot.prefix}host <token>```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host |\n{bot.prefix}host <token>```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
 
         # Non-owners need hosting to be enabled by owner
         if not is_control_user(ctx["author_id"]) and not host_manager.hosting_enabled:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Host |\nHosting is currently disabled```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Host |\nHosting is currently disabled```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -4703,7 +4703,7 @@ Examples:
         import formatter as fmt
         hosted = host_manager.list_hosted(ctx["author_id"])
         if not hosted:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Host |\nYou have no hosted tokens```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```You have no hosted tokens```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -4725,7 +4725,7 @@ Examples:
             return
         hosted = host_manager.list_all_hosted()
         if not hosted:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Host |\nNo hosted users```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "No hosted users.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -4790,33 +4790,33 @@ Examples:
         
         if args[0] == "user":
             filename = backup_manager.backup_user_data()
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Backup |\n✓ User backup complete\nFile: {filename}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Backup |\n✓ User backup complete\nFile: {filename}```")
         
         elif args[0] == "messages" and len(args) >= 2:
             channel_id = args[1]
             limit = int(args[2]) if len(args) >= 3 else 1000
             filename = backup_manager.backup_messages(channel_id, limit)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Backup |\n✓ Message backup complete\nFile: {filename}\nMessages: {limit}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Backup |\n✓ Message backup complete\nFile: {filename}\nMessages: {limit}```")
         
         elif args[0] == "full":
             filename = backup_manager.create_full_backup()
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Backup |\n✓ Full backup complete\nFile: {filename}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Backup |\n✓ Full backup complete\nFile: {filename}```")
         
         elif args[0] == "list":
             backups = backup_manager.list_backups()
             if backups:
                 backup_list = "\n".join([f"• {b['name']} ({b['size']//1024}KB)" for b in backups[:10]])
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Backup List |\n{backup_list}\n\nTotal: {len(backups)} backups```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Backup List |\n{backup_list}\n\nTotal: {len(backups)} backups```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Backup |\nNo backups found```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Backup |\nNo backups found```")
         
         elif args[0] == "restore" and len(args) >= 2:
             backup_name = args[1]
             success = backup_manager.restore_backup(backup_name)
             if success:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Backup |\n✓ Restored from {backup_name}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Backup |\n✓ Restored from {backup_name}```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Backup |\n✗ Backup not found: {backup_name}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Backup |\n✗ Backup not found: {backup_name}```")
         
         if 'msg' in locals() and msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -4846,7 +4846,7 @@ Examples:
         
         guild_id = ctx["message"].get("guild_id")
         if not guild_id:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Moderation |\n✗ This command only works in servers```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Moderation |\n✗ This command only works in servers```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -4854,53 +4854,53 @@ Examples:
         if args[0] == "kick" and len(args) >= 2:
             user_ids = args[1].split(',')
             count = mod_manager.mass_kick(guild_id, user_ids)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Moderation |\n✓ Kicked {count}/{len(user_ids)} users```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✓ Kicked {count}/{len(user_ids)} users```")
         
         elif args[0] == "ban" and len(args) >= 2:
             user_ids = args[1].split(',')
             delete_days = int(args[2]) if len(args) >= 3 else 0
             count = mod_manager.mass_ban(guild_id, user_ids, delete_days)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Moderation |\n✓ Banned {count}/{len(user_ids)} users\nDelete days: {delete_days}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✓ Banned {count}/{len(user_ids)} users\nDelete days: {delete_days}```")
         
         elif args[0] == "filter":
             if len(args) >= 3 and args[1] == "add":
                 words = args[2].split(',')
                 count = mod_manager.create_word_filter(guild_id, words)
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Moderation |\n✓ Added {count} words to filter```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✓ Added {count} words to filter```")
             elif len(args) >= 3 and args[1] == "check":
                 text = " ".join(args[2:])
                 match = mod_manager.check_message_filter(guild_id, text)
                 if match:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Moderation |\n✗ Filter matched: {match}```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✗ Filter matched: {match}```")
                 else:
-                    msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Moderation |\n✓ No filter matches```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], "```| Moderation |\n✓ No filter matches```")
         
         elif args[0] == "cleanup":
             if len(args) >= 2 and args[1] == "channels":
                 channels = mod_manager.get_channels(guild_id)
                 channel_ids = [c["id"] for c in channels]
                 count = mod_manager.mass_delete_channels(guild_id, channel_ids)
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Moderation |\n✓ Deleted {count}/{len(channel_ids)} channels```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✓ Deleted {count}/{len(channel_ids)} channels```")
             elif len(args) >= 2 and args[1] == "roles":
                 roles = mod_manager.get_roles(guild_id)
                 role_ids = [r["id"] for r in roles if not r.get("managed", False) and r["name"] != "@everyone"]
                 count = mod_manager.mass_delete_roles(guild_id, role_ids)
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Moderation |\n✓ Deleted {count}/{len(role_ids)} roles```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✓ Deleted {count}/{len(role_ids)} roles```")
         
         elif args[0] == "members":
             limit = int(args[1]) if len(args) >= 2 else 100
             members = mod_manager.get_members(guild_id, limit)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Moderation |\nMembers: {len(members)}/{limit}\nUse IDs for kick/ban commands```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\nMembers: {len(members)}/{limit}\nUse IDs for kick/ban commands```")
         
         elif args[0] == "channels":
             channels = mod_manager.get_channels(guild_id)
             channel_list = "\n".join([f"#{c['name']}: {c['id']}" for c in channels[:15]])
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Moderation |\nChannels: {len(channels)}\n{channel_list}\n{'...' if len(channels) > 15 else ''}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\nChannels: {len(channels)}\n{channel_list}\n{'...' if len(channels) > 15 else ''}```")
         
         elif args[0] == "roles":
             roles = mod_manager.get_roles(guild_id)
             role_list = "\n".join([f"@{r['name']}: {r['id']}" for r in roles[:15]])
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Moderation |\nRoles: {len(roles)}\n{role_list}\n{'...' if len(roles) > 15 else ''}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\nRoles: {len(roles)}\n{role_list}\n{'...' if len(roles) > 15 else ''}```")
         
         if 'msg' in locals() and msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5011,7 +5011,7 @@ Note: Discord remains the only command interface```""")
                     
                     channel_id = message_data.get("channel_id")
                     if channel_id:
-                        bot.api.send_message(channel_id, f"```asciidoc\n| AFK Notice |\nUser <@{author_id}> is AFK\nReason: {afk_data['reason']}\nDuration: {time_str}```")
+                        bot.api.send_message(channel_id, f"```| AFK Notice |\nUser <@{author_id}> is AFK\nReason: {afk_data['reason']}\nDuration: {time_str}```")
 
         if is_control and developer_tools.process_message(message_data, bot):
             return
@@ -5047,7 +5047,7 @@ Background scraping is disabled. Use +localstats and +export instead.
             history = history_manager.get_user_history(user_id)
             
             if not history:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| User History |\nNo history found for user {user_id}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| User History |\nNo history found for user {user_id}```")
             else:
                 latest = history[-1]
                 history_text = f"""```asciidoc
@@ -5075,7 +5075,7 @@ Nitro: {'Yes' if latest.get('premium_type') else 'No'}```"""
             history = history_manager.get_server_history(server_id)
             
             if not history:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Server History |\nNo history found for server {server_id}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Server History |\nNo history found for server {server_id}```")
             else:
                 latest = history[-1]
                 history_text = f"""```asciidoc
@@ -5101,9 +5101,9 @@ Region: {latest.get('region', 'Unknown')}```"""
                 
                 if profile_data:
                     history_manager.add_profile_snapshot(user_id, profile_data)
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Profile Scraped |\nUser: {profile_data.get('username', 'Unknown')}\nStatus: ✓ Success```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Profile Scraped |\nUser: {profile_data.get('username', 'Unknown')}\nStatus: ✓ Success```")
                 else:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Profile Scrape Failed |\nUser ID: {user_id}\nStatus: ✗ Failed```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Profile Scrape Failed |\nUser ID: {user_id}\nStatus: ✗ Failed```")
             
             elif args[1] == "server" and len(args) >= 3:
                 server_id = args[2]
@@ -5111,13 +5111,13 @@ Region: {latest.get('region', 'Unknown')}```"""
                 
                 if server_data:
                     history_manager.add_server_snapshot(server_id, server_data)
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Server Scraped |\nServer: {server_data.get('name', 'Unknown')}\nStatus: ✓ Success```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Server Scraped |\nServer: {server_data.get('name', 'Unknown')}\nStatus: ✓ Success```")
                 else:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Server Scrape Failed |\nServer ID: {server_id}\nStatus: ✗ Failed```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Server Scrape Failed |\nServer ID: {server_id}\nStatus: ✗ Failed```")
             
             elif args[1] == "all":
                 # Scrape all accessible servers and some recent users
-                status_msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Mass Scraping |\nStarting data collection...```")
+                status_msg = ctx["api"].send_message(ctx["channel_id"], "```| Mass Scraping |\nStarting data collection...```")
                 
                 servers_scraped = 0
                 users_scraped = 0
@@ -5143,7 +5143,7 @@ Region: {latest.get('region', 'Unknown')}```"""
                                     history_manager.add_profile_snapshot(user_id, profile_data)
                                     users_scraped += 1
                 
-                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Mass Scraping Complete |\nServers: {servers_scraped}\nUsers: {users_scraped}\nStatus: ✓ Complete```")
+                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass Scraping Complete |\nServers: {servers_scraped}\nUsers: {users_scraped}\nStatus: ✓ Complete```")
                 delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
                 return
             
@@ -5157,11 +5157,11 @@ Region: {latest.get('region', 'Unknown')}```"""
                         if history_manager.add_user_to_scrape(user_id):
                             queued_count += 1
                     
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Users Queued |\nAdded {queued_count} users to scrape queue\nTotal queued: {len(history_manager.get_users_to_scrape())}```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Users Queued |\nAdded {queued_count} users to scrape queue\nTotal queued: {len(history_manager.get_users_to_scrape())}```")
                 else:
                     queued_users = history_manager.get_users_to_scrape()
                     if queued_users:
-                        queue_text = f"```asciidoc\n| Scrape Queue |\nTotal queued: {len(queued_users)}\n\n"
+                        queue_text = f"```| Scrape Queue |\nTotal queued: {len(queued_users)}\n\n"
                         for i, user_id in enumerate(list(queued_users)[:10], 1):
                             queue_text += f"{i}. {user_id}\n"
                         if len(queued_users) > 10:
@@ -5169,14 +5169,14 @@ Region: {latest.get('region', 'Unknown')}```"""
                         queue_text += "```"
                         msg = ctx["api"].send_message(ctx["channel_id"], queue_text)
                     else:
-                        msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Scrape Queue |\nNo users queued for scraping```")
+                        msg = ctx["api"].send_message(ctx["channel_id"], "```| Scrape Queue |\nNo users queued for scraping```")
             
             elif args[1] == "process":
                 # Process the queued users
-                status_msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Processing Queue |\nStarting profile scraping...```")
+                status_msg = ctx["api"].send_message(ctx["channel_id"], "```| Processing Queue |\nStarting profile scraping...```")
                 history_manager.scrape_queued_users()
                 queued_remaining = len(history_manager.get_users_to_scrape())
-                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Queue Processed |\nRemaining in queue: {queued_remaining}\nStatus: ✓ Complete```")
+                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Queue Processed |\nRemaining in queue: {queued_remaining}\nStatus: ✓ Complete```")
                 delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
                 return
         
@@ -5186,9 +5186,9 @@ Region: {latest.get('region', 'Unknown')}```"""
                 changes = history_manager.get_user_profile_changes(user_id)
                 
                 if not changes:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| User Changes |\nNo changes found for user {user_id}```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| User Changes |\nNo changes found for user {user_id}```")
                 else:
-                    changes_text = f"```asciidoc\n| User Profile Changes |\nUser ID: {user_id}\nTotal Changes: {len(changes)}\n\n"
+                    changes_text = f"```| User Profile Changes |\nUser ID: {user_id}\nTotal Changes: {len(changes)}\n\n"
                     
                     for i, change in enumerate(changes[-5:], 1):  # Show last 5 changes
                         changes_text += f"[ Change {i} - {time.strftime('%m/%d %H:%M', time.localtime(change['timestamp']))} ]\n"
@@ -5204,9 +5204,9 @@ Region: {latest.get('region', 'Unknown')}```"""
                 changes = history_manager.get_server_changes(server_id)
                 
                 if not changes:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Server Changes |\nNo changes found for server {server_id}```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Server Changes |\nNo changes found for server {server_id}```")
                 else:
-                    changes_text = f"```asciidoc\n| Server Changes |\nServer ID: {server_id}\nTotal Changes: {len(changes)}\n\n"
+                    changes_text = f"```| Server Changes |\nServer ID: {server_id}\nTotal Changes: {len(changes)}\n\n"
                     
                     for i, change in enumerate(changes[-5:], 1):  # Show last 5 changes
                         changes_text += f"[ Change {i} - {time.strftime('%m/%d %H:%M', time.localtime(change['timestamp']))} ]\n"
@@ -5223,7 +5223,7 @@ Region: {latest.get('region', 'Unknown')}```"""
             total_snapshots = sum(len(snapshots) for snapshots in history_manager.profiles.values()) + \
                             sum(len(snapshots) for snapshots in history_manager.servers.values())
             
-            stats_text = f"""```asciidoc\n| History Statistics
+            stats_text = f"""```| History Statistics
 Total Profiles Tracked: {total_profiles}
 Total Servers Tracked: {total_servers}
 Total Snapshots: {total_snapshots}
@@ -5271,7 +5271,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
 
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Local Stats |\nStatus: {status}\nLast Run: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(captured_at))}\nGuild Count: {guilds.get('count', 0)}\nOwned Guilds: {guilds.get('owned_count', 0)}\nAdmin Guilds: {guilds.get('admin_count', 0)}\nHas Nitro: {'Yes' if account.get('premium_type') else 'No'}\nTop Features: {feature_text}```"
+                f"```| Local Stats |\nStatus: {status}\nLast Run: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(captured_at))}\nGuild Count: {guilds.get('count', 0)}\nOwned Guilds: {guilds.get('owned_count', 0)}\nAdmin Guilds: {guilds.get('admin_count', 0)}\nHas Nitro: {'Yes' if account.get('premium_type') else 'No'}\nTop Features: {feature_text}```"
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5281,25 +5281,25 @@ Queued Users: {health_status['metrics']['queued_users']}"""
             summary = account_data_manager.refresh_local_summary(force=True)
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Local Stats |\nRefreshed at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(summary['captured_at']))}\nGuild Count: {summary['guilds']['count']}\nStatus: ✓ Saved to account_stats.json```"
+                f"```| Local Stats |\nRefreshed at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(summary['captured_at']))}\nGuild Count: {summary['guilds']['count']}\nStatus: ✓ Saved to account_stats.json```"
             )
         elif args[0] == "start":
             interval = int(args[1]) if len(args) >= 2 and args[1].isdigit() else 900
             success, message = account_data_manager.start_stats_job(interval)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Local Stats |\n{message}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Local Stats |\n{message}```")
         elif args[0] == "stop":
             success, message = account_data_manager.stop_stats_job()
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Local Stats |\n{message}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Local Stats |\n{message}```")
         elif args[0] == "status":
             status = account_data_manager.get_job_status()
             last_run = status.get("last_run")
             last_run_text = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_run)) if last_run else "Never"
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Local Stats Status |\nActive: {'Yes' if status['active'] else 'No'}\nInterval: {status['interval_seconds']}s\nLast Run: {last_run_text}```"
+                f"```| Local Stats Status |\nActive: {'Yes' if status['active'] else 'No'}\nInterval: {status['interval_seconds']}s\nLast Run: {last_run_text}```"
             )
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Local Stats |\nUsage: +localstats [run|start <seconds>|stop|status]```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Local Stats |\nUsage: +localstats [run|start <seconds>|stop|status]```")
 
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5309,7 +5309,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                "```asciidoc\n| Export Commands |\nexport account :: Export current account profile\nexport guilds :: Export current guild list\nexport friends :: Export current relationships\nexport dms :: Export DM channel summaries\nexport summary :: Export the latest non-sensitive local summary\nexport all :: Export all supported runtime datasets\nexport auto start [target] [seconds] :: Start background auto scrape\nexport auto stop :: Stop background auto scrape\nexport auto status :: Show background auto scrape status\nexport auto run [target] :: Run one immediate background scrape cycle\n\nManual exports write JSON under ./exports. Auto scrape stores rolling snapshots in account_stats.json\n```"
+                "```| Export Commands |\nexport account :: Export current account profile\nexport guilds :: Export current guild list\nexport friends :: Export current relationships\nexport dms :: Export DM channel summaries\nexport summary :: Export the latest non-sensitive local summary\nexport all :: Export all supported runtime datasets\nexport auto start [target] [seconds] :: Start background auto scrape\nexport auto stop :: Stop background auto scrape\nexport auto status :: Show background auto scrape status\nexport auto run [target] :: Run one immediate background scrape cycle\n\nManual exports write JSON under ./exports. Auto scrape stores rolling snapshots in account_stats.json\n```"
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5323,7 +5323,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
                 targets_text = ", ".join(status.get("targets", [])) or "all"
                 msg = ctx["api"].send_message(
                     ctx["channel_id"],
-                    f"```asciidoc\n| Export Auto Scrape |\nActive: {'Yes' if status['active'] else 'No'}\nInterval: {status['interval_seconds']}s\nTargets: {targets_text}\nLast Run: {last_run_text}```"
+                    f"```| Export Auto Scrape |\nActive: {'Yes' if status['active'] else 'No'}\nInterval: {status['interval_seconds']}s\nTargets: {targets_text}\nLast Run: {last_run_text}```"
                 )
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5342,14 +5342,14 @@ Queued Users: {health_status['metrics']['queued_users']}"""
                     interval = int(args[3])
 
                 success, message = account_data_manager.start_auto_scrape(interval, [target])
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Export Auto Scrape |\n{message}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Export Auto Scrape |\n{message}```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
 
             if action == "stop":
                 success, message = account_data_manager.stop_auto_scrape()
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Export Auto Scrape |\n{message}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Export Auto Scrape |\n{message}```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -5360,19 +5360,19 @@ Queued Users: {health_status['metrics']['queued_users']}"""
                 targets_text = ", ".join(snapshot.get("targets", [])) or target
                 msg = ctx["api"].send_message(
                     ctx["channel_id"],
-                    f"```asciidoc\n| Export Auto Scrape |\nRan immediate scrape\nTargets: {targets_text}\nCaptured At: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(snapshot['captured_at']))}```"
+                    f"```| Export Auto Scrape |\nRan immediate scrape\nTargets: {targets_text}\nCaptured At: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(snapshot['captured_at']))}```"
                 )
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
 
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Export Auto Scrape |\nUsage: +export auto [status|start [target] [seconds]|stop|run [target]]```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Export Auto Scrape |\nUsage: +export auto [status|start [target] [seconds]|stop|run [target]]```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
 
         target = args[0].lower()
-        status_msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Export |\nFetching real-time {target} data...```")
+        status_msg = ctx["api"].send_message(ctx["channel_id"], f"```| Export |\nFetching real-time {target} data...```")
         success, message, file_path, payload = account_data_manager.export_requested_data(target)
 
         if not status_msg:
@@ -5399,13 +5399,13 @@ Queued Users: {health_status['metrics']['queued_users']}"""
             ctx["api"].edit_message(
                 ctx["channel_id"],
                 status_msg.get("id"),
-                f"```asciidoc\n| Export Complete |\nTarget: {target}\nFile: {file_path}{detail_block}\nStatus: ✓ Success```"
+                f"```| Export Complete |\nTarget: {target}\nFile: {file_path}{detail_block}\nStatus: ✓ Success```"
             )
         else:
             ctx["api"].edit_message(
                 ctx["channel_id"],
                 status_msg.get("id"),
-                f"```asciidoc\n| Export Failed |\nTarget: {target}\nError: {message}```"
+                f"```| Export Failed |\nTarget: {target}\nError: {message}```"
             )
 
         delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
@@ -5417,7 +5417,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                "```asciidoc\n| VR RPC Commands |\nvrrpc on :: Enable VR headless status loop (uses config token/settings)\nvrrpc off :: Disable VR headless status loop and clear session\nvrrpc stop :: Clear normal activity payload\nvrrpc preset <social|battle|explore|chill> :: Quick VR status\nvrrpc custom \"World | Details | State [| image_url] [>> Button Label >> Button URL]\" :: Custom VR status\n```"
+                "```| VR RPC Commands |\nvrrpc on :: Enable VR headless status loop (uses config token/settings)\nvrrpc off :: Disable VR headless status loop and clear session\nvrrpc stop :: Clear normal activity payload\nvrrpc preset <social|battle|explore|chill> :: Quick VR status\nvrrpc custom \"World | Details | State [| image_url] [>> Button Label >> Button URL]\" :: Custom VR status\n```"
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5425,7 +5425,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
 
         if args[0].lower() == "stop":
             bot.set_activity(None)
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| VR RPC |\nCleared VR activity```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| VR RPC |\nCleared VR activity```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -5469,7 +5469,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
                 interval = int(config.get("vr_headless_interval", 60) or 60)
 
                 if not oauth_token:
-                    return "```asciidoc\n| VR Headless |\nMissing vr_oauth_token in config.json\nSet vr_oauth_token once, then use +vrrpc on```"
+                    return "```| VR Headless |\nMissing vr_oauth_token in config.json\nSet vr_oauth_token once, then use +vrrpc on```"
 
                 started, info = start_vr_headless_loop(
                     bot,
@@ -5480,10 +5480,10 @@ Queued Users: {health_status['metrics']['queued_users']}"""
                 )
 
                 if not started and VR_HEADLESS_LOOP["running"]:
-                    return "```asciidoc\n| VR Headless |\nAlready enabled```"
+                    return "```| VR Headless |\nAlready enabled```"
 
                 return (
-                    "```asciidoc\n| "
+                    "```| "
                     "VR Headless |\n"
                     "> Status: ✓ Enabled\n"
                     f"> Name: {activity_name}\n"
@@ -5499,15 +5499,15 @@ Queued Users: {health_status['metrics']['queued_users']}"""
                 if oauth_token and VR_HEADLESS_TOKEN:
                     ok, info = await clear_vr_headless_status(bot, oauth_token, VR_HEADLESS_TOKEN)
                     if not ok:
-                        return f"```asciidoc\n| VR Headless |\nFailed to fully disable\nError: {info}```"
+                        return f"```| VR Headless |\nFailed to fully disable\nError: {info}```"
 
                 VR_HEADLESS_TOKEN = None
-                return "```asciidoc\n| VR Headless |\nStatus: ✓ Disabled```"
+                return "```| VR Headless |\nStatus: ✓ Disabled```"
 
             if args[0].lower() == "preset" and len(args) >= 2:
                 preset = presets.get(args[1].lower())
                 if not preset:
-                    return "```asciidoc\n| VR RPC |\nUnknown preset\nAvailable: social, battle, explore, chill```"
+                    return "```| VR RPC |\nUnknown preset\nAvailable: social, battle, explore, chill```"
 
                 await send_vr_activity(
                     bot,
@@ -5517,7 +5517,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
                     button_label=preset["button_label"],
                     button_url=preset["button_url"]
                 )
-                return f"```asciidoc\n| VR RPC |\nPreset: {args[1].lower()}\nWorld: {preset['world']}\nStatus: ✓ Active```"
+                return f"```| VR RPC |\nPreset: {args[1].lower()}\nWorld: {preset['world']}\nStatus: ✓ Active```"
 
             if args[0].lower() == "custom" and len(args) >= 2:
                 raw = " ".join(args[1:]).strip().strip('"')
@@ -5533,7 +5533,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
 
                 parts = [item.strip() for item in raw.split("|")]
                 if len(parts) < 3:
-                    return "```asciidoc\n| VR RPC |\nInvalid custom format\nUse: vrrpc custom \"World | Details | State [| image_url] [>> Label >> URL]\"```"
+                    return "```| VR RPC |\nInvalid custom format\nUse: vrrpc custom \"World | Details | State [| image_url] [>> Label >> URL]\"```"
 
                 world = parts[0]
                 details = parts[1]
@@ -5549,9 +5549,9 @@ Queued Users: {health_status['metrics']['queued_users']}"""
                     button_label=button_label,
                     button_url=button_url
                 )
-                return f"```asciidoc\n| VR RPC |\nWorld: {world}\nDetails: {details}\nState: {state}\nStatus: ✓ Active```"
+                return f"```| VR RPC |\nWorld: {world}\nDetails: {details}\nState: {state}\nStatus: ✓ Active```"
 
-            return "```asciidoc\n| VR RPC |\nInvalid command\nUse: vrrpc preset <name> or vrrpc custom \"...\"```"
+            return "```| VR RPC |\nInvalid command\nUse: vrrpc preset <name> or vrrpc custom \"...\"```"
 
         msg_text = asyncio.run(run_async_vr())
         msg = ctx["api"].send_message(ctx["channel_id"], msg_text)
@@ -5566,7 +5566,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
         if not snapshot:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                "```asciidoc\n| Background Scrape Summary |\nNo automatic scrape snapshot available yet\nUse +export auto run all or wait for the background cycle```"
+                "```| Background Scrape Summary |\nNo automatic scrape snapshot available yet\nUse +export auto run all or wait for the background cycle```"
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5599,7 +5599,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
 
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```asciidoc\n| Background Scrape Summary |\nAuto Active: {'Yes' if status['active'] else 'No'}\nInterval: {status['interval_seconds']}s\nCaptured: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(captured_at))}\nTargets: {targets_text}\nAccount: {account_username}\nGuilds: {guild_count}\nRelationships: {relationship_count}\nDM Channels: {channel_count}\nNitro: {'Yes' if premium_type else 'No'}```"
+            f"```| Background Scrape Summary |\nAuto Active: {'Yes' if status['active'] else 'No'}\nInterval: {status['interval_seconds']}s\nCaptured: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(captured_at))}\nTargets: {targets_text}\nAccount: {account_username}\nGuilds: {guild_count}\nRelationships: {relationship_count}\nDM Channels: {channel_count}\nNitro: {'Yes' if premium_type else 'No'}```"
         )
 
         if msg:
@@ -5623,28 +5623,28 @@ badges decode <public_flags> :: Decode a public_flags integer
         if args[0] == "decode" and len(args) >= 2:
             decoded = badge_scraper.decode_public_flags(args[1])
             badge_text = ", ".join(decoded) if decoded else "No known badges"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Badge Decode |\nFlags: {args[1]}\nBadges: {badge_text}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Badge Decode |\nFlags: {args[1]}\nBadges: {badge_text}```")
 
         elif args[0] == "user" and len(args) >= 2:
             user_id = args[1]
             record = badge_scraper.scrape_user_badges(user_id)
             if not record:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Badge Scraper |\nInvalid user ID: {user_id}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Badge Scraper |\nInvalid user ID: {user_id}```")
             else:
                 badge_text = ", ".join(record.get("badges", [])) if record.get("badges") else "No known badges"
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| User Badges |\nUser: {record.get('username', 'Unknown')}#{record.get('discriminator', '0000')}\nID: {record.get('user_id')}\nFlags: {record.get('public_flags', 0)}\nBadges: {badge_text}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| User Badges |\nUser: {record.get('username', 'Unknown')}#{record.get('discriminator', '0000')}\nID: {record.get('user_id')}\nFlags: {record.get('public_flags', 0)}\nBadges: {badge_text}```")
 
         elif args[0] in {"server", "export"} and len(args) >= 2:
             server_id = args[1]
             limit = int(args[2]) if len(args) >= 3 and args[2].isdigit() else 1000
-            status_msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Badge Scraper |\nScraping badges from server {server_id}\nLimit: {limit}```")
+            status_msg = ctx["api"].send_message(ctx["channel_id"], f"```| Badge Scraper |\nScraping badges from server {server_id}\nLimit: {limit}```")
 
             payload = badge_scraper.scrape_guild_badges(server_id, limit=limit)
             summary = badge_scraper.summarize_results(payload)
             top_badges = list(summary.items())[:6]
             top_lines = "\n".join(f"> {name}: {count}" for name, count in top_badges) if top_badges else "> None"
 
-            result_text = f"```asciidoc\n| Server Badge Results |\nServer: {payload.get('server_name') or 'Unknown'}\nServer ID: {server_id}\nScanned Members: {payload.get('scanned_members', 0)}\nMembers With Badges: {payload.get('matched_members', 0)}\n\nTop Badges\n{top_lines}```"
+            result_text = f"```| Server Badge Results |\nServer: {payload.get('server_name') or 'Unknown'}\nServer ID: {server_id}\nScanned Members: {payload.get('scanned_members', 0)}\nMembers With Badges: {payload.get('matched_members', 0)}\n\nTop Badges\n{top_lines}```"
 
             if args[0] == "export":
                 paths = badge_scraper.export_guild_badges(payload)
@@ -5655,7 +5655,7 @@ badges decode <public_flags> :: Decode a public_flags integer
             return
 
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Badge Commands |\nInvalid command. Use +badges for help```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Badge Commands |\nInvalid command. Use +badges for help```")
 
         if 'msg' in locals() and msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5669,7 +5669,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Join Invite |\nUsage: {bot.prefix}joininvite <invite_code>\nExamples:\n  {bot.prefix}ji abc123\n  {bot.prefix}ji discord.gg/abc123```",
+                f"```| Join Invite |\nUsage: {bot.prefix}joininvite <invite_code>\nExamples:\n  {bot.prefix}ji abc123\n  {bot.prefix}ji discord.gg/abc123```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5680,7 +5680,7 @@ badges decode <public_flags> :: Decode a public_flags integer
 
         status_msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```asciidoc\n| Join Invite |\nJoining {invite_code}...```",
+            f"```| Join Invite |\nJoining {invite_code}...```",
         )
 
         api = ctx["api"]
@@ -5711,7 +5711,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         except Exception as e:
             result = f"Request error: {str(e)[:80]}"
             if status_msg:
-                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Join Invite |\n{result}```")
+                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Join Invite |\n{result}```")
                 delete_after_delay(api, ctx["channel_id"], status_msg.get("id"))
             return
 
@@ -5723,7 +5723,7 @@ badges decode <public_flags> :: Decode a public_flags integer
                 pass
             err_msg = err_body.get("message", f"HTTP {join_r.status_code}")
             if status_msg:
-                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Join Invite |\nFailed: {err_msg}```")
+                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Join Invite |\nFailed: {err_msg}```")
                 delete_after_delay(api, ctx["channel_id"], status_msg.get("id"))
             return
 
@@ -5750,7 +5750,7 @@ badges decode <public_flags> :: Decode a public_flags integer
 
         result_text = " | ".join(parts)
         if status_msg:
-            api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Join Invite |\n{result_text}```")
+            api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Join Invite |\n{result_text}```")
             delete_after_delay(api, ctx["channel_id"], status_msg.get("id"))
 
     # -----------------------------------------------------------------------
@@ -5766,7 +5766,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Leave Guild |\nUsage: {bot.prefix}leaveguild <guild_id>```",
+                f"```| Leave Guild |\nUsage: {bot.prefix}leaveguild <guild_id>```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5784,16 +5784,16 @@ badges decode <public_flags> :: Decode a public_flags integer
                 timeout=10,
             )
             if r.status_code in (200, 204):
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Leave Guild |\nLeft guild {guild_id}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Leave Guild |\nLeft guild {guild_id}```")
             else:
                 err = ""
                 try:
                     err = r.json().get("message", "")
                 except Exception:
                     pass
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Leave Guild |\nFailed ({r.status_code}): {err or 'Unknown error'}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Leave Guild |\nFailed ({r.status_code}): {err or 'Unknown error'}```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Leave Guild |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Leave Guild |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -5811,7 +5811,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Check Token |\nUsage: {bot.prefix}checktoken <token>```",
+                f"```| Check Token |\nUsage: {bot.prefix}checktoken <token>```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5836,14 +5836,14 @@ badges decode <public_flags> :: Decode a public_flags integer
                 mfa = "Yes" if data.get("mfa_enabled") else "No"
                 msg = api.send_message(
                     ctx["channel_id"],
-                    f"```asciidoc\n| Token Valid |\nUser: {username} ({user_id})\nEmail: {email}\nNitro: {nitro}\nPhone: {phone}\nMFA: {mfa}```",
+                    f"```| Token Valid |\nUser: {username} ({user_id})\nEmail: {email}\nNitro: {nitro}\nPhone: {phone}\nMFA: {mfa}```",
                 )
             elif r.status_code == 401:
-                msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Check Token |\nInvalid token (401 Unauthorized)```")
+                msg = api.send_message(ctx["channel_id"], "```| Check Token |\nInvalid token (401 Unauthorized)```")
             else:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Check Token |\nUnexpected response: HTTP {r.status_code}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Check Token |\nUnexpected response: HTTP {r.status_code}```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Check Token |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Check Token |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -5868,7 +5868,7 @@ badges decode <public_flags> :: Decode a public_flags integer
                 timeout=10,
             )
             if r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| My Guilds |\nFailed: HTTP {r.status_code}```")
+                msg = api.send_message(ctx["channel_id"], f"```| My Guilds |\nFailed: HTTP {r.status_code}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -5897,9 +5897,9 @@ badges decode <public_flags> :: Decode a public_flags integer
                 count_str = f" | {approx} members" if approx else ""
                 lines.append(f"> {name}{owner} — {gid}{count_str}")
 
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+            msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| My Guilds |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| My Guilds |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -5935,7 +5935,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Host Blacklist |\n{bot.prefix}hostblacklist add <user_id> :: Block a user from hosting\n{bot.prefix}hostblacklist remove <user_id> :: Unblock a user\n{bot.prefix}hostblacklist list :: Show all blacklisted users```",
+                f"```| Host Blacklist |\n{bot.prefix}hostblacklist add <user_id> :: Block a user from hosting\n{bot.prefix}hostblacklist remove <user_id> :: Unblock a user\n{bot.prefix}hostblacklist list :: Show all blacklisted users```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5948,28 +5948,28 @@ badges decode <public_flags> :: Decode a public_flags integer
             uid = args[1]
             bl[uid] = {"blocked_at": int(time.time())}
             _save_bl(bl)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Host Blacklist |\nBlacklisted user {uid}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host Blacklist |\nBlacklisted user {uid}```")
 
         elif action == "remove" and len(args) >= 2:
             uid = args[1]
             if uid in bl:
                 del bl[uid]
                 _save_bl(bl)
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Host Blacklist |\nRemoved {uid} from blacklist```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host Blacklist |\nRemoved {uid} from blacklist```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Host Blacklist |\n{uid} is not blacklisted```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host Blacklist |\n{uid} is not blacklisted```")
 
         elif action == "list":
             if not bl:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Host Blacklist |\nNo blacklisted users```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Host Blacklist |\nNo blacklisted users```")
             else:
                 lines = [f"> {uid}" for uid in list(bl.keys())[:20]]
                 msg = ctx["api"].send_message(
                     ctx["channel_id"],
-                    f"```asciidoc\n| Host Blacklist |\nTotal: {len(bl)}\n" + "\n".join(lines) + "```",
+                    f"```| Host Blacklist |\nTotal: {len(bl)}\n" + "\n".join(lines) + "```",
                 )
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Host Blacklist |\nUsage: add/remove/list```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Host Blacklist |\nUsage: add/remove/list```")
 
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5994,7 +5994,7 @@ badges decode <public_flags> :: Decode a public_flags integer
                 r = api.request("GET", f"/users/{uid}")
 
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| User Info |\nUser not found: {uid}```")
+                msg = api.send_message(ctx["channel_id"], f"```| User Info |\nUser not found: {uid}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -6035,9 +6035,9 @@ badges decode <public_flags> :: Decode a public_flags integer
             if public_flags:
                 lines.append(f"> Flags      :: {public_flags}")
 
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+            msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| User Info |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| User Info |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6056,7 +6056,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         # Try to get current guild from context if no arg
         guild_id = args[0] if args else ctx.get("guild_id")
         if not guild_id:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Guild Info |\nUsage: {bot.prefix}guildinfo <guild_id>```")
+            msg = api.send_message(ctx["channel_id"], f"```| Guild Info |\nUsage: {bot.prefix}guildinfo <guild_id>```")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
             return
@@ -6064,7 +6064,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         try:
             r = api.request("GET", f"/guilds/{guild_id}?with_counts=true")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Guild Info |\nFailed: HTTP {r.status_code if r else 'No response'}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Guild Info |\nFailed: HTTP {r.status_code if r else 'No response'}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -6099,9 +6099,9 @@ badges decode <public_flags> :: Decode a public_flags integer
             if description and description != "None":
                 lines.append(f"> Desc        :: {description[:60]}")
 
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+            msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Guild Info |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Guild Info |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6130,14 +6130,14 @@ badges decode <public_flags> :: Decode a public_flags integer
         try:
             r = api.request("GET", f"/channels/{channel_id}/messages?limit={limit}")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Channel Msgs |\nFailed: HTTP {r.status_code if r else 'No response'}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Channel Msgs |\nFailed: HTTP {r.status_code if r else 'No response'}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
 
             messages = r.json()
             if not messages:
-                msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Channel Msgs |\nNo messages found```")
+                msg = api.send_message(ctx["channel_id"], "```| Channel Msgs |\nNo messages found```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -6158,9 +6158,9 @@ badges decode <public_flags> :: Decode a public_flags integer
                 content = content.replace("```", "'''")[:60]
                 lines.append(f"> {author}: {content}")
 
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+            msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Channel Msgs |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Channel Msgs |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6178,7 +6178,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Bulk Check |\nUsage: {bot.prefix}bulkcheck <token1> <token2> ...```",
+                f"```| Bulk Check |\nUsage: {bot.prefix}bulkcheck <token1> <token2> ...```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -6187,7 +6187,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         api = ctx["api"]
         tokens = [a.strip("\"' ") for a in args if a.strip("\"' ")]
 
-        status_msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Bulk Check |\nChecking {len(tokens)} token(s)...```")
+        status_msg = api.send_message(ctx["channel_id"], f"```| Bulk Check |\nChecking {len(tokens)} token(s)...```")
 
         results = []
         valid = 0
@@ -6216,7 +6216,7 @@ badges decode <public_flags> :: Decode a public_flags integer
                 invalid += 1
 
         summary = f"Valid: {valid} | Invalid: {invalid} | Total: {len(tokens)}"
-        output = "```asciidoc\n| Bulk Check |\n" + summary + "\n" + "\n".join(results) + "```"
+        output = "```| Bulk Check |\n" + summary + "\n" + "\n".join(results) + "```"
         # Split into chunks if needed
         if len(output) > 1950:
             output = output[:1950] + "\n... (truncated)```"
@@ -6245,7 +6245,7 @@ badges decode <public_flags> :: Decode a public_flags integer
                 timeout=10,
             )
             if r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Export Guilds |\nFailed: HTTP {r.status_code}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Export Guilds |\nFailed: HTTP {r.status_code}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -6275,10 +6275,10 @@ badges decode <public_flags> :: Decode a public_flags integer
 
             msg = api.send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Export Guilds |\nExported {len(guilds)} guilds to {filename}```",
+                f"```| Export Guilds |\nExported {len(guilds)} guilds to {filename}```",
             )
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Export Guilds |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Export Guilds |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6300,13 +6300,13 @@ badges decode <public_flags> :: Decode a public_flags integer
         if not args:
             msg = api.send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Mass Leave |\nUsage:\n  {bot.prefix}massleave all            — leave every guild\n  {bot.prefix}massleave <id> <id> ...  — leave specific guilds\n  {bot.prefix}massleave all except <id> <id>  — leave all except listed```",
+                f"```| Mass Leave |\nUsage:\n  {bot.prefix}massleave all            — leave every guild\n  {bot.prefix}massleave <id> <id> ...  — leave specific guilds\n  {bot.prefix}massleave all except <id> <id>  — leave all except listed```",
             )
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
             return
 
-        status_msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Mass Leave |\nFetching guild list...```")
+        status_msg = api.send_message(ctx["channel_id"], "```| Mass Leave |\nFetching guild list...```")
 
         try:
             r = api.session.get(
@@ -6316,7 +6316,7 @@ badges decode <public_flags> :: Decode a public_flags integer
             )
             if r.status_code != 200:
                 if status_msg:
-                    api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Mass Leave |\nFailed to fetch guilds: HTTP {r.status_code}```")
+                    api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass Leave |\nFailed to fetch guilds: HTTP {r.status_code}```")
                     delete_after_delay(api, ctx["channel_id"], status_msg.get("id"))
                 return
 
@@ -6338,12 +6338,12 @@ badges decode <public_flags> :: Decode a public_flags integer
 
             if not targets:
                 if status_msg:
-                    api.edit_message(ctx["channel_id"], status_msg.get("id"), "```asciidoc\n| Mass Leave |\nNo eligible guilds to leave```")
+                    api.edit_message(ctx["channel_id"], status_msg.get("id"), "```| Mass Leave |\nNo eligible guilds to leave```")
                     delete_after_delay(api, ctx["channel_id"], status_msg.get("id"))
                 return
 
             if status_msg:
-                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Mass Leave |\nLeaving {len(targets)} guild(s)...```")
+                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass Leave |\nLeaving {len(targets)} guild(s)...```")
 
             left = 0
             failed = 0
@@ -6369,13 +6369,13 @@ badges decode <public_flags> :: Decode a public_flags integer
                 api.edit_message(
                     ctx["channel_id"],
                     status_msg.get("id"),
-                    f"```asciidoc\n| Mass Leave |\nDone\nLeft: {left} | Failed: {failed} | Owned (skipped): {len(all_guilds) - len(leavable)}```",
+                    f"```| Mass Leave |\nDone\nLeft: {left} | Failed: {failed} | Owned (skipped): {len(all_guilds) - len(leavable)}```",
                 )
                 delete_after_delay(api, ctx["channel_id"], status_msg.get("id"))
 
         except Exception as e:
             if status_msg:
-                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Mass Leave |\nError: {str(e)[:80]}```")
+                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass Leave |\nError: {str(e)[:80]}```")
                 delete_after_delay(api, ctx["channel_id"], status_msg.get("id"))
 
     # -----------------------------------------------------------------------
@@ -6395,7 +6395,7 @@ badges decode <public_flags> :: Decode a public_flags integer
             limit = min(100, max(1, int(args[1])))
 
         if not guild_id:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Guild Members |\nUsage: {bot.prefix}members <guild_id> [limit]```")
+            msg = api.send_message(ctx["channel_id"], f"```| Guild Members |\nUsage: {bot.prefix}members <guild_id> [limit]```")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
             return
@@ -6403,7 +6403,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         try:
             r = api.request("GET", f"/guilds/{guild_id}/members?limit={limit}")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Guild Members |\nFailed: HTTP {r.status_code if r else 'No response'}\n(Need GUILD_MEMBERS intent / admin access)```")
+                msg = api.send_message(ctx["channel_id"], f"```| Guild Members |\nFailed: HTTP {r.status_code if r else 'No response'}\n(Need GUILD_MEMBERS intent / admin access)```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -6420,9 +6420,9 @@ badges decode <public_flags> :: Decode a public_flags integer
                 roles = len(m.get("roles", []))
                 lines.append(f"> {display}{bot_tag} :: {uid} | {roles} role(s)")
 
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+            msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Guild Members |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Guild Members |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6485,7 +6485,7 @@ badges decode <public_flags> :: Decode a public_flags integer
             
             # Fetch from database
             if not hasattr(bot, 'db') or not bot.db or not bot.db.is_active:
-                msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Recent Messages |\nDatabase not available```")
+                msg = api.send_message(ctx["channel_id"], "```| Recent Messages |\nDatabase not available```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -6497,7 +6497,7 @@ badges decode <public_flags> :: Decode a public_flags integer
                 messages = list(cursor)
             except Exception as db_err:
                 # Fallback if database structure is different
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Recent Messages |\nDatabase error: {str(db_err)[:60]}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Recent Messages |\nDatabase error: {str(db_err)[:60]}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -6507,13 +6507,13 @@ badges decode <public_flags> :: Decode a public_flags integer
                     no_msg_text = f"No tracked messages found from user {user_id} in this channel"
                 else:
                     no_msg_text = "No tracked messages found in this channel"
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Recent Messages |\n{no_msg_text}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Recent Messages |\n{no_msg_text}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
             
             # Format output
-            output = "```asciidoc\n"
+            output = "```"
             output += f"| Recent Messages |\n"
             output += f"{'─' * 40}\n"
             
@@ -6560,7 +6560,7 @@ badges decode <public_flags> :: Decode a public_flags integer
                 delete_after_delay(api, ctx["channel_id"], result_msg.get("id"), delay=60)
         
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Recent Messages |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Recent Messages |\nError: {str(e)[:80]}```")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
 
@@ -6586,7 +6586,7 @@ badges decode <public_flags> :: Decode a public_flags integer
                     timeout=10,
                 )
                 if r.status_code != 200:
-                    msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Friends |\nFailed: HTTP {r.status_code}```")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nFailed: HTTP {r.status_code}```")
                     if msg:
                         delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                     return
@@ -6613,9 +6613,9 @@ badges decode <public_flags> :: Decode a public_flags integer
                 if total_pages > 1:
                     lines.append(f"> Page {page}/{total_pages} — use {bot.prefix}friends list <page>")
 
-                msg = api.send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+                msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
             except Exception as e:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Friends |\nError: {str(e)[:80]}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Friends |\nError: {str(e)[:80]}```")
 
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6631,16 +6631,16 @@ badges decode <public_flags> :: Decode a public_flags integer
                     timeout=8,
                 )
                 if r.status_code in (200, 204):
-                    msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Friends |\nFriend request sent to {target_id}```")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nFriend request sent to {target_id}```")
                 else:
                     err = ""
                     try:
                         err = r.json().get("message", "")
                     except Exception:
                         pass
-                    msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Friends |\nFailed ({r.status_code}): {err or 'Unknown'}```")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nFailed ({r.status_code}): {err or 'Unknown'}```")
             except Exception as e:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Friends |\nError: {str(e)[:80]}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Friends |\nError: {str(e)[:80]}```")
 
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6654,11 +6654,11 @@ badges decode <public_flags> :: Decode a public_flags integer
                     timeout=8,
                 )
                 if r.status_code in (200, 204):
-                    msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Friends |\nRemoved {target_id}```")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nRemoved {target_id}```")
                 else:
-                    msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Friends |\nFailed: HTTP {r.status_code}```")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nFailed: HTTP {r.status_code}```")
             except Exception as e:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Friends |\nError: {str(e)[:80]}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Friends |\nError: {str(e)[:80]}```")
 
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6673,11 +6673,11 @@ badges decode <public_flags> :: Decode a public_flags integer
                     timeout=8,
                 )
                 if r.status_code in (200, 204):
-                    msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Friends |\nBlocked {target_id}```")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nBlocked {target_id}```")
                 else:
-                    msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Friends |\nFailed: HTTP {r.status_code}```")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nFailed: HTTP {r.status_code}```")
             except Exception as e:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Friends |\nError: {str(e)[:80]}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Friends |\nError: {str(e)[:80]}```")
 
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6685,7 +6685,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         else:
             msg = api.send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Friends |\n{bot.prefix}friends list [page]     — show friend list\n{bot.prefix}friends add <id>         — send friend request\n{bot.prefix}friends remove <id>      — remove friend\n{bot.prefix}friends block <id>       — block user```",
+                f"```| Friends |\n{bot.prefix}friends list [page]     — show friend list\n{bot.prefix}friends add <id>         — send friend request\n{bot.prefix}friends remove <id>      — remove friend\n{bot.prefix}friends block <id>       — block user```",
             )
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6703,7 +6703,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         if len(args) < 2:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| DM User |\nUsage: {bot.prefix}dmuser <user_id> <message...>```",
+                f"```| DM User |\nUsage: {bot.prefix}dmuser <user_id> <message...>```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -6718,7 +6718,7 @@ badges decode <public_flags> :: Decode a public_flags integer
             dm_r = api.request("POST", "/users/@me/channels", data={"recipient_id": target_id})
             if not dm_r or dm_r.status_code != 200:
                 code = dm_r.status_code if dm_r else "No response"
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| DM User |\nFailed to open DM: HTTP {code}```")
+                msg = api.send_message(ctx["channel_id"], f"```| DM User |\nFailed to open DM: HTTP {code}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -6726,11 +6726,11 @@ badges decode <public_flags> :: Decode a public_flags integer
             dm_channel_id = dm_r.json().get("id")
             sent = api.send_message(dm_channel_id, content)
             if sent:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| DM User |\nSent to {target_id}```")
+                msg = api.send_message(ctx["channel_id"], f"```| DM User |\nSent to {target_id}```")
             else:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| DM User |\nFailed to send message```")
+                msg = api.send_message(ctx["channel_id"], f"```| DM User |\nFailed to send message```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| DM User |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| DM User |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6755,7 +6755,7 @@ badges decode <public_flags> :: Decode a public_flags integer
             elif arg.isdigit():
                 limit = min(200, max(1, int(arg)))
 
-        status_msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Delete History |\nScanning for your messages (limit {limit})...```")
+        status_msg = api.send_message(ctx["channel_id"], f"```| Delete History |\nScanning for your messages (limit {limit})...```")
 
         try:
             import time as _time
@@ -6797,13 +6797,13 @@ badges decode <public_flags> :: Decode a public_flags integer
                 api.edit_message(
                     ctx["channel_id"],
                     status_msg.get("id"),
-                    f"```asciidoc\n| Delete History |\nDeleted {deleted} of your messages```",
+                    f"```| Delete History |\nDeleted {deleted} of your messages```",
                 )
                 delete_after_delay(api, ctx["channel_id"], status_msg.get("id"))
 
         except Exception as e:
             if status_msg:
-                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```asciidoc\n| Delete History |\nError: {str(e)[:80]}```")
+                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Delete History |\nError: {str(e)[:80]}```")
                 delete_after_delay(api, ctx["channel_id"], status_msg.get("id"))
 
     # -----------------------------------------------------------------------
@@ -6819,7 +6819,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         channel_id = args[0] if args and len(args[0]) > 5 and args[0].isdigit() else ctx["channel_id"]
         snap = bot._snipe_cache.get(channel_id)
         if not snap:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Snipe |\nNothing sniped in this channel yet```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Snipe |\nNothing sniped in this channel yet```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -6835,7 +6835,7 @@ badges decode <public_flags> :: Decode a public_flags integer
 
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```asciidoc\n| Snipe deleted at {deleted_str} |\n{author} ({uid}){attach_str}:\n{content}```",
+            f"```| Snipe deleted at {deleted_str} |\n{author} ({uid}){attach_str}:\n{content}```",
         )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -6853,7 +6853,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         channel_id = args[0] if args and len(args[0]) > 5 and args[0].isdigit() else ctx["channel_id"]
         snap = bot._esnipe_cache.get(channel_id)
         if not snap:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n| Edit Snipe |\nNo edits sniped in this channel yet```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Edit Snipe |\nNo edits sniped in this channel yet```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -6869,7 +6869,7 @@ badges decode <public_flags> :: Decode a public_flags integer
 
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```asciidoc\n| Edit Snipe {author} ({uid}) at {edited_str} |\nBefore\n{before_c}\nAfter \n{after_c}```",
+            f"```| Edit Snipe {author} ({uid}) at {edited_str} |\nBefore\n{before_c}\nAfter \n{after_c}```",
         )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -6887,7 +6887,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Invite Info |\nUsage: {bot.prefix}inviteinfo <code_or_url>```",
+                f"```| Invite Info |\nUsage: {bot.prefix}inviteinfo <code_or_url>```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -6899,7 +6899,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         try:
             r = api.request("GET", f"/invites/{code}?with_counts=true&with_expiration=true")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Invite Info |\nInvalid or expired invite```")
+                msg = api.send_message(ctx["channel_id"], "```| Invite Info |\nInvalid or expired invite```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -6926,9 +6926,9 @@ badges decode <public_flags> :: Decode a public_flags integer
                 f"> Inviter  :: {inviter_name}",
                 f"> Expires  :: {str(expires)[:30]}",
             ]
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+            msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Invite Info |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Invite Info |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6963,17 +6963,17 @@ badges decode <public_flags> :: Decode a public_flags integer
                 data={"max_age": max_age, "max_uses": max_uses, "temporary": False, "unique": True},
             )
             if not r or r.status_code not in (200, 201):
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Create Invite |\nFailed: HTTP {r.status_code if r else 'No response'}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Create Invite |\nFailed: HTTP {r.status_code if r else 'No response'}```")
             else:
                 inv_code = r.json().get("code", "?")
                 age_str = f"{max_age // 3600}h" if max_age >= 3600 else f"{max_age}s"
                 uses_str = str(max_uses) if max_uses else "unlimited"
                 msg = api.send_message(
                     ctx["channel_id"],
-                    f"```asciidoc\n| Create Invite |\ndiscord.gg/{inv_code}\nExpires: {age_str} | Uses: {uses_str}```",
+                    f"```| Create Invite |\ndiscord.gg/{inv_code}\nExpires: {age_str} | Uses: {uses_str}```",
                 )
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Create Invite |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Create Invite |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6994,7 +6994,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         try:
             r = api.request("GET", f"/channels/{channel_id}")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Channel Info |\nFailed: HTTP {r.status_code if r else 'No response'}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Channel Info |\nFailed: HTTP {r.status_code if r else 'No response'}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -7031,9 +7031,9 @@ badges decode <public_flags> :: Decode a public_flags integer
             if topic and topic != "None":
                 lines.append(f"> Topic     :: {topic}")
 
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+            msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Channel Info |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Channel Info |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7072,7 +7072,7 @@ badges decode <public_flags> :: Decode a public_flags integer
 
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```asciidoc\n| Typing |\nTyping in {channel_id} for {duration}s```",
+            f"```| Typing |\nTyping in {channel_id} for {duration}s```",
         )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -7097,7 +7097,7 @@ badges decode <public_flags> :: Decode a public_flags integer
                 timeout=10,
             )
             if r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Accept All |\nFailed: HTTP {r.status_code}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Accept All |\nFailed: HTTP {r.status_code}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -7106,7 +7106,7 @@ badges decode <public_flags> :: Decode a public_flags integer
             incoming = [rel for rel in rels if rel.get("type") == 3]
 
             if not incoming:
-                msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Accept All |\nNo pending friend requests```")
+                msg = api.send_message(ctx["channel_id"], "```| Accept All |\nNo pending friend requests```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -7133,10 +7133,10 @@ badges decode <public_flags> :: Decode a public_flags integer
 
             msg = api.send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Accept All |\nAccepted: {accepted} | Failed: {failed} | Total: {len(incoming)}```",
+                f"```| Accept All |\nAccepted: {accepted} | Failed: {failed} | Total: {len(incoming)}```",
             )
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Accept All |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Accept All |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7154,7 +7154,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| React |\nUsage: {bot.prefix}react <emoji>\n       {bot.prefix}react <msg_id> <emoji>\n       {bot.prefix}react <ch_id> <msg_id> <emoji>```",
+                f"```| React |\nUsage: {bot.prefix}react <emoji>\n       {bot.prefix}react <msg_id> <emoji>\n       {bot.prefix}react <ch_id> <msg_id> <emoji>```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -7172,7 +7172,7 @@ badges decode <public_flags> :: Decode a public_flags integer
                         target_id = m.get("id")
                         break
             if not target_id:
-                msg = api.send_message(ctx["channel_id"], "```asciidoc\n| React |\nNo target message found```")
+                msg = api.send_message(ctx["channel_id"], "```| React |\nNo target message found```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -7188,7 +7188,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         encoded = urllib.parse.quote(emoji)
         r = api.request("PUT", f"/channels/{channel_id}/messages/{message_id}/reactions/{encoded}/@me")
         if r and r.status_code == 204:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| React |\nReacted {emoji}```")
+            msg = api.send_message(ctx["channel_id"], f"```| React |\nReacted {emoji}```")
         else:
             code = r.status_code if r else "No response"
             err = ""
@@ -7196,7 +7196,7 @@ badges decode <public_flags> :: Decode a public_flags integer
                 err = r.json().get("message", "") if r else ""
             except Exception:
                 pass
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| React |\nFailed ({code}): {err or 'Unknown'}```")
+            msg = api.send_message(ctx["channel_id"], f"```| React |\nFailed ({code}): {err or 'Unknown'}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7221,7 +7221,7 @@ badges decode <public_flags> :: Decode a public_flags integer
                         target_id = m.get("id")
                         break
             if not target_id:
-                msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Pin |\nNo target message found```")
+                msg = api.send_message(ctx["channel_id"], "```| Pin |\nNo target message found```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -7231,9 +7231,9 @@ badges decode <public_flags> :: Decode a public_flags integer
 
         r = api.request("PUT", f"/channels/{ctx['channel_id']}/pins/{message_id}")
         if r and r.status_code == 204:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Pin |\nPinned {message_id}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Pin |\nPinned {message_id}```")
         else:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Pin |\nFailed: HTTP {r.status_code if r else 'No response'}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Pin |\nFailed: HTTP {r.status_code if r else 'No response'}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7245,7 +7245,7 @@ badges decode <public_flags> :: Decode a public_flags integer
             return
 
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Unpin |\nUsage: {bot.prefix}unpin <message_id>```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Unpin |\nUsage: {bot.prefix}unpin <message_id>```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -7253,9 +7253,9 @@ badges decode <public_flags> :: Decode a public_flags integer
         api = ctx["api"]
         r = api.request("DELETE", f"/channels/{ctx['channel_id']}/pins/{args[0]}")
         if r and r.status_code == 204:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Unpin |\nUnpinned {args[0]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Unpin |\nUnpinned {args[0]}```")
         else:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Unpin |\nFailed: HTTP {r.status_code if r else 'No response'}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Unpin |\nFailed: HTTP {r.status_code if r else 'No response'}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7273,7 +7273,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         api = ctx["api"]
         guild_id = ctx.get("guild_id")
         if not guild_id:
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Set Nick |\nMust be used in a server```")
+            msg = api.send_message(ctx["channel_id"], "```| Set Nick |\nMust be used in a server```")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
             return
@@ -7282,9 +7282,9 @@ badges decode <public_flags> :: Decode a public_flags integer
         r = api.request("PATCH", f"/guilds/{guild_id}/members/@me", data={"nick": new_nick})
         if r and r.status_code in (200, 204):
             display = f'"{new_nick}"' if new_nick else "reset"
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Set Nick |\nNickname {display}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Set Nick |\nNickname {display}```")
         else:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Set Nick |\nFailed: HTTP {r.status_code if r else 'No response'}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Set Nick |\nFailed: HTTP {r.status_code if r else 'No response'}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7301,7 +7301,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         try:
             r = api.request("GET", f"/users/{uid}")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Avatar |\nUser not found: {uid}```")
+                msg = api.send_message(ctx["channel_id"], f"> **User** not found: {uid}.")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -7323,9 +7323,9 @@ badges decode <public_flags> :: Decode a public_flags integer
                 ext = "gif" if banner_hash.startswith("a_") else "png"
                 lines.append(f"> Banner :: https://cdn.discordapp.com/banners/{uid}/{banner_hash}.{ext}?size=4096")
 
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+            msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Avatar |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"> **Error:** {str(e)[:80]}.")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7341,7 +7341,7 @@ badges decode <public_flags> :: Decode a public_flags integer
             return
 
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n| Role Info |\nUsage: {bot.prefix}roleinfo <role_id>```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Role Info |\nUsage: {bot.prefix}roleinfo <role_id>```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -7350,7 +7350,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         role_id = args[0]
         guild_id = ctx.get("guild_id")
         if not guild_id:
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Role Info |\nMust be used in a server```")
+            msg = api.send_message(ctx["channel_id"], "```| Role Info |\nMust be used in a server```")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
             return
@@ -7358,14 +7358,14 @@ badges decode <public_flags> :: Decode a public_flags integer
         try:
             r = api.request("GET", f"/guilds/{guild_id}/roles")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Role Info |\nFailed: HTTP {r.status_code if r else 'No response'}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Role Info |\nFailed: HTTP {r.status_code if r else 'No response'}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
 
             role = next((ro for ro in r.json() if ro.get("id") == role_id), None)
             if not role:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Role Info |\nRole {role_id} not found```")
+                msg = api.send_message(ctx["channel_id"], f"```| Role Info |\nRole {role_id} not found```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -7382,9 +7382,9 @@ badges decode <public_flags> :: Decode a public_flags integer
                 f"> Managed     :: {'Yes' if role.get('managed') else 'No'}",
                 f"> Permissions :: {role.get('permissions', '0')}",
             ]
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+            msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Role Info |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Role Info |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7402,7 +7402,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Steal Emoji |\nUsage: {bot.prefix}stealemoji <:name:id> [target_guild_id]```",
+                f"```| Steal Emoji |\nUsage: {bot.prefix}stealemoji <:name:id> [target_guild_id]```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -7413,7 +7413,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         target_guild = args[1] if len(args) >= 2 else ctx.get("guild_id")
 
         if not target_guild:
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Steal Emoji |\nProvide target guild ID or run in a server```")
+            msg = api.send_message(ctx["channel_id"], "```| Steal Emoji |\nProvide target guild ID or run in a server```")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
             return
@@ -7429,7 +7429,7 @@ badges decode <public_flags> :: Decode a public_flags integer
             emoji_name = f"emoji_{emoji_id}"
             animated = False
         else:
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Steal Emoji |\nPaste as <:name:id>, <a:name:id>, or raw ID```")
+            msg = api.send_message(ctx["channel_id"], "```| Steal Emoji |\nPaste as <:name:id>, <a:name:id>, or raw ID```")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
             return
@@ -7438,7 +7438,7 @@ badges decode <public_flags> :: Decode a public_flags integer
             ext = "gif" if animated else "png"
             img_r = api.session.get(f"https://cdn.discordapp.com/emojis/{emoji_id}.{ext}?size=256", timeout=10)
             if img_r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Steal Emoji |\nFailed to download: HTTP {img_r.status_code}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Emoji |\nFailed to download: HTTP {img_r.status_code}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -7455,16 +7455,16 @@ badges decode <public_flags> :: Decode a public_flags integer
             )
             if upload_r.status_code in (200, 201):
                 new_id = upload_r.json().get("id", "?")
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Steal Emoji |\nAdded :{emoji_name}: (ID {new_id}) to {target_guild}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Emoji |\nAdded :{emoji_name}: (ID {new_id}) to {target_guild}```")
             else:
                 err = ""
                 try:
                     err = upload_r.json().get("message", "")
                 except Exception:
                     pass
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Steal Emoji |\nUpload failed ({upload_r.status_code}): {err or 'Unknown'}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Emoji |\nUpload failed ({upload_r.status_code}): {err or 'Unknown'}```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Steal Emoji |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Steal Emoji |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7482,7 +7482,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         api = ctx["api"]
         guild_id = args[0] if args and args[0].isdigit() else ctx.get("guild_id")
         if not guild_id:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| List Invites |\nUsage: {bot.prefix}listinvites [guild_id]```")
+            msg = api.send_message(ctx["channel_id"], f"```| List Invites |\nUsage: {bot.prefix}listinvites [guild_id]```")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
             return
@@ -7490,14 +7490,14 @@ badges decode <public_flags> :: Decode a public_flags integer
         try:
             r = api.request("GET", f"/guilds/{guild_id}/invites")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| List Invites |\nFailed: HTTP {r.status_code if r else 'No response'}```")
+                msg = api.send_message(ctx["channel_id"], f"```| List Invites |\nFailed: HTTP {r.status_code if r else 'No response'}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
 
             invites = r.json()
             if not invites:
-                msg = api.send_message(ctx["channel_id"], "```asciidoc\n| List Invites |\nNo active invites```")
+                msg = api.send_message(ctx["channel_id"], "```| List Invites |\nNo active invites```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -7512,9 +7512,9 @@ badges decode <public_flags> :: Decode a public_flags integer
                 inviter = inv.get("inviter", {}).get("username", "?")
                 lines.append(f"> discord.gg/{code} :: #{channel_name} | {uses_str} uses | {inviter}")
 
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| " + " |\n".join(lines) + "```")
+            msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| List Invites |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| List Invites |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7532,7 +7532,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         if len(args) < 2:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Webhook |\nUsage: {bot.prefix}webhook <url> <message>\n       {bot.prefix}webhook <url> --name <username> <message>```",
+                f"```| Webhook |\nUsage: {bot.prefix}webhook <url> <message>\n       {bot.prefix}webhook <url> --name <username> <message>```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -7541,7 +7541,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         api = ctx["api"]
         url = args[0]
         if not (url.startswith("https://discord.com/api/webhooks/") or url.startswith("https://discordapp.com/api/webhooks/")):
-            msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Webhook |\nInvalid webhook URL```")
+            msg = api.send_message(ctx["channel_id"], "```| Webhook |\nInvalid webhook URL```")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
             return
@@ -7571,16 +7571,16 @@ badges decode <public_flags> :: Decode a public_flags integer
         try:
             r = api.session.post(url + "?wait=true", json=payload, timeout=10)
             if r.status_code in (200, 204):
-                msg = api.send_message(ctx["channel_id"], "```asciidoc\n| Webhook |\nMessage sent```")
+                msg = api.send_message(ctx["channel_id"], "```| Webhook |\nMessage sent```")
             else:
                 err = ""
                 try:
                     err = r.json().get("message", "")
                 except Exception:
                     pass
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Webhook |\nFailed ({r.status_code}): {err or 'Unknown'}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Webhook |\nFailed ({r.status_code}): {err or 'Unknown'}```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Webhook |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Webhook |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7598,7 +7598,7 @@ badges decode <public_flags> :: Decode a public_flags integer
         if len(args) < 2:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n| Reply |\nUsage: {bot.prefix}reply <message_id> <content...>```",
+                f"```| Reply |\nUsage: {bot.prefix}reply <message_id> <content...>```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -7626,11 +7626,11 @@ badges decode <public_flags> :: Decode a public_flags integer
                 delete_after_delay(api, ctx["channel_id"], sent.get("id"))
             else:
                 code = r.status_code if r else "No response"
-                msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Reply |\nFailed: HTTP {code}```")
+                msg = api.send_message(ctx["channel_id"], f"```| Reply |\nFailed: HTTP {code}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```asciidoc\n| Reply |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Reply |\nError: {str(e)[:80]}```")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
 

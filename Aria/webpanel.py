@@ -269,7 +269,6 @@ class WebPanel:
             return jsonify({"ok": ok, "activity": self._current_activity(), "last_command": self.last_command})
 
         @self.app.post("/api/settings")
-        @login_required
         def update_settings() -> Any:
             payload = request.get_json(silent=True) or {}
             # Update config with new settings
@@ -307,7 +306,6 @@ class WebPanel:
                 return jsonify({"ok": False, "error": str(e)})
 
         @self.app.get("/api/analytics")
-        @login_required
         def get_analytics() -> Any:
             try:
                 # Get real analytics data
@@ -358,7 +356,6 @@ class WebPanel:
                 })
 
         @self.app.get("/api/logs")
-        @login_required
         def get_logs() -> Any:
             # Get recent logs from logger
             logs = []
@@ -374,7 +371,6 @@ class WebPanel:
             return jsonify({"logs": logs})
 
         @self.app.get("/api/command_history")
-        @login_required
         def get_command_history() -> Any:
             try:
                 history = []
@@ -394,7 +390,6 @@ class WebPanel:
                 return jsonify({"history": [], "error": str(e)})
 
         @self.app.post("/api/send_message")
-        @login_required
         def send_message() -> Any:
             if not self.api:
                 return jsonify({"ok": False, "error": "API not available"})
@@ -445,7 +440,6 @@ class WebPanel:
                 return jsonify({"ok": False, "error": str(e)})
 
         @self.app.post("/api/backup")
-        @login_required
         def trigger_backup() -> Any:
             try:
                 from backup import BackupManager
@@ -456,7 +450,6 @@ class WebPanel:
                 return jsonify({"ok": False, "error": str(e)})
 
         @self.app.post("/api/restore")
-        @login_required
         def trigger_restore() -> Any:
             try:
                 from backup import BackupManager
@@ -473,7 +466,6 @@ class WebPanel:
                 return jsonify({"ok": False, "error": str(e)})
 
         @self.app.post("/api/restart")
-        @login_required
         def restart_bot() -> Any:
             # Trigger bot restart
             try:
