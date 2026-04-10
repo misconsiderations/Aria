@@ -2,12 +2,14 @@ import random
 import time
 from typing import Dict, Any
 from curl_cffi.requests import Session
+from proxy_manager import ProxyManager
 
 class HeaderGenerator:
     """Original header generator for fallback"""
 
     def __init__(self, token: str):
         self.token = token
+        self.proxy_manager = ProxyManager()
         self.session = self._create_session()
 
     def _create_session(self) -> Session:
@@ -30,6 +32,8 @@ class HeaderGenerator:
         }
 
         session.headers.update(headers)
+        proxy = self.proxy_manager.get_random_proxy()
+        session.proxies.update(proxy)
         return session
 
     def get_headers(self) -> Dict[str, str]:

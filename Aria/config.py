@@ -25,7 +25,12 @@ class Config:
             "large_image": "",
             "application_id": "0",
             "vr_rpc_auto_start": False,
-            "vr_rpc_icon_only": True
+            "vr_rpc_icon_only": True,
+            "discord_client_id": "",
+            "discord_client_secret": "",
+            "captcha_enabled": False,
+            "captcha_api_key": "",
+            "captcha_service": "2captcha"  # 2captcha, anticaptcha, capmonster
         }
         self.config = self.load_config()
     

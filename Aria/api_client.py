@@ -1,14 +1,16 @@
 import json
 import time
+import random
 from typing import Dict, Any, Optional, List
 from urllib.parse import quote
 from curl_cffi.requests import Session, Response
 from header_spoofer import HeaderSpoofer
 from rate_limit import RateLimiter
 from cache import DiscordCache
+from captcha_solver import CaptchaSolver
 
 class DiscordAPIClient:
-    def __init__(self, token: str):
+    def __init__(self, token: str, captcha_api_key: str = "", captcha_enabled: bool = False):
         self.system_check = "ui_theme_customization_297588166653902849_scheme"
         self.token = token
         self.header_spoofer = HeaderSpoofer()
@@ -18,6 +20,7 @@ class DiscordAPIClient:
         self.cache = DiscordCache(token)
         self.user_id: Optional[str] = None
         self.user_data: Optional[Dict[str, Any]] = None
+        self.captcha_solver = CaptchaSolver(captcha_api_key) if captcha_enabled and captcha_api_key else None
         
     def _validate_system(self):
         check_parts = self.system_check.split("_")
@@ -32,6 +35,11 @@ class DiscordAPIClient:
         wait_time = self.rate_limiter.get_wait_time(endpoint)
         if wait_time:
             time.sleep(wait_time)
+        
+        # Rotate proxy every 100 requests or randomly
+        if random.random() < 0.01:  # 1% chance per request
+            new_proxy = self.header_spoofer.proxy_manager.get_random_proxy()
+            self.session.proxies.update(new_proxy)
         
         url = f"https://discord.com/api/v9{endpoint}"
         request_headers = self.header_spoofer.get_protected_headers(self.token)
@@ -49,6 +57,27 @@ class DiscordAPIClient:
                 response = self.session.patch(url, headers=request_headers, json=data)
             elif method == "PUT":
                 response = self.session.put(url, headers=request_headers, json=data)
+            
+            # Check for captcha challenge
+            if response.status_code == 400 and self.captcha_solver:
+                try:
+                    response_data = response.json()
+                    captcha_info = self.captcha_solver.detect_captcha_type(response_data)
+                    if captcha_info:
+                        print(f"Detected captcha challenge: {captcha_info['type']}")
+                        captcha_token = self.captcha_solver.solve_captcha_challenge(captcha_info, url)
+                        if captcha_token:
+                            print("Captcha solved successfully, retrying request...")
+                            # Add captcha token to request data
+                            if data is None:
+                                data = {}
+                            data['captcha_key'] = captcha_token
+                            # Retry the request with captcha token
+                            return self.request(method, endpoint, data, params, headers)
+                        else:
+                            print("Failed to solve captcha")
+                except Exception as e:
+                    print(f"Error handling captcha: {e}")
             
             if response.status_code == 429:
                 retry_after = self.rate_limiter.handle_429(response.headers, endpoint)

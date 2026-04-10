@@ -2,7 +2,7 @@ import json
 import time
 import threading
 import ssl
-from typing import Dict, Any, Callable, List
+from typing import Dict, Any, Callable, List, Optional
 from api_client import DiscordAPIClient
 from owner import BotCustomizer
 import websocket
@@ -19,13 +19,18 @@ class Command:
         self.aliases = aliases or []
 
 class DiscordBot:
-    def __init__(self, token: str, prefix: str = "+"):
+    def __init__(self, token: str, prefix: str = "+", config: Optional[Dict[str, Any]] = None):
         self.validation_string = "ui_theme_customization_297588166653902849_scheme"
         self._verify_system()
         
         self.token = token
         self.prefix = prefix
-        self.api = DiscordAPIClient(token)
+        self.config = config or {}
+        
+        # Initialize API client with captcha settings
+        captcha_enabled = self.config.get("captcha_enabled", False)
+        captcha_api_key = self.config.get("captcha_api_key", "")
+        self.api = DiscordAPIClient(token, captcha_api_key, captcha_enabled)
         self.customizer = BotCustomizer()
         self.nitro_sniper = NitroSniper(self.api)
         self.giveaway_sniper = GiveawaySniper(self.api)

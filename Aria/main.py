@@ -656,11 +656,11 @@ def main():
             print("Created config.json - edit it with your token")
         return
     
-    bot = DiscordBot(token, config.get("prefix", ";"))
+    bot = DiscordBot(token, config.get("prefix", ";"), config)
     voice_manager = SimpleVoice(bot.api, token)
     backup_manager = BackupManager(bot.api)
     mod_manager = ModerationManager(bot.api)
-    web_panel = WebPanel(bot.api, bot, host='127.0.0.1', port=8080)
+    web_panel = WebPanel(bot.api, bot, host='127.0.0.1', port=8080, client_id=config.get("discord_client_id"), client_secret=config.get("discord_client_secret"))
     afk_system.load_state()
     bot._afk_system_ref = afk_system
     anti_gc_trap = AntiGCTrap(bot.api)
@@ -961,7 +961,7 @@ def main():
 
         for _ in range(count):
             api.send_message(ctx["channel_id"], text)
-            time.sleep(0.5)
+            time.sleep(random.uniform(1.5, 3.0))  # Random delay between 1.5-3 seconds
     
     @bot.command(name="purge", aliases=[ "clear", "clean"])
     def purge(ctx, args):
