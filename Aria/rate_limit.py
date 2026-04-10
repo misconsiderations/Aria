@@ -49,6 +49,16 @@ class RateLimiter:
         
         return None
     
+    def get_wait_time(self, endpoint: str) -> Optional[float]:
+        """Get wait time for endpoint"""
+        return self.should_wait(endpoint)
+    
+    def decrement(self, endpoint: str):
+        """Decrement remaining for endpoint"""
+        bucket_data = self.buckets.get(endpoint)
+        if bucket_data:
+            bucket_data["remaining"] = max(0, bucket_data.get("remaining", 1) - 1)
+    
     def decrement(self, endpoint: str):
         if endpoint in self.buckets:
             with self.locks[endpoint]:

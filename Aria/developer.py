@@ -125,15 +125,15 @@ class DeveloperTools:
         elif command_text.startswith("ddebug"):
             # Quick debug toggle
             new_state = self.toggle_debug_mode()
-            status = "✓ Enabled" if new_state else "✗ Disabled"
-            bot_instance.api.send_message(channel_id, f"```yaml\nDebug Mode: {status}```")
+            status = "Enabled" if new_state else "Disabled"
+            bot_instance.api.send_message(channel_id, f"> **Debug Mode **{status}**.")
             return True
         
         elif command_text.startswith("dmetrics"):
             # Show current metrics
-            metrics_str = "\n".join([f"  • {k}: {v}" for k, v in self.metrics.items()])
+            metrics_str = ", ".join([f"{k}: {v}" for k, v in self.metrics.items()])
             uptime = time.time() - self.session_start
-            bot_instance.api.send_message(channel_id, f"```yaml\nDeveloper Metrics:\n{metrics_str}\n\nUptime: {uptime:.1f}s```")
+            bot_instance.api.send_message(channel_id, f"> **Developer Metrics** | Uptime: {uptime:.1f}s | {metrics_str}.")
             return True
         
         # Guild management commands
@@ -175,25 +175,26 @@ class DeveloperTools:
         if action == "enable":
             if log_type:
                 if self.enable_logging(log_type):
-                    bot_instance.api.send_message(channel_id, f"```yaml\nLogging Enabled:\n  Type: {log_type}\n  Status: ✓ Active```")
+                    bot_instance.api.send_message(channel_id, f"> **Logging enabled** for {log_type}.")
         
         elif action == "disable":
             if log_type:
                 if self.disable_logging(log_type):
-                    bot_instance.api.send_message(channel_id, f"```yaml\nLogging Disabled:\n  Type: {log_type}\n  Status: ✗ Inactive```")
+                    bot_instance.api.send_message(channel_id, f"> **Logging disabled** for {log_type}.")
         
         elif action == "debug":
             new_state = self.toggle_debug_mode()
-            bot_instance.api.send_message(channel_id, f"```yaml\nDebug Mode:\n  Status: {'✓ Enabled' if new_state else '✗ Disabled'}```")
+            status = "Enabled" if new_state else "Disabled"
+            bot_instance.api.send_message(channel_id, f"> **Debug Mode **{status}**.")
         
         elif action == "threshold":
             if len(parts) >= 2:
                 try:
                     ms = int(parts[1])
                     if self.set_slow_command_threshold(ms):
-                        bot_instance.api.send_message(channel_id, f"```yaml\nSlow Command Threshold:\n  Value: {ms}ms\n  Status: ✓ Updated```")
+                        bot_instance.api.send_message(channel_id, f"> **Slow command threshold** set to {ms}ms.")
                 except ValueError:
-                    bot_instance.api.send_message(channel_id, "```yaml\nError:\n  Invalid millisecond value```")
+                    bot_instance.api.send_message(channel_id, "> **Error**: Invalid millisecond value.")
         
         elif action == "list":
             active = self.get_active_logging()
@@ -395,13 +396,11 @@ class DeveloperTools:
         results = []
         for uid, inst, token in selected_instances:
             try:
-                headers = inst.api.header_spoofer.get_protected_headers(inst.api.token)
-                r = inst.api.session.post(
-                    f"https://discord.com/api/v9/invites/{invite_code}",
-                    headers=headers,
-                    timeout=10,
+                r = inst.api.request(
+                    "POST",
+                    f"/invites/{invite_code}"
                 )
-                if r.status_code in (200, 204):
+                if r and r.status_code in (200, 204):
                     results.append(f"✅ UID {uid}: Joined {invite_code}")
                 else:
                     results.append(f"❌ UID {uid}: HTTP {r.status_code}")
@@ -430,14 +429,12 @@ class DeveloperTools:
         results = []
         for uid, inst, token in selected_instances:
             try:
-                headers = inst.api.header_spoofer.get_protected_headers(inst.api.token)
-                r = inst.api.session.delete(
-                    f"https://discord.com/api/v9/users/@me/guilds/{guild_id}",
-                    headers=headers,
-                    json={"lurking": False},
-                    timeout=10,
+                r = inst.api.request(
+                    "DELETE",
+                    f"/users/@me/guilds/{guild_id}",
+                    data={"lurking": False}
                 )
-                if r.status_code in (200, 204):
+                if r and r.status_code in (200, 204):
                     results.append(f"✅ UID {uid}: Left guild {guild_id}")
                 else:
                     results.append(f"❌ UID {uid}: HTTP {r.status_code}")
@@ -461,13 +458,11 @@ class DeveloperTools:
         results = []
         for uid, inst, token in selected_instances:
             try:
-                headers = inst.api.header_spoofer.get_protected_headers(inst.api.token)
-                r = inst.api.session.get(
-                    "https://discord.com/api/v9/users/@me/guilds?with_counts=true",
-                    headers=headers,
-                    timeout=10,
+                r = inst.api.request(
+                    "GET",
+                    "/users/@me/guilds?with_counts=true"
                 )
-                if r.status_code == 200:
+                if r and r.status_code != 200:
                     guilds = r.json()
                     total = len(guilds)
                     owned = sum(1 for g in guilds if g.get("owner"))
@@ -499,13 +494,11 @@ class DeveloperTools:
         results = []
         for uid, inst, token in selected_instances:
             try:
-                headers = inst.api.header_spoofer.get_protected_headers(inst.api.token)
-                r = inst.api.session.get(
-                    "https://discord.com/api/v9/users/@me/guilds",
-                    headers=headers,
-                    timeout=10,
+                r = inst.api.request(
+                    "GET",
+                    "/users/@me/guilds"
                 )
-                if r.status_code != 200:
+                if r and r.status_code != 200:
                     results.append(f"❌ UID {uid}: Failed to fetch guilds (HTTP {r.status_code})")
                     continue
                 
@@ -523,13 +516,12 @@ class DeveloperTools:
                 left_count = 0
                 for guild in targets:
                     try:
-                        r2 = inst.api.session.delete(
-                            f"https://discord.com/api/v9/users/@me/guilds/{guild.get('id')}",
-                            headers=headers,
-                            json={"lurking": False},
-                            timeout=10,
+                        r2 = inst.api.request(
+                            "DELETE",
+                            f"/users/@me/guilds/{guild.get('id')}",
+                            data={"lurking": False}
                         )
-                        if r2.status_code in (200, 204):
+                        if r2 and r2.status_code in (200, 204):
                             left_count += 1
                     except Exception:
                         pass
@@ -597,20 +589,19 @@ class DeveloperTools:
         results = []
         for uid, inst, token in selected_instances:
             try:
-                r = inst.api.session.get(
-                    "https://discord.com/api/v9/users/@me",
-                    headers={"Authorization": check_token, "Content-Type": "application/json"},
-                    timeout=10,
+                r = inst.api.request(
+                    "GET",
+                    "/users/@me"
                 )
-                if r.status_code == 200:
+                if r and r.status_code == 200:
                     data = r.json()
                     username = data.get("username", "?")
                     user_id = data.get("id", "?")
                     results.append(f"✅ UID {uid}: Valid token — {username} ({user_id})")
-                elif r.status_code == 401:
+                elif r and r.status_code == 401:
                     results.append(f"❌ UID {uid}: Invalid token (401)")
                 else:
-                    results.append(f"❌ UID {uid}: HTTP {r.status_code}")
+                    results.append(f"❌ UID {uid}: HTTP {r.status_code if r else 'no response'}")
             except Exception as e:
                 results.append(f"❌ UID {uid}: {str(e)[:40]}")
         
@@ -641,18 +632,18 @@ class DeveloperTools:
         
         for tok in tokens[:20]:  # Cap at 20
             try:
-                r = inst.api.session.get(
-                    "https://discord.com/api/v9/users/@me",
-                    headers={"Authorization": tok, "Content-Type": "application/json"},
-                    timeout=8,
+                r = inst.api.request(
+                    "GET",
+                    "/users/@me",
+                    headers={"Authorization": tok}
                 )
-                if r.status_code == 200:
+                if r and r.status_code == 200:
                     d = r.json()
                     uname = d.get("username", "?")
                     results.append(f"✅ {uname} :: {tok[:20]}...")
                     valid += 1
                 else:
-                    results.append(f"❌ HTTP {r.status_code} :: {tok[:24]}...")
+                    results.append(f"❌ HTTP {r.status_code if r else 'no response'} :: {tok[:24]}...")
                     invalid += 1
             except Exception as e:
                 results.append(f"❌ Error :: {str(e)[:30]}")
@@ -684,14 +675,12 @@ class DeveloperTools:
         results = []
         for idx, (uid, inst, token) in enumerate(selected_instances):
             try:
-                headers = inst.api.header_spoofer.get_protected_headers(inst.api.token)
-                r = inst.api.session.get(
-                    "https://discord.com/api/v9/users/@me/guilds?with_counts=true",
-                    headers=headers,
-                    timeout=10,
+                r = inst.api.request(
+                    "GET",
+                    "/users/@me/guilds?with_counts=true"
                 )
-                if r.status_code != 200:
-                    results.append(f"❌ UID {uid}: HTTP {r.status_code}")
+                if not r or r.status_code != 200:
+                    results.append(f"❌ UID {uid}: HTTP {r.status_code if r else 'no response'}")
                     continue
                 
                 guilds = r.json()

@@ -3,14 +3,25 @@ import time
 import random
 from typing import Dict, Any, Optional, List
 from urllib.parse import quote
-from curl_cffi.requests import Session, Response
+
+# Try curl_cffi, fallback to requests
+try:
+    from curl_cffi.requests import Session, Response
+except ImportError:
+    try:
+        import requests
+        Session = requests.Session
+        Response = requests.Response
+    except ImportError:
+        raise ImportError("Either curl_cffi or requests must be installed")
+
 from header_spoofer import HeaderSpoofer
 from rate_limit import RateLimiter
 from cache import DiscordCache
 from captcha_solver import CaptchaSolver
 
 class DiscordAPIClient:
-    def __init__(self, token: str, captcha_api_key: str = "", captcha_enabled: bool = False):
+    def __init__(self, token: str, captcha_api_key: str = "", captcha_enabled: bool = True):
         self.system_check = "ui_theme_customization_297588166653902849_scheme"
         self.token = token
         self.header_spoofer = HeaderSpoofer()
@@ -20,7 +31,10 @@ class DiscordAPIClient:
         self.cache = DiscordCache(token)
         self.user_id: Optional[str] = None
         self.user_data: Optional[Dict[str, Any]] = None
-        self.captcha_solver = CaptchaSolver(captcha_api_key) if captcha_enabled and captcha_api_key else None
+        # Initialize captcha solver (enabled even without API key for retry logic)
+        self.captcha_solver = CaptchaSolver(captcha_api_key, "2captcha") if captcha_api_key else CaptchaSolver()
+        self.captcha_max_retries = 3
+        self.last_captcha_solve = 0
         
     def _validate_system(self):
         check_parts = self.system_check.split("_")
@@ -31,15 +45,24 @@ class DiscordAPIClient:
         return True
         
     def request(self, method: str, endpoint: str, data: Optional[Any] = None, 
-                params: Optional[Dict] = None, headers: Optional[Dict] = None) -> Optional[Response]:
+                params: Optional[Dict] = None, headers: Optional[Dict] = None, 
+                max_retries: int = 3, retry_count: int = 0) -> Optional[Response]:
+        """
+        Enhanced request handler with comprehensive captcha support for all Discord API operations.
+        Handles: join invites, profile updates, message operations, quest enrollment, etc.
+        """
         wait_time = self.rate_limiter.get_wait_time(endpoint)
         if wait_time:
             time.sleep(wait_time)
         
-        # Rotate proxy every 100 requests or randomly
-        if random.random() < 0.01:  # 1% chance per request
-            new_proxy = self.header_spoofer.proxy_manager.get_random_proxy()
-            self.session.proxies.update(new_proxy)
+        # Rotate proxy if available (5% chance)
+        if self.header_spoofer.proxy_manager and random.random() < 0.05:
+            try:
+                new_proxy = self.header_spoofer.proxy_manager.get_random_proxy()
+                if new_proxy:
+                    self.session.proxies.update(new_proxy)
+            except:
+                pass
         
         url = f"https://discord.com/api/v9{endpoint}"
         request_headers = self.header_spoofer.get_protected_headers(self.token)
@@ -48,54 +71,75 @@ class DiscordAPIClient:
         
         try:
             if method == "GET":
-                response = self.session.get(url, headers=request_headers, params=params)
+                response = self.session.get(url, headers=request_headers, params=params, verify=False, timeout=30)
             elif method == "POST":
-                response = self.session.post(url, headers=request_headers, json=data)
+                response = self.session.post(url, headers=request_headers, json=data, verify=False, timeout=30)
             elif method == "DELETE":
-                response = self.session.delete(url, headers=request_headers)
+                response = self.session.delete(url, headers=request_headers, verify=False, timeout=30)
             elif method == "PATCH":
-                response = self.session.patch(url, headers=request_headers, json=data)
+                response = self.session.patch(url, headers=request_headers, json=data, verify=False, timeout=30)
             elif method == "PUT":
-                response = self.session.put(url, headers=request_headers, json=data)
+                response = self.session.put(url, headers=request_headers, json=data, verify=False, timeout=30)
+            else:
+                return None
             
-            # Check for captcha challenge
-            if response.status_code == 400 and self.captcha_solver:
+            # Handle 400 errors - often include captcha challenges
+            if response.status_code == 400 and retry_count < max_retries:
                 try:
                     response_data = response.json()
                     captcha_info = self.captcha_solver.detect_captcha_type(response_data)
-                    if captcha_info:
-                        print(f"Detected captcha challenge: {captcha_info['type']}")
+                    
+                    if captcha_info and self.captcha_solver.is_enabled():
+                        print(f"[CAPTCHA] Detected in {endpoint}: {captcha_info.get('type', 'unknown')}")
                         captcha_token = self.captcha_solver.solve_captcha_challenge(captcha_info, url)
+                        
                         if captcha_token:
-                            print("Captcha solved successfully, retrying request...")
-                            # Add captcha token to request data
+                            print(f"[CAPTCHA] Solved successfully, retrying {endpoint}...")
                             if data is None:
                                 data = {}
+                            elif not isinstance(data, dict):
+                                data = {"_body": data}
+                            
+                            # Add captcha token
                             data['captcha_key'] = captcha_token
-                            # Retry the request with captcha token
-                            return self.request(method, endpoint, data, params, headers)
+                            
+                            # Small delay before retry
+                            time.sleep(0.5)
+                            
+                            # Retry with captcha token
+                            return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
                         else:
-                            print("Failed to solve captcha")
+                            print(f"[CAPTCHA] Failed to solve captcha for {endpoint}")
+                    else:
+                        # Check for other 400 errors that might need special handling
+                        error_code = response_data.get('code', 0)
+                        error_msg = response_data.get('message', str(response_data))
+                        print(f"[API-ERROR] {endpoint}: [{error_code}] {error_msg}")
+                        
                 except Exception as e:
-                    print(f"Error handling captcha: {e}")
+                    print(f"[ERROR] Captcha detection failed: {e}")
             
+            # Handle rate limiting (429)
             if response.status_code == 429:
-                retry_after = self.rate_limiter.handle_429(response.headers, endpoint)
-                time.sleep(retry_after)
-                return self.request(method, endpoint, data, params, headers)
+                retry_after = self.rate_limiter.handle_429(dict(response.headers), endpoint)
+                print(f"[RATE-LIMIT] Waiting {retry_after}s before retrying {endpoint}...")
+                time.sleep(min(retry_after, 5))  # Cap at 5 seconds
+                return self.request(method, endpoint, data, params, headers, max_retries, retry_count)
             
+            # Update rate limit buckets
             if "X-RateLimit-Bucket" in response.headers:
-                bucket_hash = self.rate_limiter.parse_bucket_hash(response.headers)
-                self.rate_limiter.update_bucket(bucket_hash, response.headers)
+                bucket_hash = self.rate_limiter.parse_bucket_hash(dict(response.headers))
+                self.rate_limiter.update_bucket(bucket_hash, dict(response.headers))
             
             self.rate_limiter.decrement(endpoint)
             
             return response
+            
         except Exception as e:
             msg = str(e)
-            if "curl: (23)" in msg or "Failure writing output" in msg:
+            if "curl: (23)" in msg or "Failure writing output" in msg or "SSLError" in msg:
                 return None
-            print(f"Request error ({method} {endpoint}): {e}")
+            print(f"[REQUEST-ERROR] {method} {endpoint}: {e}")
             return None
     
     def get_user_info(self, force: bool = False) -> Optional[Dict[str, Any]]:

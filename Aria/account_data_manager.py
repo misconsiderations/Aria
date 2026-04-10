@@ -321,9 +321,13 @@ class AccountDataManager:
         if not isinstance(relationships, list):
             relationships = []
 
+        # Filter for friends only (type 1), exclude blocked/pending
+        friend_relationships = [r for r in relationships if isinstance(r, dict) and r.get("type") == 1]
+        
         return {
             "captured_at": time.time(),
-            "relationship_count": len(relationships),
+            "relationship_count": len(friend_relationships),
+            "friend_user_ids": [str(r.get("user", {}).get("id", "")) for r in friend_relationships if r.get("user", {}).get("id")],
             "relationships": [
                 {
                     "id": relationship.get("id"),
@@ -334,10 +338,11 @@ class AccountDataManager:
                         "username": relationship.get("user", {}).get("username"),
                         "global_name": relationship.get("user", {}).get("global_name"),
                         "avatar": relationship.get("user", {}).get("avatar"),
+                        "discriminator": relationship.get("user", {}).get("discriminator"),
+                        "bot": relationship.get("user", {}).get("bot", False),
                     },
                 }
-                for relationship in relationships
-                if isinstance(relationship, dict)
+                for relationship in friend_relationships
             ],
         }
 

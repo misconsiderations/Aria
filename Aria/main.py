@@ -449,11 +449,9 @@ def stop_vr_headless_loop():
 def _ji_handle_verification(api, guild_id, invite_code, headers):
     """Agree to server member-verification rules if present."""
     try:
-        r = api.session.get(
-            f"https://discord.com/api/v9/guilds/{guild_id}/member-verification"
-            f"?with_guild=false&invite_code={invite_code}",
-            headers=headers,
-            timeout=10,
+        r = api.request(
+            "GET",
+            f"/guilds/{guild_id}/member-verification?with_guild=false&invite_code={invite_code}"
         )
         if r.status_code != 200:
             return None
@@ -468,11 +466,10 @@ def _ji_handle_verification(api, guild_id, invite_code, headers):
                 f["response"] = True
                 response_fields.append(f)
         payload = {"version": data.get("version", ""), "form_fields": response_fields}
-        r2 = api.session.put(
-            f"https://discord.com/api/v9/guilds/{guild_id}/requests/@me",
-            headers=headers,
-            json=payload,
-            timeout=10,
+        r2 = api.request(
+            "PUT",
+            f"/guilds/{guild_id}/requests/@me",
+            data=payload
         )
         if r2.status_code in (200, 201, 204):
             return {"status": True, "num_fields": len(response_fields)}
@@ -486,12 +483,11 @@ def _ji_handle_verification(api, guild_id, invite_code, headers):
 def _ji_handle_onboarding(api, guild_id, headers):
     """Submit random onboarding responses if the guild has onboarding enabled."""
     try:
-        r = api.session.get(
-            f"https://discord.com/api/v9/guilds/{guild_id}/onboarding",
-            headers=headers,
-            timeout=10,
+        r = api.request(
+            "GET",
+            f"/guilds/{guild_id}/onboarding"
         )
-        if r.status_code != 200:
+        if not r or r.status_code != 200:
             return None
         data = r.json()
         if not data.get("enabled", False):
@@ -521,11 +517,10 @@ def _ji_handle_onboarding(api, guild_id, headers):
             "onboarding_prompts_seen": prompts_seen,
             "onboarding_responses_seen": responses_seen,
         }
-        r2 = api.session.post(
-            f"https://discord.com/api/v9/guilds/{guild_id}/onboarding-responses",
-            headers=headers,
-            json=payload,
-            timeout=10,
+        r2 = api.request(
+            "POST",
+            f"/guilds/{guild_id}/onboarding-responses",
+            data=payload
         )
         if r2.status_code in (200, 201, 204):
             return {"status": True, "num_responses": len(responses)}
@@ -591,11 +586,10 @@ class GuildRotator:
             "badge_color_secondary": secondary,
         }
         try:
-            r = self.api.session.patch(
-                f"https://discord.com/api/v9/guilds/{guild_id}/profile",
-                headers=headers,
-                json=payload,
-                timeout=10,
+            r = self.api.request(
+                "PATCH",
+                f"/guilds/{guild_id}/profile",
+                data=payload
             )
             return r.status_code in (200, 204)
         except Exception:
@@ -723,6 +717,27 @@ def main():
     from boost_commands import setup_boost_commands
     setup_boost_commands(bot, bot.api, delete_after_delay)
     
+    # Setup extended commands and new systems
+    from extended_commands import setup_extended_commands
+    setup_extended_commands(bot, delete_after_delay)
+    
+    from extended_system_commands import setup_extended_system_commands
+    setup_extended_system_commands(bot, delete_after_delay)
+    
+    # Initialize friend scraper
+    from friend_scraper import EnhancedFriendScraper
+    friend_scraper = EnhancedFriendScraper(bot.api)
+    bot.friend_scraper = friend_scraper
+    
+    # Initialize self-hosting system
+    from self_hosting import self_hosting_manager
+    bot.self_hosting_manager = self_hosting_manager
+    
+    # Print all loaded users summary (once, at the end of initialization)
+    # This fixes the duplicate user loading issue
+    host_manager.print_loaded_users_summary()
+    self_hosting_manager.print_summary()
+    
 
     @bot.command(name="nitro")
     def nitro_cmd(ctx, args):
@@ -790,21 +805,21 @@ def main():
         if args[0] == "on":
             agct.enabled = True
             print(f"[AGCT] Enabled: {agct.enabled}")
-            msg = ctx["api"].send_message(ctx["channel_id"], "```diff\n+ Anti-GC Trap enabled```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Anti-GC Trap enabled**.")
         
         elif args[0] == "off":
             agct.enabled = False
             print(f"[AGCT] Enabled: {agct.enabled}")
-            msg = ctx["api"].send_message(ctx["channel_id"], "```diff\n- Anti-GC Trap disabled```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Anti-GC Trap disabled**.")
         
         elif args[0] == "block":
             if len(args) >= 2:
                 if args[1] == "on":
                     agct.block_creators = True
-                    msg = ctx["api"].send_message(ctx["channel_id"], "```diff\n+ Block creators enabled```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], "> **Block creators enabled**.")
                 elif args[1] == "off":
                     agct.block_creators = False
-                    msg = ctx["api"].send_message(ctx["channel_id"], "```diff\n- Block creators disabled```")
+                    msg = ctx["api"].send_message(ctx["channel_id"], "> **Block creators disabled**.")
         
         elif args[0] == "msg" and len(args) >= 2:
             message = " ".join(args[1:])
@@ -1174,13 +1189,12 @@ Example: +massdm 1 Hello everyone!```"""
         failed = []
         for uid in args:
             try:
-                r = api.session.put(
-                    f"https://discord.com/api/v9/users/@me/relationships/{uid}",
-                    headers=headers,
-                    json={"type": 2},
-                    timeout=8,
+                r = api.request(
+                    "PUT",
+                    f"/users/@me/relationships/{uid}",
+                    data={"type": 2}
                 )
-                if r.status_code in (200, 204):
+                if r and r.status_code in (200, 204):
                     blocked.append(uid)
                 else:
                     failed.append(uid)
@@ -1209,14 +1223,12 @@ Example: +massdm 1 Hello everyone!```"""
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
-        headers = ctx["api"].header_spoofer.get_protected_headers(ctx["api"].token)
-        resp = ctx["api"].session.post(
-            "https://discord.com/api/v9/hypesquad/online",
-            headers=headers,
-            json={"house_id": houses[house]},
-            timeout=8,
+        resp = ctx["api"].request(
+            "POST",
+            "/hypesquad/online",
+            data={"house_id": houses[house]}
         )
-        if resp.status_code == 204:
+        if resp and resp.status_code == 204:
             msg = ctx["api"].send_message(ctx["channel_id"], f"```| Hypesquad |\nChanged to {house.title()}```")
         else:
             msg = ctx["api"].send_message(ctx["channel_id"], f"```| Hypesquad |\nFailed ({resp.status_code})```")
@@ -1225,13 +1237,11 @@ Example: +massdm 1 Hello everyone!```"""
 
     @bot.command(name="hypesquad_leave", aliases=["leavehypesquad", "hsl"])
     def hypesquad_leave_cmd(ctx, args):
-        headers = ctx["api"].header_spoofer.get_protected_headers(ctx["api"].token)
-        resp = ctx["api"].session.delete(
-            "https://discord.com/api/v9/hypesquad/online",
-            headers=headers,
-            timeout=8,
+        resp = ctx["api"].request(
+            "DELETE",
+            "/hypesquad/online"
         )
-        if resp.status_code == 204:
+        if resp and resp.status_code == 204:
             msg = ctx["api"].send_message(ctx["channel_id"], "```| Hypesquad |\nLeft hypesquad```")
         else:
             msg = ctx["api"].send_message(ctx["channel_id"], f"```| Hypesquad |\nFailed ({resp.status_code})```")
@@ -1389,11 +1399,11 @@ Example: +massdm 1 Hello everyone!```"""
         api = ctx["api"]
         headers = api.header_spoofer.get_protected_headers(api.token)
         try:
-            r = api.session.get(
-                "https://discord.com/api/v9/users/@me/guilds?with_counts=true",
-                headers=headers, timeout=10,
+            r = api.request(
+                "GET",
+                "/users/@me/guilds?with_counts=true"
             )
-            guilds = r.json() if r.status_code == 200 else api.get_guilds()
+            guilds = r.json() if (r and r.status_code == 200) else api.get_guilds()
         except Exception:
             guilds = api.get_guilds()
 
@@ -1691,7 +1701,7 @@ Example Usage:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
         else:
             bot.auto_react_emoji = None
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Auto-React |\nDisabled```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Auto-React disabled**.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
@@ -2318,7 +2328,7 @@ Examples:
     @bot.command(name="stealpfp", aliases=["copypfp", "takepfp"])
     def stealpfp(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal PFP |\nPlease provide a user ID```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Please provide** a **user ID**.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2328,7 +2338,7 @@ Examples:
         try:
             user_response = ctx["api"].request("GET", f"/users/{user_id}")
             if not user_response or user_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal PFP |\nCould not find user```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Could not** find user.")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2337,7 +2347,7 @@ Examples:
             avatar_hash = user_data.get("avatar")
             
             if not avatar_hash:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal PFP |\nUser has no profile picture```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **User** has no profile picture.")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2347,7 +2357,7 @@ Examples:
             
             response = ctx["api"].session.get(avatar_url, timeout=10)
             if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal PFP |\nFailed to download avatar```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Failed** to download avatar.")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2377,7 +2387,7 @@ Examples:
     @bot.command(name="setbanner", aliases=["banner"])
     def setbanner(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Banner |\nPlease provide an image URL```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Please provide** an **image URL**.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2387,7 +2397,7 @@ Examples:
         try:
             response = ctx["api"].session.get(image_url, timeout=10)
             if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Banner |\nFailed to download image```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Failed** to download image.")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2424,7 +2434,7 @@ Examples:
     @bot.command(name="stealbanner", aliases=["copybanner", "takebanner"])
     def stealbanner(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Banner |\nPlease provide a user ID```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Please provide** a **user ID**.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2434,7 +2444,7 @@ Examples:
         try:
             profile_response = ctx["api"].request("GET", f"/users/{user_id}/profile")
             if not profile_response or profile_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Banner |\nCould not fetch user profile```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Could not fetch** user profile.")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2446,7 +2456,7 @@ Examples:
             banner_hash = user_profile.get("banner") or user.get("banner")
             
             if not banner_hash:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Banner |\nUser has no banner```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **User** has no banner.")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2456,7 +2466,7 @@ Examples:
             
             response = ctx["api"].session.get(banner_url, timeout=10)
             if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Banner |\nFailed to download banner```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Failed** to download banner.")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2471,15 +2481,15 @@ Examples:
             result = ctx["api"].request("PATCH", "/users/@me", data=data)
             
             if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Banner |\n✓ Banner stolen successfully```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Banner **stolen successfully**.")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Steal Banner |\n✗ Failed to update banner (HTTP {result.status_code if result else 'No response'})```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Failed** to update banner.")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Steal Banner |\nError: {str(e)[:80]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Error** with banner steal.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
@@ -2684,7 +2694,7 @@ Examples:
     @bot.command(name="stealname", aliases=["copyname"])
     def stealname(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Name |\nPlease provide a user ID```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Please provide** a **user ID**.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2694,7 +2704,7 @@ Examples:
         try:
             user_response = ctx["api"].request("GET", f"/users/{user_id}")
             if not user_response or user_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Name |\nCould not find user```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Could not** find user.")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -2703,7 +2713,7 @@ Examples:
             global_name = user_data.get("global_name", "")
             
             if not global_name:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Name |\nUser has no display name```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **User** has no display name.")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -4490,7 +4500,7 @@ Examples:
         ok, detail = quest_system.start()
         s = quest_system.get_summary()
         if ok:
-            msg = ctx["api"].send_message(ctx["channel_id"], f" Quest **enabled**. {detail}.")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Quest **enabled**. {detail}.")
         else:
             msg = ctx["api"].send_message(ctx["channel_id"], f"Quest error: {detail}.")
         if msg:
@@ -4499,7 +4509,7 @@ Examples:
     @bot.command(name="queststop", aliases=["qstop", "qx"])
     def queststop_cmd(ctx, args):
         ok, detail = quest_system.stop()
-        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Quest **disabled**. {detail}")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Quest **disabled**. {detail}.")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -5777,13 +5787,12 @@ badges decode <public_flags> :: Decode a public_flags integer
         headers = api.header_spoofer.get_protected_headers(api.token)
 
         try:
-            r = api.session.delete(
-                f"https://discord.com/api/v9/users/@me/guilds/{guild_id}",
-                headers=headers,
-                json={"lurking": False},
-                timeout=10,
+            r = api.request(
+                "DELETE",
+                f"/users/@me/guilds/{guild_id}",
+                data={"lurking": False}
             )
-            if r.status_code in (200, 204):
+            if r and r.status_code in (200, 204):
                 msg = api.send_message(ctx["channel_id"], f"```| Leave Guild |\nLeft guild {guild_id}```")
             else:
                 err = ""
@@ -5862,13 +5871,12 @@ badges decode <public_flags> :: Decode a public_flags integer
         headers = api.header_spoofer.get_protected_headers(api.token)
 
         try:
-            r = api.session.get(
-                "https://discord.com/api/v9/users/@me/guilds?with_counts=true",
-                headers=headers,
-                timeout=10,
+            r = api.request(
+                "GET",
+                "/users/@me/guilds?with_counts=true"
             )
-            if r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```| My Guilds |\nFailed: HTTP {r.status_code}```")
+            if not r or r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| My Guilds |\nFailed: HTTP {r.status_code if r else 'no response'}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -6239,13 +6247,12 @@ badges decode <public_flags> :: Decode a public_flags integer
         headers = api.header_spoofer.get_protected_headers(api.token)
 
         try:
-            r = api.session.get(
-                "https://discord.com/api/v9/users/@me/guilds?with_counts=true",
-                headers=headers,
-                timeout=10,
+            r = api.request(
+                "GET",
+                "/users/@me/guilds?with_counts=true"
             )
-            if r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```| Export Guilds |\nFailed: HTTP {r.status_code}```")
+            if not r or r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Export Guilds |\nFailed: HTTP {r.status_code if r else 'no response'}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -6309,14 +6316,13 @@ badges decode <public_flags> :: Decode a public_flags integer
         status_msg = api.send_message(ctx["channel_id"], "```| Mass Leave |\nFetching guild list...```")
 
         try:
-            r = api.session.get(
-                "https://discord.com/api/v9/users/@me/guilds",
-                headers=headers,
-                timeout=10,
+            r = api.request(
+                "GET",
+                "/users/@me/guilds"
             )
-            if r.status_code != 200:
+            if not r or r.status_code != 200:
                 if status_msg:
-                    api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass Leave |\nFailed to fetch guilds: HTTP {r.status_code}```")
+                    api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass Leave |\nFailed to fetch guilds: HTTP {r.status_code if r else 'no response'}```")
                     delete_after_delay(api, ctx["channel_id"], status_msg.get("id"))
                 return
 
@@ -6351,13 +6357,12 @@ badges decode <public_flags> :: Decode a public_flags integer
             for g in targets:
                 gid = g.get("id")
                 try:
-                    dr = api.session.delete(
-                        f"https://discord.com/api/v9/users/@me/guilds/{gid}",
-                        headers=headers,
-                        json={"lurking": False},
-                        timeout=8,
+                    dr = api.request(
+                        "DELETE",
+                        f"/users/@me/guilds/{gid}",
+                        data={"lurking": False}
                     )
-                    if dr.status_code in (200, 204):
+                    if dr and dr.status_code in (200, 204):
                         left += 1
                     else:
                         failed += 1
@@ -7446,14 +7451,12 @@ badges decode <public_flags> :: Decode a public_flags integer
             import base64
             mime = "image/gif" if animated else "image/png"
             b64 = base64.b64encode(img_r.content).decode("utf-8")
-            headers = api.header_spoofer.get_protected_headers(api.token)
-            upload_r = api.session.post(
-                f"https://discord.com/api/v9/guilds/{target_guild}/emojis",
-                headers=headers,
-                json={"name": emoji_name, "image": f"data:{mime};base64,{b64}", "roles": []},
-                timeout=15,
+            upload_r = api.request(
+                "POST",
+                f"/guilds/{target_guild}/emojis",
+                data={"name": emoji_name, "image": f"data:{mime};base64,{b64}", "roles": []}
             )
-            if upload_r.status_code in (200, 201):
+            if upload_r and upload_r.status_code in (200, 201):
                 new_id = upload_r.json().get("id", "?")
                 msg = api.send_message(ctx["channel_id"], f"```| Steal Emoji |\nAdded :{emoji_name}: (ID {new_id}) to {target_guild}```")
             else:

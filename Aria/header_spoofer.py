@@ -3,20 +3,32 @@ import time
 import random
 import json
 import hashlib
-from typing import Dict, Any, Optional, List, Tuple
+import base64
+import ssl
+from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
-from curl_cffi.requests import Session, Response
 import threading
 import uuid
+
+# Try to import curl_cffi, fallback to requests if not available
+try:
+    from curl_cffi.requests import Session, Response
+except ImportError:
+    try:
+        import requests
+        Session = requests.Session
+        Response = requests.Response
+    except ImportError:
+        Session = None
+        Response = None
 
 class RateLimiter:
     """Advanced rate limiter with bucket management and DM protection"""
 
     def __init__(self):
         self.buckets: Dict[str, Dict[str, Any]] = {}
-        self.endpoint_to_bucket: Dict[str, str] = {}
-        self.dm_protection: Dict[str, float] = {}  # channel_id -> last_message_time
-        self.client_rate_limits: Dict[str, Dict[str, Any]] = {}  # action_type -> channel_id -> data
+        self.dm_protection: Dict[str, float] = {}
+        self.client_rate_limits: Dict[str, Dict[str, Any]] = {}
 
     def parse_bucket_hash(self, headers: Dict[str, str]) -> str:
         """Parse bucket hash from response headers"""
@@ -55,335 +67,257 @@ class RateLimiter:
         if bucket_hash in self.buckets:
             self.buckets[bucket_hash]["remaining"] = max(0, self.buckets[bucket_hash].get("remaining", 5) - 1)
 
-    def handle_429(self, headers: Dict[str, str], endpoint: str):
-        """Handle 429 response by updating bucket info"""
+    def handle_429(self, headers: Dict[str, str], endpoint: str) -> float:
+        """Handle 429 response and return retry time"""
         bucket_hash = self.parse_bucket_hash(headers)
         self.update_bucket(bucket_hash, headers)
+        retry_after = float(headers.get("Retry-After", "1.0"))
+        return retry_after + random.uniform(0.5, 2.0)
 
     def check_dm_protection(self, channel_id: str) -> Optional[float]:
-        """Check DM-specific rate limiting to prevent spam detection"""
+        """Check DM-specific rate limiting"""
         if not channel_id:
             return None
 
         now = time.time()
         last_message = self.dm_protection.get(channel_id, 0)
 
-        # Enforce minimum 2 second delay between DMs to same channel
         if now - last_message < 2.0:
             return 2.0 - (now - last_message)
 
         self.dm_protection[channel_id] = now
         return None
 
-    def check_client_rate_limit(self, action_type: str, channel_id: str) -> Optional[float]:
-        """Check client-side rate limits to prevent UI restrictions"""
-        key = f"{action_type}:{channel_id}"
-        now = time.time()
+    def get_wait_time(self, endpoint: str) -> Optional[float]:
+        """Get wait time for endpoint"""
+        bucket_hash = self.parse_bucket_hash({})
+        return self.should_wait(bucket_hash)
 
-        if key not in self.client_rate_limits:
-            self.client_rate_limits[key] = {
-                "last_action": 0,
-                "count": 0,
-                "window_start": now
-            }
 
-        data = self.client_rate_limits[key]
-
-        # Reset window if needed
-        if now - data["window_start"] > 60:  # 1 minute window
-            data["count"] = 0
-            data["window_start"] = now
-
-        # Rate limits per action type
-        limits = {
-            "message": {"per_second": 2, "per_minute": 30},
-            "typing": {"per_second": 1, "per_minute": 10},
-            "reaction": {"per_second": 5, "per_minute": 100},
-            "other": {"per_second": 10, "per_minute": 300}
-        }
-
-        limit = limits.get(action_type, limits["other"])
-
-        # Check per-second limit
-        if now - data["last_action"] < 1.0:
-            if data["count"] >= limit["per_second"]:
-                return 1.0 - (now - data["last_action"])
-
-        # Check per-minute limit
-        if data["count"] >= limit["per_minute"]:
-            return 60.0 - (now - data["window_start"])
-
-        data["last_action"] = now
-        data["count"] += 1
-        return None
-
-class ProtectionCoordinator:
-    """Coordinates multiple protection mechanisms for maximum safety"""
+class BrowserProfile:
+    """Browser profile for spoofing"""
 
     def __init__(self):
-        self.rate_limiter = RateLimiter()
-        self.header_rotator = HeaderRotator()
-        self.fingerprint_manager = FingerprintManager()
-        self.behavior_simulator = BehaviorSimulator()
+        timestamp = int(time.time())
+        random.seed(timestamp % 1000)
+
+        self.chrome_versions = [
+            {"major": "125", "full": "125.0.6422.113"},
+            {"major": "124", "full": "124.0.6367.207"},
+            {"major": "123", "full": "123.0.6312.122"},
+        ]
+
+        version_idx = (timestamp // 3600) % len(self.chrome_versions)
+        chrome = self.chrome_versions[version_idx]
+
+        locations = [
+            {"timezone": "America/New_York", "locale": "en-US"},
+            {"timezone": "America/Chicago", "locale": "en-US"},
+            {"timezone": "America/Los_Angeles", "locale": "en-US"},
+            {"timezone": "Europe/London", "locale": "en-GB"},
+        ]
+
+        location_idx = timestamp % len(locations)
+        location = locations[location_idx]
+
+        self.user_agent = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome['full']} Safari/537.36"
+        self.os = "Windows"
+        self.browser = "Chrome"
+        self.browser_version = chrome['full']
+        self.os_version = "10"
+        self.locale = location['locale']
+        self.timezone = location['timezone']
+        self.screen_resolution = "1920x1080"
+        self.hardware_concurrency = 8
+        self.device_memory = 8
+
+
+class HeaderSpoofer:
+    """Main header spoofer for Discord"""
+
+    def __init__(self):
         self.token: Optional[str] = None
         self.user_id: Optional[str] = None
+        self.fingerprint: str = ""
+        self.cookies: str = ""
+        self.cache_time: float = 0
+        self.profile = BrowserProfile()
+        self.build_number = 284054
+        self.session: Session = self._create_session()
+        self.proxy_manager = None
+        self._init_proxy_manager()
+
+    def _init_proxy_manager(self):
+        """Initialize proxy manager"""
+        try:
+            from proxy_manager import ProxyManager
+            self.proxy_manager = ProxyManager()
+        except:
+            self.proxy_manager = None
+
+    def _create_session(self) -> Session:
+        """Create SSL-safe session"""
+        try:
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            
+            # Try curl_cffi first for better spoofing
+            try:
+                from curl_cffi.requests import Session as CurlSession
+                return CurlSession(impersonate="chrome120")
+            except:
+                # Fall back to requests if curl_cffi not available
+                session = Session()
+                session.verify = False
+                return session
+        except:
+            # Ultimate fallback
+            import requests
+            session = requests.Session()
+            session.verify = False
+            return session
 
     def initialize_with_token(self, token: str):
         """Initialize with bot token"""
         self.token = token
-        self.user_id = self._extract_user_id_from_token(token)
-        self.header_rotator.set_token(token)
-        self.fingerprint_manager.set_user_id(self.user_id)
-
-    def _extract_user_id_from_token(self, token: str) -> Optional[str]:
-        """Extract user ID from bot token"""
         try:
-            # Bot tokens are base64 encoded with user_id.timestamp.signature
-            import base64
             payload = token.split('.')[0]
             decoded = base64.b64decode(payload + '==').decode()
-            return decoded.split('.')[0]
+            self.user_id = decoded.split('.')[0]
         except:
-            return None
+            self.user_id = None
 
-    def check_protection(self) -> Optional[float]:
-        """Check if we need to wait for protection"""
-        # Check behavior simulation
-        wait_time = self.behavior_simulator.get_delay()
-        if wait_time:
-            return wait_time
+    def _generate_fingerprint(self) -> str:
+        """Generate Discord-style fingerprint"""
+        timestamp_ms = int(time.time() * 1000)
+        random_part = random.randint(100000000000000000, 999999999999999999)
+        return f"{timestamp_ms}.{random_part}"
 
-        return None
+    def _fetch_fingerprint(self) -> tuple:
+        """Fetch fingerprint from Discord"""
+        if time.time() - self.cache_time < 3600 and self.fingerprint:
+            return self.fingerprint, self.cookies
 
-    def get_headers(self, token: str) -> Dict[str, str]:
-        """Get protected headers for request"""
-        base_headers = self.header_rotator.get_headers()
+        try:
+            headers = {
+                "User-Agent": self.profile.user_agent,
+                "Accept": "application/json",
+                "Accept-Language": self.profile.locale,
+            }
+            response = self.session.get(
+                "https://discord.com/api/v9/experiments",
+                headers=headers,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                self.fingerprint = data.get("fingerprint", self._generate_fingerprint())
+                self.cookies = "; ".join([f"{k}={v}" for k, v in response.cookies.items()])
+                self.cache_time = time.time()
+            else:
+                self.fingerprint = self._generate_fingerprint()
+                self.cookies = f"locale={self.profile.locale}"
+        except:
+            self.fingerprint = self._generate_fingerprint()
+            self.cookies = f"locale={self.profile.locale}"
 
-        # Add fingerprint
-        fingerprint = self.fingerprint_manager.get_fingerprint()
-        if fingerprint:
-            base_headers["X-Fingerprint"] = fingerprint
+        return self.fingerprint, self.cookies
 
-        # Add super properties
-        super_props = self._get_super_properties()
-        if super_props:
-            base_headers["X-Super-Properties"] = super_props
-
-        return base_headers
-
-    def _get_super_properties(self) -> str:
-        """Generate super properties for Discord"""
+    def _generate_super_properties(self) -> str:
+        """Generate X-Super-Properties header"""
         props = {
-            "os": "Windows",
-            "browser": "Chrome",
+            "os": self.profile.os,
+            "browser": self.profile.browser,
             "device": "",
-            "system_locale": "en-US",
-            "browser_user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "browser_version": "120.0.0.0",
-            "os_version": "10",
+            "system_locale": self.profile.locale,
+            "browser_user_agent": self.profile.user_agent,
+            "browser_version": self.profile.browser_version,
+            "os_version": self.profile.os_version,
             "referrer": "",
             "referring_domain": "",
-            "referrer_current": "",
-            "referring_domain_current": "",
             "release_channel": "stable",
-            "client_build_number": 9999,
-            "client_event_source": None
+            "client_build_number": self.build_number,
+            "client_event_source": None,
+            "design_id": 0
         }
 
-        import base64
         props_json = json.dumps(props, separators=(',', ':'))
         return base64.b64encode(props_json.encode()).decode()
 
-    def handle_429_response(self, headers: Dict[str, str]) -> float:
-        """Handle 429 response and return retry time"""
-        retry_after = float(headers.get("Retry-After", "1.0"))
+    def _generate_sec_ch_ua(self) -> str:
+        """Generate Sec-CH-UA header"""
+        major_version = self.profile.browser_version.split('.')[0]
+        return f'"Chromium";v="{major_version}", "Google Chrome";v="{major_version}", "Not=A?Brand";v="99"'
 
-        # Update rate limiter
-        self.rate_limiter.handle_429(headers, "")
-
-        # Add extra delay for safety
-        return retry_after + random.uniform(0.5, 2.0)
-
-    def handle_success_response(self):
-        """Handle successful response"""
-        self.behavior_simulator.record_success()
-
-class HeaderRotator:
-    """Rotates headers to avoid detection"""
-
-    def __init__(self):
-        self.token: Optional[str] = None
-        self.user_agent_templates = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version}.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version}.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version}.0.0.0 Safari/537.36"
-        ]
-        self.last_rotation = 0
-        self.rotation_interval = 300  # 5 minutes
-
-    def set_token(self, token: str):
-        """Set the bot token"""
-        self.token = token
-
-    def get_headers(self) -> Dict[str, str]:
-        """Get rotated headers"""
-        now = time.time()
-
-        # Rotate headers periodically
-        if now - self.last_rotation > self.rotation_interval:
-            self._rotate_headers()
-            self.last_rotation = now
+    def get_protected_headers(self, token: Optional[str] = None) -> Dict[str, str]:
+        """Get fully protected headers for Discord API"""
+        if token:
+            self.token = token
+        
+        fingerprint, cookies = self._fetch_fingerprint()
 
         headers = {
-            "Authorization": self.token,
+            "Authorization": self.token or "",
+            "User-Agent": self.profile.user_agent,
             "Content-Type": "application/json",
-            "User-Agent": self._get_user_agent(),
             "Accept": "*/*",
-            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Language": f"{self.profile.locale},en;q=0.9",
             "Accept-Encoding": "gzip, deflate, br",
-            "DNT": "1",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
+            "Origin": "https://discord.com",
+            "Referer": "https://discord.com/channels/@me",
+            "Sec-Ch-Ua": self._generate_sec_ch_ua(),
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": f'"{self.profile.os}"',
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache"
+            "Dnt": "1",
+            "Upgrade-Insecure-Requests": "1",
+            "X-Debug-Options": "bugReporterEnabled",
+            "X-Discord-Locale": self.profile.locale,
+            "X-Discord-Timezone": self.profile.timezone,
+            "X-Super-Properties": self._generate_super_properties(),
+            "X-Fingerprint": fingerprint,
+            "Cookie": cookies,
         }
 
         return headers
 
-    def _get_user_agent(self) -> str:
-        """Get a random user agent"""
-        template = random.choice(self.user_agent_templates)
-        version = random.randint(115, 125)
-        return template.format(version=version)
-
-    def _rotate_headers(self):
-        """Rotate header values to avoid patterns"""
-        # Could implement more sophisticated rotation here
-        pass
-
-class FingerprintManager:
-    """Manages browser fingerprints for consistency"""
-
-    def __init__(self):
-        self.user_id: Optional[str] = None
-        self.fingerprint: Optional[str] = None
-        self.last_generated = 0
-        self.fingerprint_lifetime = 3600  # 1 hour
-
-    def set_user_id(self, user_id: str):
-        """Set user ID for fingerprint generation"""
-        self.user_id = user_id
-
-    def get_fingerprint(self) -> Optional[str]:
-        """Get or generate fingerprint"""
-        now = time.time()
-
-        if not self.fingerprint or now - self.last_generated > self.fingerprint_lifetime:
-            self.fingerprint = self._generate_fingerprint()
-            self.last_generated = now
-
-        return self.fingerprint
-
-    def _generate_fingerprint(self) -> str:
-        """Generate a consistent fingerprint"""
-        if not self.user_id:
-            return str(uuid.uuid4())
-
-        # Create deterministic fingerprint based on user ID
-        hash_input = f"{self.user_id}:{int(time.time() // 3600)}"  # Changes hourly
-        return hashlib.md5(hash_input.encode()).hexdigest()
-
-class BehaviorSimulator:
-    """Simulates human-like behavior patterns"""
-
-    def __init__(self):
-        self.last_action = 0
-        self.action_count = 0
-        self.burst_count = 0
-        self.burst_start = 0
-
-    def get_delay(self) -> Optional[float]:
-        """Get delay to simulate human behavior"""
-        now = time.time()
-
-        # Reset counters periodically
-        if now - self.last_action > 300:  # 5 minutes
-            self.action_count = 0
-            self.burst_count = 0
-
-        # Simulate typing delays
-        if self.action_count > 0:
-            # Add random delays between actions
-            base_delay = random.uniform(0.5, 2.0)
-
-            # Add longer delays after bursts
-            if self.burst_count > 5:
-                base_delay += random.uniform(1.0, 3.0)
-                self.burst_count = 0
-
-            return base_delay
-
-        return None
-
-    def record_success(self):
-        """Record successful action"""
-        now = time.time()
-        self.last_action = now
-        self.action_count += 1
-        self.burst_count += 1
-
-class HeaderSpoofer:
-    """Main header spoofer class v2"""
-
-    def __init__(self):
-        self.protection_coordinator = ProtectionCoordinator()
-        self.session: Optional[Session] = None
-
-    def initialize_with_token(self, token: str):
-        """Initialize with bot token"""
-        self.protection_coordinator.initialize_with_token(token)
-        self.session = self._create_session()
-
-    def _create_session(self) -> Session:
-        """Create a protected session"""
-        session = Session()
-
-        # Set default headers
-        session.headers.update({
-            "Accept": "*/*",
-            "Accept-Language": "en-US,en;q=0.9",
+    def get_websocket_headers(self) -> Dict[str, str]:
+        """Get websocket headers"""
+        return {
+            "User-Agent": self.profile.user_agent,
             "Accept-Encoding": "gzip, deflate, br",
-            "DNT": "1",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
+            "Accept-Language": self.profile.locale,
             "Cache-Control": "no-cache",
-            "Pragma": "no-cache"
-        })
-
-        return session
-
-    def get_protected_headers(self, token: str) -> Dict[str, str]:
-        """Get fully protected headers"""
-        return self.protection_coordinator.get_headers(token)
+            "Pragma": "no-cache",
+            "Sec-WebSocket-Extensions": "permessage-deflate; client_max_window_bits",
+            "Sec-WebSocket-Key": base64.b64encode(str(time.time()).encode()).decode()[:24],
+            "Sec-WebSocket-Version": "13",
+            "Upgrade": "websocket",
+            "Connection": "Upgrade",
+            "Origin": "https://discord.com",
+            "Sec-WebSocket-Protocol": "json"
+        }
 
     def check_rate_limits(self) -> Optional[float]:
-        """Check all rate limits"""
-        return self.protection_coordinator.check_protection()
-
-    def handle_response(self, response: Response) -> Optional[float]:
-        """Handle response and return any required wait time"""
-        if response.status_code == 429:
-            return self.protection_coordinator.handle_429_response(dict(response.headers))
-        elif response.status_code == 200:
-            self.protection_coordinator.handle_success_response()
-            return None
+        """Check rate limits"""
         return None
 
-# Export the main class
-__all__ = ['HeaderSpoofer', 'ProtectionCoordinator', 'RateLimiter']
+    def handle_response(self, response: Response) -> Optional[float]:
+        """Handle response"""
+        if response.status_code == 429:
+            retry_after = float(response.headers.get("Retry-After", "1.0"))
+            return retry_after + random.uniform(0.5, 2.0)
+        return None
+
+    def rotate_profile(self):
+        """Rotate browser profile"""
+        self.profile = BrowserProfile()
+        self.cache_time = 0
+        self.fingerprint = ""
+
+
+__all__ = ['HeaderSpoofer', 'RateLimiter', 'BrowserProfile']

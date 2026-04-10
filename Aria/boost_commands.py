@@ -96,11 +96,11 @@ boost list :: List boosted servers```"""
             server_list = args[1].split(",")
             hours = int(args[2]) if len(args) >= 3 else 24
             success, message = boost_manager.start_rotation(server_list, hours)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n[ Boost ]\n> {message}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Boost** rotation started. {message}.")
         
         elif args[0] == "stop":
             success, message = boost_manager.stop_rotation()
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n[ Boost ]\n> {message}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Boost** rotation stopped. {message}.")
         
         elif args[0] == "list":
             boosted = boost_manager.get_boosted_servers()

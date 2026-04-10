@@ -16,7 +16,7 @@ class HostManager:
         self.lock = threading.Lock()
         self.hosting_enabled = True  # owner toggle — allows non-owners to use +host
         self._load_saved_users()
-        self._print_startup_summary()
+        # Removed: self._print_startup_summary()  <- This was causing duplicate loading
 
     # ------------------------------------------------------------------
     # Persistence
@@ -29,6 +29,28 @@ class HostManager:
                     self.saved_users = json.load(f)
         except Exception:
             self.saved_users = {}
+    
+    def print_loaded_users_summary(self):
+        """
+        Call this ONCE after all initialization is complete.
+        This prevents duplicate user loading at startup.
+        """
+        total = len(self.saved_users)
+        print(f"\033[1;36m[HOST]\033[0m Loaded hosted users: {total}")
+        seen_users = set()  # Track which users we've printed to prevent duplicates
+        
+        for entry in self.saved_users.values():
+            user_id = entry.get("user_id", "unknown")
+            if user_id in seen_users:
+                continue  # Skip duplicate users
+            
+            seen_users.add(user_id)
+            username = entry.get("username") or "unknown"
+            uid = entry.get("uid") or "unknown"
+            owner = entry.get("owner") or "unknown"
+            print(
+                f"\033[1;36m[HOSTED USER]\033[0m user={username} | user_id={user_id} | uid={uid} | owner={owner}"
+            )
 
     def _save_users(self):
         try:
@@ -36,18 +58,6 @@ class HostManager:
                 json.dump(self.saved_users, f, indent=4)
         except Exception as e:
             print(f"Host save error: {e}")
-
-    def _print_startup_summary(self):
-        total = len(self.saved_users)
-        print(f"\033[1;36m[HOST]\033[0m Loaded hosted users: {total}")
-        for entry in self.saved_users.values():
-            username = entry.get("username") or "unknown"
-            user_id = entry.get("user_id") or "unknown"
-            uid = entry.get("uid") or "unknown"
-            owner = entry.get("owner") or "unknown"
-            print(
-                f"\033[1;36m[HOSTED USER]\033[0m user={username} | user_id={user_id} | uid={uid} | owner={owner}"
-            )
 
     # ------------------------------------------------------------------
 

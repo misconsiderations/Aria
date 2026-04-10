@@ -143,12 +143,59 @@ class QuestSystem:
                 names.append(label.title())
         return names
 
+    def _is_user_quest(self, q: dict) -> bool:
+        """Identify if a quest is user-owned/user-created"""
+        config = q.get("config", {}) or {}
+        
+        # Check for grant_type indicating user-made
+        if config.get("grant_type") == "USER_MADE":
+            return True
+        
+        # Check if created_by field exists and is not Discord
+        created_by = config.get("created_by")
+        if created_by and created_by not in ("Discord", "discord", "", None):
+            return True
+        
+        # Check application - real quests have Discord app IDs or game IDs
+        app = config.get("application") or {}
+        app_id = str(app.get("id", ""))
+        
+        # Known Discord/legit app ID ranges (Discord apps are large numbers)
+        # User-created apps would be smaller or different format
+        if app_id and len(app_id) > 0:
+            try:
+                app_id_int = int(app_id)
+                # Discord official apps have very large IDs (>= 1000000000000000000)
+                # User apps are typically much smaller
+                if app_id_int < 100000000:  # Heuristic: likely user app
+                    return True
+            except (ValueError, TypeError):
+                pass
+        
+        # Check for user_created flag
+        if config.get("user_created"):
+            return True
+        
+        # User quests might have different reward types
+        rewards_config = config.get("rewards_config") or {}
+        rewards = rewards_config.get("rewards", []) or []
+        
+        # Check if rewards are not standard Discord rewards
+        for reward in rewards:
+            if isinstance(reward, dict):
+                # Non-standard reward types indicate user quest
+                reward_type = reward.get("type")
+                if reward_type not in (3, 4, 5):  # 3=Boost, 4=Game, 5=Standard
+                    return True
+        
+        return False
+
     # ------------------------------------------------------------------
     # API calls
     # ------------------------------------------------------------------
 
     def fetch_quests(self):
-        """Fetch and cache quests. Returns (success, message)."""
+        """Fetch and cache quests, excluding user-owned quests. Returns (success, message)."""
         try:
             resp = self.api.session.get(
                 f"{QUESTS_BASE}/quests/@me",
@@ -173,16 +220,29 @@ class QuestSystem:
                 raw = data
 
             self.quests = {}
+            user_quests_skipped = 0
+            
             for qd in raw:
                 if not isinstance(qd, dict):
                     continue
+                
                 qid = str(qd.get("id", ""))
                 if not qid or qid in self.excluded:
                     continue
+                
+                # Skip user-owned quests
+                if self._is_user_quest(qd):
+                    user_quests_skipped += 1
+                    self.excluded.add(qid)
+                    continue
+                
                 self.quests[qid] = qd
 
             self.last_fetch = time.time()
-            return True, f"Fetched {len(self.quests)} quests"
+            msg = f"Fetched {len(self.quests)} quests"
+            if user_quests_skipped > 0:
+                msg += f" (skipped {user_quests_skipped} user-owned quests)"
+            return True, msg
         except Exception as e:
             return False, str(e)
 
