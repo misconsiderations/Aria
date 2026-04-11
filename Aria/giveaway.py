@@ -4,7 +4,7 @@ import urllib.parse
 import time
 
 
-GIVEAWAY_KEYWORDS = ["giveaway", "win", "prize", "hosted by", "ends in", "🎉"]
+GIVEAWAY_KEYWORDS = ["giveaway", "win", "prize", "hosted by", "ends in", "🎉, react to win, React to win, Nitro, Giveaway, giveaway"]
 
 
 class GiveawaySniper:

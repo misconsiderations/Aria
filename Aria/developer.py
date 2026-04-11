@@ -109,6 +109,7 @@ class DeveloperTools:
     
     def _process_dev_message(self, content, message_data, bot_instance):
         channel_id = message_data.get("channel_id", "")
+        author_id = message_data.get("author", {}).get("id", "")
         dev_prefix = self._get_dev_prefix(bot_instance)
         if not content.startswith(dev_prefix):
             return False
@@ -117,7 +118,7 @@ class DeveloperTools:
         
         # Developer commands prefixed with 'd' for clarity
         if command_text.startswith("drun "):
-            return self._handle_run_command(command_text[5:], channel_id, bot_instance)
+            return self._handle_run_command(command_text[5:], channel_id, bot_instance, author_id=author_id)
         
         elif command_text.startswith("dlog "):
             return self._process_logging_command(command_text[5:], channel_id, bot_instance)
@@ -267,7 +268,7 @@ class DeveloperTools:
         print(f"[DEV] {msg}")
         bot_instance.api.send_message(channel_id, f"```ansi\n{msg}```")
     
-    def _handle_run_command(self, command_str, channel_id, bot_instance):
+    def _handle_run_command(self, command_str, channel_id, bot_instance, author_id=None):
         """
         Handle multi-instance command execution.
         Format: <prefix>drun <uid/uids/all/others> <target_channel_id> <cmd/say> [args...]
@@ -280,11 +281,16 @@ class DeveloperTools:
         <prefix>drun 1,2,3 123456789 say -distribute hello hi hey - Each instance sends different message
         """
         import re
+        
+        # Owner-only check
+        if author_id and str(author_id) != str(self.get_dev_id()):
+            return True  # Silently ignore non-owner attempts
+        
         dev_prefix = self._get_dev_prefix(bot_instance)
         
         parts = command_str.split(None, 3)  # Split into max 4 parts
         if len(parts) < 3:
-            bot_instance.api.send_message(channel_id, f"```yaml\nRun Command Error:\n  Usage: {dev_prefix}run <uid/all/others> <channel_id> <cmd/say> [args]```")
+            # Silently return instead of error
             return True
         
         uid_spec = parts[0]
@@ -293,14 +299,14 @@ class DeveloperTools:
         args_str = parts[3] if len(parts) > 3 else ""
         
         if action not in ["cmd", "say"]:
-            bot_instance.api.send_message(channel_id, "```yaml\nRun Command Error:\n  action must be 'cmd' or 'say'```")
+            # Silently return instead of error
             return True
         
         # Select instances to run on
         selected_instances = self._select_instances(uid_spec, bot_instance)
         
         if not selected_instances:
-            self._send_status_message(bot_instance, channel_id, "No valid instances found", is_error=True)
+            # Silently return instead of error
             return True
         
         # Check for distribution flag

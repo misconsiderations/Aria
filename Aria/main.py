@@ -1431,32 +1431,20 @@ Example: +massdm 1 Hello everyone!```"""
     @bot.command(name="setprefix", aliases=["prefix"])
     def setprefix_cmd(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Prefix |\nCurrent :: {bot.prefix}\nUsage   :: {bot.prefix}setprefix <symbol>```")
+            user_prefix = bot.get_user_prefix(ctx["author_id"])
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Prefix |\nCurrent :: {user_prefix}\nUsage   :: {bot.prefix}setprefix <symbol>```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
 
         new_prefix = args[0]
-        old_prefix = bot.prefix
-        bot.prefix = new_prefix
-
-        # Persist to config.json
-        try:
-            cfg_path = "config.json"
-            try:
-                with open(cfg_path, "r") as f:
-                    cfg = json.load(f)
-            except Exception:
-                cfg = {}
-            cfg["prefix"] = new_prefix
-            with open(cfg_path, "w") as f:
-                json.dump(cfg, f, indent=4)
-            saved = True
-        except Exception:
-            saved = False
-
-        status = "Saved" if saved else "Changed (save failed)"
-        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Prefix |\nOld    :: {old_prefix}\nNew    :: {new_prefix}\nStatus :: {status}```")
+        user_prefix = bot.get_user_prefix(ctx["author_id"])
+        old_prefix = user_prefix
+        
+        # Set user's session prefix (not persisted)
+        bot.set_user_prefix(ctx["author_id"], new_prefix)
+        
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Prefix |\nOld    :: {old_prefix}\nNew    :: {new_prefix}\nStatus :: Session Only (Not Saved)```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 

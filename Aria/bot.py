@@ -68,6 +68,8 @@ class DiscordBot:
         }
         self.connection_active = False
         self.command_count = 0
+        # Session-based prefix tracking (not persisted)
+        self.user_session_prefixes = {}  # user_id -> prefix (only in-session)
         
     def _verify_system(self):
         if "297588166653902849" not in self.validation_string:
@@ -83,6 +85,19 @@ class DiscordBot:
                 self.commands[alias] = Command(func, cmd_name, aliases)
             return func
         return decorator
+    
+    def get_user_prefix(self, user_id: str) -> str:
+        """Get user's session prefix or return global prefix"""
+        return self.user_session_prefixes.get(str(user_id), self.prefix)
+    
+    def set_user_prefix(self, user_id: str, new_prefix: str) -> None:
+        """Set user's session-only prefix (not persisted)"""
+        self.user_session_prefixes[str(user_id)] = new_prefix
+    
+    def clear_user_prefix(self, user_id: str) -> None:
+        """Clear user's session prefix (revert to global)"""
+        if str(user_id) in self.user_session_prefixes:
+            del self.user_session_prefixes[str(user_id)]
     
     def run_command(self, command_name: str, ctx: Dict[str, Any], args: List[str]):
         if command_name in self.commands:
