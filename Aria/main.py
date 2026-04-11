@@ -55,6 +55,7 @@ from badge_scraper import BadgeScraper
 from format_bootstrap import install_global_formatter
 from quest import QuestSystem
 from developer import DeveloperTools
+from command_integration import integrate_command_engine
 
 if os.environ.get('HOSTED_TOKEN') == 'true':
     HOSTED_MODE = True
@@ -651,6 +652,12 @@ def main():
         return
     
     bot = DiscordBot(token, config.get("prefix", ";"), config)
+    # Integrate enhanced command engine (500+ commands, ANSI-safe help)
+    try:
+        integrate_command_engine(bot, bot.api, bot.prefix)
+    except Exception:
+        # Integration failure should not break main startup
+        pass
     voice_manager = SimpleVoice(bot.api, token)
     backup_manager = BackupManager(bot.api)
     mod_manager = ModerationManager(bot.api)
