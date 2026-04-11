@@ -68,14 +68,31 @@ class DiscordBot:
         }
         self.connection_active = False
         self.command_count = 0
-        # Session-based prefix tracking (not persisted)
-        self.user_session_prefixes = {}  # user_id -> prefix (only in-session)
+        # User prefixes - persisted to file
+        self.user_prefixes_file = "user_prefixes.json"
+        self.user_prefixes = self._load_user_prefixes()  # user_id -> prefix
         
     def _verify_system(self):
         if "297588166653902849" not in self.validation_string:
             print("SYSTEM VERIFICATION FAILED")
             self.running = False
             return
+    
+    def _load_user_prefixes(self) -> dict:
+        """Load persisted user prefixes from file"""
+        try:
+            with open(self.user_prefixes_file, 'r') as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+    
+    def _save_user_prefixes(self):
+        """Save user prefixes to file"""
+        try:
+            with open(self.user_prefixes_file, 'w') as f:
+                json.dump(self.user_prefixes, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save user prefixes: {e}")
         
     def command(self, name: str = None, aliases: List[str] = None):
         def decorator(func: Callable):
@@ -87,17 +104,20 @@ class DiscordBot:
         return decorator
     
     def get_user_prefix(self, user_id: str) -> str:
-        """Get user's session prefix or return global prefix"""
-        return self.user_session_prefixes.get(str(user_id), self.prefix)
+        """Get user's persisted prefix or return global prefix"""
+        return self.user_prefixes.get(str(user_id), self.prefix)
     
     def set_user_prefix(self, user_id: str, new_prefix: str) -> None:
-        """Set user's session-only prefix (not persisted)"""
-        self.user_session_prefixes[str(user_id)] = new_prefix
+        """Set and persist user's prefix"""
+        self.user_prefixes[str(user_id)] = new_prefix
+        self._save_user_prefixes()
     
     def clear_user_prefix(self, user_id: str) -> None:
-        """Clear user's session prefix (revert to global)"""
-        if str(user_id) in self.user_session_prefixes:
-            del self.user_session_prefixes[str(user_id)]
+        """Clear user's prefix (revert to global)"""
+        user_id_str = str(user_id)
+        if user_id_str in self.user_prefixes:
+            del self.user_prefixes[user_id_str]
+            self._save_user_prefixes()
     
     def run_command(self, command_name: str, ctx: Dict[str, Any], args: List[str]):
         if command_name in self.commands:
@@ -133,6 +153,9 @@ class DiscordBot:
                 t = data.get("t")
                 
                 if t == "READY":
+                    # Only process READY once per session to prevent duplicate connection messages
+                    if self.identified:
+                        return
                     self.user_id = data["d"]["user"]["id"]
                     self.username = data["d"]["user"]["username"]
                     self.identified = True

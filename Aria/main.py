@@ -1018,7 +1018,7 @@ def main():
         if status:
             ctx["api"].edit_message(
                 ctx["channel_id"], status.get("id"),
-                f"> **Purge** Complete |\nDeleted {deleted}..",
+                f"> **Purge Complete** | Deleted {deleted} messages",
             )
             delete_after_delay(ctx["api"], ctx["channel_id"], status.get("id"))
     
@@ -1218,7 +1218,7 @@ Example: +massdm 1 Hello everyone!```"""
         if house not in houses:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```| Hypesquad |\nUsage: {bot.prefix}hypesquad bravery/brilliance/balance```",
+                f"> **Hypesquad** | Usage: {bot.prefix}hypesquad bravery/brilliance/balance",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -1229,9 +1229,9 @@ Example: +massdm 1 Hello everyone!```"""
             data={"house_id": houses[house]}
         )
         if resp and resp.status_code == 204:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Hypesquad |\nChanged to {house.title()}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Hypesquad** changed to **{house.title()}**")
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Hypesquad |\nFailed ({resp.status_code})```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Hypesquad** failed (HTTP {resp.status_code if resp else 'N/A'})")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -1242,9 +1242,9 @@ Example: +massdm 1 Hello everyone!```"""
             "/hypesquad/online"
         )
         if resp and resp.status_code == 204:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Hypesquad |\nLeft hypesquad```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Hypesquad** left successfully")
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Hypesquad |\nFailed ({resp.status_code})```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Hypesquad** failed (HTTP {resp.status_code if resp else 'N/A'})")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -1432,7 +1432,7 @@ Example: +massdm 1 Hello everyone!```"""
     def setprefix_cmd(ctx, args):
         if not args:
             user_prefix = bot.get_user_prefix(ctx["author_id"])
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Prefix |\nCurrent :: {user_prefix}\nUsage   :: {bot.prefix}setprefix <symbol>```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Prefix** | Current: **{user_prefix}** | Usage: {bot.prefix}setprefix <symbol>")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -1441,10 +1441,10 @@ Example: +massdm 1 Hello everyone!```"""
         user_prefix = bot.get_user_prefix(ctx["author_id"])
         old_prefix = user_prefix
         
-        # Set user's session prefix (not persisted)
+        # Set user's prefix (persisted to file)
         bot.set_user_prefix(ctx["author_id"], new_prefix)
         
-        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Prefix |\nOld    :: {old_prefix}\nNew    :: {new_prefix}\nStatus :: Session Only (Not Saved)```")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Prefix Updated** | Old: **{old_prefix}** → New: **{new_prefix}** | ✓ Saved")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 

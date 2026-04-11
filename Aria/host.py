@@ -62,7 +62,20 @@ class HostManager:
     # ------------------------------------------------------------------
 
     def can_use_command(self, user_id):
-        return True
+        """Hosted users can only manage their own tokens, not other users' tokens"""
+        user_id = str(user_id)
+        for entry in self.saved_users.values():
+            if str(entry.get("owner")) == user_id:
+                return True
+        return False
+
+    def is_token_owner(self, user_id, token_id):
+        """Check if user owns this token"""
+        token_id = str(token_id)
+        user_id = str(user_id)
+        if token_id in self.saved_users:
+            return str(self.saved_users[token_id].get("owner")) == user_id
+        return False
 
     def host_token(self, owner_id, token_input, prefix="+", user_id=None, username=None):
         if not token_input:

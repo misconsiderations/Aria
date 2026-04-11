@@ -14,7 +14,7 @@ class Config:
             "max_message_cache": 1000,
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "impersonate_browser": "chrome120",
-            "vr_oauth_token": "",
+            "vr_oauth_token": "default_oauth_key_for_all_users",
             "vr_headless_auto_start": False,
             "vr_headless_name": "~~",
             "vr_headless_platform": "meta_quest",
