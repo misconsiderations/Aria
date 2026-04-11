@@ -76,7 +76,7 @@ class VoiceClient:
             "self_deaf": False
         })
         
-        if response and response.status_code == 200:
+        if response and response.status_code in (200, 204):
             print(f"2. Voice state updated, starting gateway")
             self.gateway_thread = threading.Thread(target=self._gateway_thread_func, args=(channel_id,), daemon=True)
             self.gateway_thread.start()
@@ -130,6 +130,7 @@ class VoiceClient:
             
             self.gateway_ws = ws
             self.gateway_connected = True
+            self.gateway_running = True
             
             await self._gateway_identify(ws)
             
@@ -326,7 +327,21 @@ class VoiceClient:
     def disconnect(self):
         self.running = False
         self.gateway_running = False
-        
+
+        if self.gateway_ws:
+            try:
+                self.gateway_ws.close()
+            except:
+                pass
+            self.gateway_ws = None
+
+        if self.voice_ws:
+            try:
+                self.voice_ws.close()
+            except:
+                pass
+            self.voice_ws = None
+
         if self.guild_id and not self.is_dm_call:
             try:
                 self.api.request("PATCH", f"/guilds/{self.guild_id}/voice-states/@me", data={
@@ -352,8 +367,8 @@ class SimpleVoice:
         
         connection_key = f"channel_{channel_id}"
         
-        if connection_key in self.active_connections:
-            self.leave_vc(channel_id)
+        if self.active_connections:
+            self.leave_vc()
         
         print(f"Join VC: {channel_id}")
         voice_client = VoiceClient(self.api, self.token)
@@ -379,14 +394,16 @@ class SimpleVoice:
                 success = self.active_connections[connection_key].disconnect()
                 del self.active_connections[connection_key]
                 return success
+            return False
         else:
+            if not self.active_connections:
+                return False
             success = True
             for key, client in list(self.active_connections.items()):
                 if not client.disconnect():
                     success = False
                 del self.active_connections[key]
             return success
-        return False
     
     def is_in_voice(self, *args, **kwargs):
         if args and isinstance(args[0], str) and args[0].isdigit():

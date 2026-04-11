@@ -2079,10 +2079,10 @@ timer "Details | State | Name | Start | End [| image_url]"
 
 Examples:
 +rpc spotify "Song Name | Artist Name | Album Name | 3.5 | https://image.url"
-+rpc listening "Playing my playlist | 15 tracks | Spotify | https://image.url >> Listen Now >> https://spotify.com"
-+rpc streaming "Playing GTA V | In session | Twitch | https://image.url >> Watch Live >> https://twitch.tv"
-+rpc playing "Level 85 | Questing | World of Warcraft | https://image.url"
-+rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https://image.url"```"""
+rpc listening "Playing my playlist | 15 tracks | Spotify | https://image.url >> Listen Now >> https://spotify.com"
+rpc streaming "Playing GTA V | In session | Twitch | https://image.url >> Watch Live >> https://twitch.tv"
+rpc playing "Level 85 | Questing | World of Warcraft | https://image.url"
+rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https://image.url"```"""
             msg = ctx["api"].send_message(ctx["channel_id"], help_text)
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -4259,7 +4259,7 @@ Examples:
             if 'msg' in locals() and msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
         else:
-            page_options = "Available pages: utility, messaging, profile, server, voice, social, boost, backup, moderation, hosting, token, owner, afk, nitro, agct, raw, quest, all"
+            page_options = "Available pages: Utility, Messaging, Profile, Server, Voice, Social, Boost, Backup, Moderation, Hosting, Token, Owner, AFK, Nitro, AGCT, Quest, All"
             error_body = f"{fmt.RED}Invalid page{fmt.RESET}\n{fmt.WHITE}{page_options}{fmt.RESET}"
             error_msg = fmt.layout("Help", error_body, f"{p}help all")
             
