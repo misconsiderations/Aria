@@ -6,7 +6,7 @@ class ConfigContainer:
     def __init__(self):
         self.token: Optional[str] = None
         self.debug: bool = False
-        self.prefix: str = "+"
+        self.prefix: str = ";"
 
 # Global instance
 container = ConfigContainer()

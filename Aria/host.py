@@ -27,6 +27,10 @@ class HostManager:
             if os.path.exists(HOSTED_USERS_FILE):
                 with open(HOSTED_USERS_FILE, "r") as f:
                     self.saved_users = json.load(f)
+                    # Ensure UID is always present
+                    for token_id, user_data in self.saved_users.items():
+                        if "uid" not in user_data:
+                            user_data["uid"] = "unknown"
         except Exception:
             self.saved_users = {}
     
@@ -77,7 +81,7 @@ class HostManager:
             return str(self.saved_users[token_id].get("owner")) == user_id
         return False
 
-    def host_token(self, owner_id, token_input, prefix="+", user_id=None, username=None):
+    def host_token(self, owner_id, token_input, prefix=";", user_id=None, username=None):
         if not token_input:
             return False, "No token"
 
@@ -279,5 +283,30 @@ subprocess.run([sys.executable, "main.py"])
                     except:
                         pass
                 del self.active_tokens[token_id]
+
+    def _remove_invalid_users(self):
+        """Remove users with invalid tokens from the hosted list."""
+        with self.lock:
+            invalid_users = [tid for tid, data in self.saved_users.items() if not self._is_token_valid(data.get("token"))]
+            for tid in invalid_users:
+                del self.saved_users[tid]
+                print(f"Removed invalid user: {tid}")
+            self._save_users()
+
+    def _is_token_valid(self, token):
+        """Check if a token is valid."""
+        return token and len(token) > 10  # Example validation logic
+
+    def rehost_user(self, user_id, username, uid):
+        """Re-add a user to the hosted list if rehosted."""
+        with self.lock:
+            if user_id not in self.saved_users:
+                self.saved_users[user_id] = {
+                    "username": username,
+                    "uid": uid,
+                    "owner": user_id
+                }
+                print(f"Rehosted user: {username} ({user_id})")
+                self._save_users()
 
 host_manager = HostManager()

@@ -90,7 +90,7 @@ BASIC USAGE:
 1. Import and initialize:
     from command_engine import CommandEngine, setup_commands_500
     
-    engine = CommandEngine(prefix="+")
+    engine = CommandEngine(prefix=";")
     setup_commands_500(engine)
 
 2. Register new commands:
@@ -130,7 +130,7 @@ Quick integration in main.py:
     from command_integration import integrate_command_engine
     
     # After bot initialization:
-    bot = DiscordBot(token, prefix="+")
+    bot = DiscordBot(token, prefix=";")
     integration = integrate_command_engine(bot, bot.api, "+")
     
     # Now these commands work:

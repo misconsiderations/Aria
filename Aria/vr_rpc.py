@@ -16,6 +16,7 @@ import threading
 import traceback
 import time
 import importlib
+import json
 
 
 class _RawAuthorizationToken:
@@ -99,26 +100,23 @@ class VRRPC:
         with self._restart_lock:
             if self._restart_in_progress:
                 return False
+
             self._restart_in_progress = True
+            try:
+                # Generalize VR config for all users
+                self.config = self._load_vr_config()
+                self._close_client()
+                self._start_client()
+            finally:
+                self._restart_in_progress = False
 
+    def _load_vr_config(self):
+        """Load VR configuration dynamically for hosted users."""
         try:
-            print(f"[VR RPC] Restarting VR client: {reason}")
-            old_thread = self.thread
-            self._mark_gateway_disconnected()
-            self._close_client(timeout=10)
-
-            if old_thread and old_thread.is_alive() and old_thread is not threading.current_thread():
-                old_thread.join(timeout=10)
-                if old_thread.is_alive():
-                    print("[VR RPC] Warning: previous VR client thread did not exit after restart request")
-                    return False
-
-            self.client = None
-            self.thread = None
-            self._launch_client_thread(*self._last_start_args)
-            return True
-        finally:
-            self._restart_in_progress = False
+            with open("vr_config.json", "r") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return {"default": "config"}
 
     def _check_client_health(self):
         if not self._desired_running or self._stop_requested or not self._last_start_args:

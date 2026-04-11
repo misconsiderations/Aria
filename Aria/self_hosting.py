@@ -51,8 +51,8 @@ class SelfUserHostingManager:
         except Exception as e:
             print(f"[SelfHosting] Error saving settings: {e}")
     
-    def register_user(self, user_id: str, token: str, owner_id: str, 
-                     prefix: str = "+", settings: Dict[str, Any] = None) -> Tuple[bool, str]:
+    def register_user(self, user_id: str, token: str, owner_id: str,
+                     prefix: str = ";", settings: Dict[str, Any] = None) -> Tuple[bool, str]:
         """
         Register a user as a self-hosted account.
         The user will have access to bot functions using their own token.
@@ -69,7 +69,7 @@ class SelfUserHostingManager:
             
             self.hosted_accounts[user_id] = {
                 "token": token,
-                "prefix": prefix or "+",
+                "prefix": prefix or ";",
                 "owner": str(owner_id),
                 "settings": settings or {},
                 "enabled": True,
@@ -94,7 +94,7 @@ class SelfUserHostingManager:
     def get_account_prefix(self, user_id: str) -> str:
         """Get a hosted user's command prefix"""
         account = self.get_account(user_id)
-        return account.get("prefix", "+") if account else "+"
+        return account.get("prefix", ";") if account else ";"
     
     def is_self_hosted(self, user_id: str) -> bool:
         """Check if user is registered as self-hosted"""

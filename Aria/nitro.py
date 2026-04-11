@@ -8,6 +8,7 @@ class NitroSniper:
         self.api = api_client
         self.enabled = False
         self.used_codes = set()
+        self.claimed_count = 0
         self.lock = threading.Lock()
         
     def check_message(self, message_data):
@@ -62,6 +63,8 @@ class NitroSniper:
             if response.status_code == 200:
                 response_data = response.json()
                 if "subscription_plan" in str(response_data):
+                    with self.lock:
+                        self.claimed_count += 1
                     print(f"\033[1;32m[NITRO CLAIMED]\033[0m [{timestamp}] Code: {code} | {elapsed:.1f}ms")
                 elif "already been redeemed" in str(response_data):
                     print(f"\033[1;33m[NITRO]\033[0m [{timestamp}] Already redeemed: {code} | {elapsed:.1f}ms")
@@ -90,7 +93,9 @@ class NitroSniper:
         with self.lock:
             return {
                 "enabled": self.enabled,
-                "used_codes": len(self.used_codes)
+                "used_codes": len(self.used_codes),
+                "claimed": self.claimed_count,
+                "cached": len(self.used_codes),
             }
 
 nitro_fast = None

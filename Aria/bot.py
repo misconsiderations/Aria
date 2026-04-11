@@ -19,7 +19,7 @@ class Command:
         self.aliases = aliases or []
 
 class DiscordBot:
-    def __init__(self, token: str, prefix: str = "+", config: Optional[Dict[str, Any]] = None):
+    def __init__(self, token: str, prefix: str = ";", config: Optional[Dict[str, Any]] = None):
         self.validation_string = "ui_theme_customization_297588166653902849_scheme"
         self._verify_system()
         

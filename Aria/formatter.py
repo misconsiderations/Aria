@@ -104,6 +104,21 @@ def boost_status(status: str, claimed: int, cached: int) -> str:
         f"{CYAN}{'Cached':<15}{DARK}:: {RESET}{WHITE}{cached} codes{RESET}"
     )
 
+def nitro_status(status: str, codes_checked: int) -> str:
+    return _block(
+        f"{CYAN}{'Status':<15}{DARK}:: {RESET}{WHITE}{status}{RESET}\n"
+        f"{CYAN}{'Claimed':<15}{DARK}:: {RESET}{WHITE}{codes_checked}{RESET}\n"
+        f"{CYAN}{'Cached':<15}{DARK}:: {RESET}{WHITE}{codes_checked} codes{RESET}"
+    )
+
+def giveaway_status(status: str, entered: int, won: int, failed: int) -> str:
+    return _block(
+        f"{CYAN}{'Status':<15}{DARK}:: {RESET}{WHITE}{status}{RESET}\n"
+        f"{CYAN}{'Entered':<15}{DARK}:: {RESET}{WHITE}{entered}{RESET}\n"
+        f"{CYAN}{'Won':<15}{DARK}:: {RESET}{WHITE}{won}{RESET}\n"
+        f"{CYAN}{'Failed':<15}{DARK}:: {RESET}{WHITE}{failed}{RESET}"
+    )
+
 def info_block(title: str, content: str) -> str:
     head = _block(f"{PURPLE}{BOLD}{title}{RESET}")
     body = _block(f"{WHITE}{content}{RESET}")

@@ -770,11 +770,8 @@ def main():
         elif args[0] == "stats":
             stats = ctx["bot"].nitro_sniper.get_stats()
             status = "ON" if stats["enabled"] else "OFF"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Nitro Stats |\nStatus: {status}\nCodes checked: {stats['used_codes']}```")
-        
-        if msg:
-            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-
+            import formatter as fmt
+             msg = ctx["api"].send_message(ctx["channel_id"], fmt.nitro_status(status, stats['claimed']))
     @bot.command(name="giveaway", aliases=["gw", "gsnipe"])
     def giveaway_cmd(ctx, args):
         gs = ctx["bot"].giveaway_sniper
@@ -789,9 +786,10 @@ def main():
         else:
             s = gs.get_stats()
             status = "ON" if s["enabled"] else "OFF"
+            import formatter as fmt
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```| Giveaway Sniper |\nStatus  :: {status}\nEntered :: {s['entered']}\nWon     :: {s['won']}\nFailed  :: {s['failed']}```",
+                fmt.giveaway_status(status, s['entered'], s['won'], s['failed']),
             )
 
         if msg:
@@ -1000,28 +998,32 @@ def main():
             ctx["channel_id"],
             f"> **Purging** {amount} messages{' for user ' + target_user if target_user else ''}...",
         )
+        status_id = status.get("id") if status else None
         messages = ctx["api"].get_messages(ctx["channel_id"], amount)
         deleted = 0
-        skipped = 0
         for m in messages:
+            if status_id and m.get("id") == status_id:
+                continue
+
             author_id = m.get("author", {}).get("id", "")
             is_mine = author_id == str(bot.user_id)
+
             if target_user:
-                # Delete any message from target user OR our own status messages
+                # Delete target user messages and our own status messages
                 if author_id != target_user and not is_mine:
-                    skipped += 1
-                    continue
-                if not is_mine:
-                    # Can only delete own messages as a user account
-                    skipped += 1
                     continue
             else:
+                # Without a target, only delete our own messages
                 if not is_mine:
-                    skipped += 1
                     continue
-            ctx["api"].delete_message(ctx["channel_id"], m["id"])
-            deleted += 1
-            time.sleep(0.3)
+
+            try:
+                ctx["api"].delete_message(ctx["channel_id"], m["id"])
+                deleted += 1
+                time.sleep(0.3)
+            except:
+                pass
+
         if status:
             ctx["api"].edit_message(
                 ctx["channel_id"], status.get("id"),
@@ -1120,8 +1122,8 @@ def main():
 2 :: Mass DM all your friends (with existing DMs)
 3 :: Both (DM history + friends with existing DMs)
 
-Usage: +massdm <1|2|3> <message>
-Example: +massdm 1 Hello everyone!```"""
+Usage: ;massdm <1|2|3> <message>
+Example:;massdm 1 Hello everyone!```"""
                 msg = ctx["api"].send_message(ctx["channel_id"], help_text)
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -1144,7 +1146,7 @@ Example: +massdm 1 Hello everyone!```"""
 
         status = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```| Join |\nJoining {invite}...```"
+            f"> **Joining** {invite}..."
         )
 
         try:
@@ -1178,14 +1180,14 @@ Example: +massdm 1 Hello everyone!```"""
         if status:
             ctx["api"].edit_message(
                 ctx["channel_id"], status.get("id"),
-                f"```| Join |\n{result}```"
+                f"> **Join** | {result}"
             )
             delete_after_delay(ctx["api"], ctx["channel_id"], status.get("id"))
 
     @bot.command(name="block", aliases=["blockuser", "bu"])
     def block_user(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Block |\nUsage: {bot.prefix}block <user_id> [user_id2] ...```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Block** | Usage: {bot.prefix}block <user_id> [user_id2] ...")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -1242,7 +1244,7 @@ Example: +massdm 1 Hello everyone!```"""
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
-    @bot.command(name="hypesquad_leave", aliases=["leavehypesquad", "hsl"])
+    @bot.command(name="hypesquad leave", aliases=["leavehypesquad", "hsl"])
     def hypesquad_leave_cmd(ctx, args):
         resp = ctx["api"].request(
             "DELETE",
@@ -4202,22 +4204,22 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
 
         if not args:
             categories = [
-                ("Utility", f"{p}General Tools & Commands"),
-                ("Messaging", f"{p}DM & Group Chat Protocols "),
-                ("Profile", f"{p}User identity & Presence"),
-                ("Server", f"{p}Guild settings & Configs"),
-                ("Voice", f"{p}VC Commands"),
-                ("Social", f"{p}Socials & Interactions"),
-                ("Boost", f"{p} Boosts Commands"),
-                ("Backup", f"{p}Data & config recovery"),
-                ("Moderation", f"{p}Server & Anti-Nuke"),
-                ("Hosting", f"{p}Auth & Account Access"),
-                ("Token", f"{p}Session & Instance Management"),
-                ("Owner", f"{p}Admin & Developer tools"),
-                ("AFK", f"{p} Status & Auto-response"),
-                ("Nitro", f"{p}Sniper and Gifts"),
-                ("AGCT", f"{p} Anti-GC Trapping"),
-                ("Quest", f"{p}Quest & task automation"),
+                ("Utility", f"General Tools & Commands"),
+                ("Messaging", f"DM & Group Chat Protocols "),
+                ("Profile", f"User identity & Presence"),
+                ("Server", f"Guild settings & Configs"),
+                ("Voice", f"VC Commands"),
+                ("Social", f"Socials & Interactions"),
+                ("Boost", f"Boosts Commands"),
+                ("Backup", f"Data & config recovery"),
+                ("Moderation", f"Server & Anti-Nuke"),
+                ("Hosting", f"Auth & Account Access"),
+                ("Token", f"Session & Instance Management"),
+                ("Owner", f"Admin & Developer tools"),
+                ("AFK", f"Status & Auto-response"),
+                ("Nitro", f"Sniper and Gifts"),
+                ("AGCT", f"Anti-GC Trapping"),
+                ("Quest", f"Quest & task automation"),
             
             ]
             msg = ctx["api"].send_message(
@@ -4225,7 +4227,7 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
                 fmt.command_page(
                     f"{p}help <category> or {p}help <command>",
                     categories,
-                    f"{p}Developed By Misconsideration",
+                    f"Developed By Misconsideration",
                 ),
             )
             if msg:
@@ -4725,21 +4727,25 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
 
     @bot.command(name="listallhosted")
     def listallhosted_cmd(ctx, args):
-        import formatter as fmt
         if not is_owner_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Host")
+            deny_restricted_command(ctx, "List All Hosted")
             return
+
+        import formatter as fmt
         hosted = host_manager.list_all_hosted()
         if not hosted:
-            msg = ctx["api"].send_message(ctx["channel_id"], "No hosted users.")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| All Hosted Tokens |\nNo hosted users```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
-        cmds = [("User", "#ID"), ("----", "---")]
+
+        cmds = [("User", "Owner", "#ID"), ("----", "-----", "---")]
         for u in hosted:
             name = u.get("username") or "Unknown"
+            owner = u.get("owner") or "Unknown"
             user_id = u.get("user_id", "?")
-            cmds.append((name, f"#{user_id}"))
+            cmds.append((name, owner, f"#{user_id}"))
+
         status_msg = fmt.command_page("All Hosted Tokens", cmds, f"{bot.prefix}listallhosted")
         msg = ctx["api"].send_message(ctx["channel_id"], status_msg)
         if msg:
@@ -4787,9 +4793,9 @@ backup list :: List all backups
 backup restore <filename> :: Restore from backup
 
 Examples:
-+backup user
-+backup messages 1234567890 500
-+backup list```""")
+;backup user
+;backup messages 1234567890 500
+;backup list```""")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -4843,9 +4849,9 @@ mod channels :: List all channels
 mod roles :: List all roles
 
 Examples:
-+mod kick 1111111111,2222222222
-+mod ban 1111111111,2222222222 1
-+mod filter add bad,word,here```""")
+;mod kick 1111111111,2222222222
+;mod ban 1111111111,2222222222 1
+;mod filter add bad,word,here```""")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -4964,20 +4970,29 @@ Note: Discord remains the only command interface```""")
         # ------------------------------------------------------------------
         if content and author_id and author_id != bot.user_id:
             for entry in host_manager.saved_users.values():
-                if entry.get("user_id") == author_id:
-                    hosted_prefix = entry.get("prefix", bot.prefix)
-                    if content.startswith(hosted_prefix) and len(content) > len(hosted_prefix):
-                        ctx = {
-                            "message": message_data,
-                            "channel_id": channel_id,
-                            "author_id": author_id,
-                            "api": bot.api,
-                            "bot": bot,
-                        }
-                        parts = content[len(hosted_prefix):].strip().split()
-                        if parts:
-                            bot.run_command(parts[0].lower(), ctx, parts[1:])
-                    break
+                hosted_user_id = str(entry.get("user_id", ""))
+                hosted_prefix = entry.get("prefix", bot.prefix)
+
+                # Only proceed if the message uses the hosted prefix
+                if not (content.startswith(hosted_prefix) and len(content) > len(hosted_prefix)):
+                    continue
+
+                # Allow execution only when the sender is the hosted user or the global owner
+                if str(author_id) != hosted_user_id and not is_owner_user(author_id):
+                    continue
+
+                ctx = {
+                    "message": message_data,
+                    "channel_id": channel_id,
+                    "author_id": hosted_user_id if is_owner_user(author_id) else author_id,
+                    "api": bot.api,
+                    "bot": bot,
+                }
+
+                parts = content[len(hosted_prefix):].strip().split()
+                if parts:
+                    bot.run_command(parts[0].lower(), ctx, parts[1:])
+                    return
 
         # Ignore normal message handling for anyone who is not hosted.
         # Control users still need access to owner/developer management paths.

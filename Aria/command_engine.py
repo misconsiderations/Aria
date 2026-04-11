@@ -39,7 +39,7 @@ class CommandInfo:
 class CommandEngine:
     """Manages 500+ commands with proper help system and ANSI formatting"""
     
-    def __init__(self, prefix: str = "+"):
+    def __init__(self, prefix: str = ";"):
         self.prefix = prefix
         self.categories: Dict[str, CommandCategory] = {}
         self.category_aliases: Dict[str, str] = {}
@@ -134,11 +134,24 @@ class CommandEngine:
         
         cmd = self.categories[category].add(name, description, aliases)
         self.all_commands[name] = cmd
-        
-        # Register aliases
+
+        # Register aliases and underscore-less variants
         for alias in (aliases or []):
             self.all_commands[alias] = cmd
-        
+
+        # Also register an underscore-less version of the command name
+        if "_" in name:
+            compact = name.replace("_", "")
+            if compact not in self.all_commands:
+                self.all_commands[compact] = cmd
+
+        # And register compact forms for any aliases that contain underscores
+        for alias in (aliases or []):
+            if "_" in alias:
+                compact_alias = alias.replace("_", "")
+                if compact_alias not in self.all_commands:
+                    self.all_commands[compact_alias] = cmd
+
         return cmd
     
     def get_category_commands(self, category: str) -> List[Tuple[str, str]]:
@@ -592,7 +605,7 @@ def setup_commands_500(engine: CommandEngine) -> None:
 
 if __name__ == "__main__":
     # Example usage
-    engine = CommandEngine(prefix="+")
+    engine = CommandEngine(prefix=";")
     setup_commands_500(engine)
     
     # Test help output

@@ -108,7 +108,7 @@ def setup_extended_system_commands(bot, delete_after_delay_func):
             return
         
         token = args[0].strip('"\' ')
-        prefix = args[1] if len(args) > 1 else "+"
+        prefix = args[1] if len(args) > 1 else ";"
         user_id = ctx["author_id"]
         
         success, message = ctx["bot"].self_hosting_manager.register_user(

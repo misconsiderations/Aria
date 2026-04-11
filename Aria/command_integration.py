@@ -11,7 +11,7 @@ import time
 class CommandIntegration:
     """Integrates CommandEngine with DiscordBot"""
     
-    def __init__(self, bot, api_client, prefix: str = "+"):
+    def __init__(self, bot, api_client, prefix: str = ";"):
         self.bot = bot
         self.api_client = api_client
         self.engine = CommandEngine(prefix=prefix)
@@ -218,12 +218,12 @@ class CommandIntegration:
         self.setup_utility_commands()
 
 
-def integrate_command_engine(bot, api_client, prefix: str = "+"):
+def integrate_command_engine(bot, api_client, prefix: str = ";"):
     """Quick integration function
     
     Usage in main.py:
         from command_integration import integrate_command_engine
-        integrate_command_engine(bot, bot.api, "+")
+        integrate_command_engine(bot, bot.api, ";")
     """
     integration = CommandIntegration(bot, api_client, prefix)
     integration.register_all()
