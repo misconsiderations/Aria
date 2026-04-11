@@ -4195,31 +4195,30 @@ Examples:
 
         if not args:
             categories = [
-                ("utility", f"{p}help utility"),
-                ("messaging", f"{p}help messaging"),
-                ("profile", f"{p}help profile"),
-                ("server", f"{p}help server"),
-                ("voice", f"{p}help voice"),
-                ("social", f"{p}help social"),
-                ("boost", f"{p}help boost"),
-                ("backup", f"{p}help backup"),
-                ("moderation", f"{p}help moderation"),
-                ("hosting", f"{p}help hosting"),
-                ("token", f"{p}help token"),
-                ("owner", f"{p}help owner"),
-                ("afk", f"{p}help afk"),
-                ("nitro", f"{p}help nitro"),
-                ("agct", f"{p}help agct"),
-                ("raw", f"{p}help raw"),
-                ("quest", f"{p}help quest"),
-                ("all", f"{p}help all"),
+                ("Utility", f"{p}General Tools & Commands"),
+                ("Messaging", f"{p}DM & Group Chat Protocols "),
+                ("Profile", f"{p}User identity & Presence"),
+                ("Server", f"{p}Guild settings & Configs"),
+                ("Voice", f"{p}VC Commands"),
+                ("Social", f"{p}Socials & Interactions"),
+                ("Boost", f"{p} Boosts Commands"),
+                ("Backup", f"{p}Data & config recovery"),
+                ("Moderation", f"{p}Server & Anti-Nuke"),
+                ("Hosting", f"{p}Auth & Account Access"),
+                ("Token", f"{p}Session & Instance Management"),
+                ("Owner", f"{p}Admin & Developer tools"),
+                ("AFK", f"{p} Status & Auto-response"),
+                ("Nitro", f"{p}Sniper and Gifts"),
+                ("AGCT", f"{p} Anti-GC Trapping"),
+                ("Quest", f"{p}Quest & task automation"),
+            
             ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
                 fmt.command_page(
                     f"{p}help <category> or {p}help <command>",
                     categories,
-                    f"{p}help all",
+                    f"{p}Developed By Misconsideration",
                 ),
             )
             if msg:
@@ -4380,7 +4379,7 @@ Examples:
     @bot.command(name="vc", aliases=["voice", "joinvc"])
     def vc(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Voice |\nUsage: +vc <channel_id>\nFor servers: +vc 1234567890\nFor DMs/GCs: +vc <dm_channel_id>```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Join VC** | Usage: +vc <channel_id>")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -4391,15 +4390,15 @@ Examples:
             success = voice_manager.join_vc(channel_id)
             
             if success:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice |\nConnected to voice\nID: {channel_id}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Connected to Voice** | Channel: **{channel_id}**")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice |\nFailed to connect\nCheck if ID is correct (must be VOICE channel)```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Failed** to connect to voice channel")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice |\nError: {str(e)[:50]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Voice error**: {str(e)[:80]}")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
@@ -4412,15 +4411,15 @@ Examples:
                 success = voice_manager.leave_vc()
             
             if success:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Voice |\nDisconnected from voice```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Disconnected** from voice")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Voice |\nNot in a voice channel```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Not in** a voice channel")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice |\nError: {str(e)[:50]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Voice error**: {str(e)[:80]}")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -4432,9 +4431,10 @@ Examples:
         channel_id = args[1] if len(args) > 1 else None
         try:
             ok, detail = voice_manager.set_video(channel_id, enabled)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice Cam |\n{detail}```")
+            status = "enabled" if enabled else "disabled"
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Camera** {status}")
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice Cam |\nError: {str(e)[:80]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Camera error**: {str(e)[:80]}")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -4446,9 +4446,10 @@ Examples:
         channel_id = args[1] if len(args) > 1 else None
         try:
             ok, detail = voice_manager.set_stream(channel_id, enabled)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice Stream |\n{detail}```")
+            status = "started" if enabled else "stopped"
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Go Live** {status}")
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Voice Stream |\nError: {str(e)[:80]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Stream error**: {str(e)[:80]}")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
