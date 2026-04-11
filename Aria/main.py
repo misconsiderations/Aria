@@ -1,3 +1,4 @@
+bot = None
 import sys
 import time
 import random
@@ -771,7 +772,7 @@ def main():
             stats = ctx["bot"].nitro_sniper.get_stats()
             status = "ON" if stats["enabled"] else "OFF"
             import formatter as fmt
-             msg = ctx["api"].send_message(ctx["channel_id"], fmt.nitro_status(status, stats['claimed']))
+        msg = ctx["api"].send_message(ctx["channel_id"], fmt.nitro_status(status, stats['claimed']))
     @bot.command(name="giveaway", aliases=["gw", "gsnipe"])
     def giveaway_cmd(ctx, args):
         gs = ctx["bot"].giveaway_sniper
