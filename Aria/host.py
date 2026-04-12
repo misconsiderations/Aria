@@ -181,13 +181,19 @@ subprocess.run([sys.executable, "main.py"], env=env)
             log_path = os.path.join(log_dir, f"hosted_{hosted_uid}.log")
             log_file = open(log_path, "a")
 
-            process = subprocess.Popen(
-                [sys.executable, runner_file],
-                stdout=log_file,
-                stderr=log_file,
-                stdin=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-            )
+            popen_kwargs = {
+                "args": [sys.executable, runner_file],
+                "stdout": log_file,
+                "stderr": log_file,
+                "stdin": subprocess.DEVNULL,
+            }
+            if os.name == "nt":
+                popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            else:
+                # Detach hosted instances from controller process group so they survive main shutdown.
+                popen_kwargs["start_new_session"] = True
+
+            process = subprocess.Popen(**popen_kwargs)
             log_file.close()  # parent closes; child keeps its own fd copy
             return process
 
@@ -303,6 +309,67 @@ subprocess.run([sys.executable, "main.py"], env=env)
                 pass  # force-stop suppressed
             self._save_users()
             return count
+
+    def restart_all(self):
+        """Restart all persisted hosted tokens without deleting saved entries."""
+        with self.lock:
+            saved_entries = [(token_id, data.copy()) for token_id, data in self.saved_users.items()]
+            active_ids = list(self.active_tokens.keys())
+
+        # Stop currently running processes first.
+        for token_id in active_ids:
+            stop_event = self._stop_events.pop(token_id, None)
+            if stop_event:
+                stop_event.set()
+            proc = self.processes.get(token_id)
+            if proc:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+
+        with self.lock:
+            self.processes = {}
+            self.active_tokens = {}
+
+        restarted = 0
+        for token_id, data in saved_entries:
+            token = data.get("token")
+            if not self._is_token_valid(token):
+                continue
+
+            prefix = data.get("prefix", ";")
+            config_file = f"hosted_{token_id}.json"
+            process = self._run_their_bot(
+                config_file,
+                token,
+                prefix=prefix,
+                hosted_uid=data.get("uid") or token_id,
+                owner_id=data.get("owner"),
+                user_id=data.get("user_id"),
+                username=data.get("username"),
+            )
+            if not process:
+                continue
+
+            entry = {
+                "uid": data.get("uid") or token_id,
+                "user_id": data.get("user_id", ""),
+                "username": data.get("username", ""),
+                "token": token,
+                "prefix": prefix,
+                "owner": data.get("owner", ""),
+                "config": config_file,
+            }
+
+            with self.lock:
+                self.active_tokens[token_id] = entry
+                self.processes[token_id] = process
+
+            self._start_keepalive(token_id)
+            restarted += 1
+
+        return restarted
 
     def list_hosted(self, requester_id):
         """Return only entries owned by requester_id."""

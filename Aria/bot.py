@@ -478,12 +478,18 @@ class DiscordBot:
 
             # Command dispatch — determine which prefix to use for this user
             active_prefix = self.get_user_prefix(author_id) if author_id else self.prefix
-            alt_prefix = self.config.get("alt_prefix", "") if isinstance(self.config, dict) else ""
+            config_get = getattr(self.config, "get", None)
+            if callable(config_get):
+                alt_prefix = config_get("alt_prefix", "") or config_get("new_prefix", "")
+            elif isinstance(self.config, dict):
+                alt_prefix = self.config.get("alt_prefix", "") or self.config.get("new_prefix", "")
+            else:
+                alt_prefix = ""
             if content.startswith(active_prefix):
-                matched_prefix = active_prefix
+                matched_prefix = str(active_prefix)
             elif alt_prefix and content.startswith(alt_prefix) and author_id == str(self.user_id):
                 # Alt prefix is only usable by the master owner (the running account)
-                matched_prefix = alt_prefix
+                matched_prefix = str(alt_prefix)
             else:
                 return
 

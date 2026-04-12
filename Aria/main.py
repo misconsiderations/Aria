@@ -1232,21 +1232,30 @@ def main():
 
         status = ctx["api"].send_message(
             ctx["channel_id"],
-            f"> **Purge** :: Deleting up to {amount} messages{' for ' + target_user if target_user else ''}...",
+            f"> **Purge** :: Scanning {amount} messages{' for ' + target_user if target_user else ''}...",
         )
         status_id = status.get("id") if status else None
         scan_limit = min(1000, max(amount, 1))
         messages = []
         before = None
-        while len(messages) < scan_limit:
-            batch_size = min(100, scan_limit - len(messages))
-            batch = ctx["api"].get_messages(ctx["channel_id"], batch_size, before=before)
-            if not batch:
-                break
-            messages.extend(batch)
-            before = batch[-1].get("id")
-            if len(batch) < batch_size or not before:
-                break
+        try:
+            while len(messages) < scan_limit:
+                batch_size = min(100, scan_limit - len(messages))
+                batch = ctx["api"].get_messages(ctx["channel_id"], batch_size, before=before)
+                if not batch:
+                    break
+                messages.extend(batch)
+                before = batch[-1].get("id")
+                if len(batch) < batch_size or not before:
+                    break
+        except Exception as e:
+            if status_id:
+                ctx["api"].edit_message(
+                    ctx["channel_id"], status_id,
+                    f"> **✗ Purge** :: Failed to fetch messages: {str(e)[:60]}",
+                )
+                delete_after_delay(ctx["api"], ctx["channel_id"], status_id)
+            return
 
         deleted = 0
         failed = 0
@@ -1275,18 +1284,19 @@ def main():
                     # Only count as failed if it was our own message
                     if is_mine:
                         failed += 1
-                time.sleep(0.3)
-            except:
+                time.sleep(0.2)
+            except Exception as e:
                 if is_mine:
                     failed += 1
 
         if status:
             suffix = f" | Failed {failed}" if failed else ""
+            result = f"Deleted **{deleted}** — Scanned {scanned}{suffix}"
             ctx["api"].edit_message(
                 ctx["channel_id"], status.get("id"),
-                f"> **✓ Purge** :: Deleted **{deleted}** — Scanned {scanned}{suffix}",
+                f"> **✓ Purge** :: {result}",
             )
-            delete_after_delay(ctx["api"], ctx["channel_id"], status.get("id"))
+            delete_after_delay(ctx["api"], ctx["channel_id"], status.get("id"), delay=10)
     
     @bot.command(name="massdm")
     def mass_dm(ctx, args):
@@ -1481,7 +1491,7 @@ def main():
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
 
     def _clear_hypesquad_badge(api):
-        resp = api.request("DELETE", "/users/@me/hypesquad")
+        resp = api.request("DELETE", "/users/@me/hypesquad/online")
         if not resp:
             return False, "No response"
         if resp.status_code in (200, 204):
@@ -1489,6 +1499,9 @@ def main():
         # Discord may return 400 when there's nothing to remove; treat as clean state.
         if resp.status_code == 400:
             return True, "Badge already removed"
+        # Discord may return 404 if not in a house; treat as already removed
+        if resp.status_code == 404:
+            return True, "Not in HypeSquad"
         return False, f"HTTP {resp.status_code}"
 
     @bot.command(name="hypesquad", aliases=["changehypesquad", "hs"])
@@ -3948,16 +3961,26 @@ Example Usage:
                 else:
                     out.append(str(line))
             body = "\n".join(out)
-            pager = fmt.footer_page(p, page_name, current_page, total_pages)
+            
+            # Build dynamic page navigation footer
+            nav_parts = []
+            if current_page > 1:
+                nav_parts.append(f"{p}help {page_name} {current_page - 1} {fmt.DARK}[prev]{fmt.RESET}")
+            nav_parts.append(f"{fmt.DARK}Page {current_page}/{total_pages}{fmt.RESET}")
+            if current_page < total_pages:
+                nav_parts.append(f"{p}help {page_name} {current_page + 1} {fmt.DARK}[next]{fmt.RESET}")
+            
+            nav_footer = " • ".join(nav_parts)
+            
             return "\n".join(
                 [
-                    fmt.header("Help"),
+                    fmt.header(page_name.title()),
                     fmt._block(
-                        f"{fmt.PURPLE}{title}{fmt.RESET} [{current_page}/{total_pages}]\n"
+                        f"{fmt.PURPLE}{title}{fmt.RESET} {fmt.DARK}[{current_page}/{total_pages}]{fmt.RESET}\n"
                         f"\n{body}\n"
-                        f"\n{fmt.CYAN}Usage{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{pager}{fmt.RESET}"
+                        f"\n{fmt.CYAN}Navigate{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{nav_footer}{fmt.RESET}"
                     ),
-                    fmt.footer_main(),
+                    fmt._block(f"{fmt.DARK}Devloped By Misconsiderations{fmt.RESET}"),
                 ]
             )
 
@@ -4811,6 +4834,8 @@ Example Usage:
                     ("authlist", "List authed users"),
                     ("listhosted", "List your hosted tokens"),
                     ("listallhosted", "List all hosted tokens (owner)"),
+                    ("stopallhosted", "Stop all hosted tokens now (owner)"),
+                    ("restartallhosted", "Restart all hosted tokens now (owner)"),
                     ("clearhost [uid]", "Remove a hosted entry"),
                     ("clearallhosted", "Clear all hosted entries (owner)"),
                 ],
@@ -4857,6 +4882,22 @@ Example Usage:
                 "Clears all hosted token entries (owner only).",
             ),
 
+            "stopallhosted": help_page(
+                f"{p}stopallhosted",
+                "Stops all running hosted token processes immediately (owner only).",
+                "",
+                {"type": "section", "text": "Aliases"},
+                "stopall, killallhosted",
+            ),
+
+            "restartallhosted": help_page(
+                f"{p}restartallhosted",
+                "Restarts all persisted hosted token processes (owner only).",
+                "",
+                {"type": "section", "text": "Aliases"},
+                "restartall, rebootallhosted",
+            ),
+
             # ── Owner ────────────────────────────────────────────────────────
             "owner": {
                 "title": f"{p}help Owner",
@@ -4865,6 +4906,8 @@ Example Usage:
                     ("unauth <user_id>", "Revoke account access"),
                     ("authlist", "List authed users"),
                     ("listallhosted", "List all hosted tokens"),
+                    ("stopallhosted", "Stop all hosted tokens now"),
+                    ("restartallhosted", "Restart all hosted tokens now"),
                     ("clearallhosted", "Clear all hosted entries"),
                     (f"{p}drun", "Execute commands on instances"),
                     (f"{p}dlog", "Manage developer logging"),
@@ -5300,6 +5343,8 @@ Example Usage:
                     ("authlist", "List authed users"),
                     ("listhosted", "Your hosted tokens"),
                     ("listallhosted", "All hosted (owner)"),
+                    ("stopallhosted", "Stop all hosted now (owner)"),
+                    ("restartallhosted", "Restart all hosted now (owner)"),
                     ("clearhost [uid]", "Remove hosted entry"),
                     ("clearallhosted", "Clear all hosted (owner)"),
                     ("afk [reason]", "Set AFK status"),
@@ -5395,7 +5440,8 @@ Example Usage:
                 "\n".join([
                     fmt.header("Help"),
                     fmt.command_list(cat_cmds),
-                    fmt._block(f"{fmt.CYAN}Usage{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{p}help <command>{fmt.RESET}"),
+                    fmt._block(f"{fmt.CYAN}Usage{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{p}help <category> [page]{fmt.RESET}"),
+                    fmt._block(f"{fmt.CYAN}Tip{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}Use page numbers for long categories (e.g. {p}help utility 1, {p}help utility 2){fmt.RESET}"),
                     fmt._block(f"{fmt.DARK}Devloped By Misconsiderations{fmt.RESET}"),
                 ]),
             )
@@ -5418,7 +5464,7 @@ Example Usage:
         if page in help_pages:
             content = help_pages[page]
             lines = content.get("lines", [])
-            lines_per_page = 25
+            lines_per_page = 12  # Optimized for Discord message length
             pages = []
             for index in range(0, len(lines), lines_per_page):
                 page_slice = lines[index:index + lines_per_page]
@@ -5447,13 +5493,13 @@ Example Usage:
                     ctx["channel_id"],
                     "\n".join(
                         [
-                            fmt.header("Help"),
+                            fmt.header(cmd.name),
                             fmt._block(
                                 f"{fmt.CYAN}Command{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{p}{cmd.name}{fmt.RESET}\n"
                                 f"{fmt.CYAN}Aliases{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{aliases}{fmt.RESET}\n"
                                 f"{fmt.CYAN}Tip{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}Use {p}cmdwall to view all loaded commands{fmt.RESET}"
                             ),
-                            fmt.footer_main(),
+                            fmt._block(f"{fmt.DARK}Devloped By Misconsiderations{fmt.RESET}"),
                         ]
                     ),
                 )
@@ -5470,7 +5516,7 @@ Example Usage:
                                 f"{fmt.CYAN}Try{fmt.DARK}       :: {fmt.RESET}{fmt.WHITE}{p}help <page>{fmt.RESET}\n"
                                 f"{fmt.CYAN}Or{fmt.DARK}        :: {fmt.RESET}{fmt.WHITE}{p}cmdwall{fmt.RESET}"
                             ),
-                            fmt.footer_main(),
+                            fmt._block(f"{fmt.DARK}Devloped By Misconsiderations{fmt.RESET}"),
                         ]
                     ),
                 )
@@ -5600,10 +5646,12 @@ Example Usage:
         channel_id = args[1] if len(args) > 1 else None
         try:
             ok, detail = voice_manager.set_video(channel_id, enabled)
-            status = "enabled" if enabled else "disabled"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Camera** {status}")
+            if ok:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Camera** :: {detail}")
+            else:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Camera** :: {detail}")
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Camera error**: {str(e)[:80]}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Camera error**: {str(e)[:80]}")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -5615,10 +5663,12 @@ Example Usage:
         channel_id = args[1] if len(args) > 1 else None
         try:
             ok, detail = voice_manager.set_stream(channel_id, enabled)
-            status = "started" if enabled else "stopped"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Go Live** {status}")
+            if ok:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Go Live** :: {detail}")
+            else:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Go Live** :: {detail}")
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Stream error**: {str(e)[:80]}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Stream error**: {str(e)[:80]}")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -6069,6 +6119,32 @@ Example Usage:
             return
         removed = host_manager.remove_hosts(all_hosts=True)
         msg = ctx["api"].send_message(ctx["channel_id"], f"```| Clear All Hosted |\nRemoved {removed} entries```")
+        if msg:
+            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+
+    @bot.command(name="stopallhosted", aliases=["stopall", "killallhosted", "sah"])
+    def stopallhosted_cmd(ctx, args):
+        if not is_owner_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Stop All Hosted")
+            return
+        stopped = host_manager.stop_all()
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            f"```| Stop All Hosted |\nStopped {stopped} running instance{'s' if stopped != 1 else ''}```",
+        )
+        if msg:
+            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+
+    @bot.command(name="restartallhosted", aliases=["restartall", "rebootallhosted", "rah"])
+    def restartallhosted_cmd(ctx, args):
+        if not is_owner_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Restart All Hosted")
+            return
+        restarted = host_manager.restart_all()
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            f"```| Restart All Hosted |\nRestarted {restarted} hosted instance{'s' if restarted != 1 else ''}```",
+        )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 

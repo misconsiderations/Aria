@@ -26,7 +26,7 @@ class DiscordAPIClient:
         self.token = token
         self.header_spoofer = HeaderSpoofer()
         self.header_spoofer.initialize_with_token(token)
-        self.session: Session = self.header_spoofer.session
+        self.session: Any = self.header_spoofer.session
         self.rate_limiter = RateLimiter()
         self.cache = DiscordCache(token)
         self.user_id: Optional[str] = None
@@ -44,9 +44,9 @@ class DiscordAPIClient:
             return False
         return True
         
-    def request(self, method: str, endpoint: str, data: Optional[Any] = None, 
-                params: Optional[Dict] = None, headers: Optional[Dict] = None, 
-                max_retries: int = 3, retry_count: int = 0) -> Optional[Response]:
+    def request(self, method: str, endpoint: str, data: Optional[Any] = None,
+                params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None,
+                max_retries: int = 3, retry_count: int = 0) -> Optional[Any]:
         """
         Enhanced request handler with comprehensive captcha support for all Discord API operations.
         Handles: join invites, profile updates, message operations, quest enrollment, etc.
@@ -54,21 +54,21 @@ class DiscordAPIClient:
         wait_time = self.rate_limiter.get_wait_time(endpoint)
         if wait_time:
             time.sleep(wait_time)
-        
+
         # Rotate proxy if available (5% chance)
         if self.header_spoofer.proxy_manager and random.random() < 0.05:
             try:
                 new_proxy = self.header_spoofer.proxy_manager.get_random_proxy()
                 if new_proxy:
                     self.session.proxies.update(new_proxy)
-            except:
+            except Exception:
                 pass
-        
+
         url = f"https://discord.com/api/v9{endpoint}"
         request_headers = self.header_spoofer.get_protected_headers(self.token)
         if headers:
             request_headers.update(headers)
-        
+
         try:
             if method == "GET":
                 response = self.session.get(url, headers=request_headers, params=params, verify=False, timeout=30)
@@ -82,59 +82,65 @@ class DiscordAPIClient:
                 response = self.session.put(url, headers=request_headers, json=data, verify=False, timeout=30)
             else:
                 return None
-            
+
+            # Handle 401/403 - refresh spoofed identity and retry
+            if response.status_code in (401, 403) and retry_count < max_retries:
+                print(f"[AUTH-ERROR] {response.status_code} on {endpoint} - refreshing headers...")
+                self.header_spoofer.initialize_with_token(self.token)
+                time.sleep(0.5)
+                return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
+
+            # Handle 404 - can happen when spoof/fingerprint state is stale
+            if response.status_code == 404 and retry_count < max_retries:
+                print(f"[404-ERROR] {endpoint} - attempting header refresh...")
+                self.header_spoofer.initialize_with_token(self.token)
+                time.sleep(0.5)
+                return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
+
             # Handle 400 errors - often include captcha challenges
             if response.status_code == 400 and retry_count < max_retries:
                 try:
                     response_data = response.json()
                     captcha_info = self.captcha_solver.detect_captcha_type(response_data)
-                    
+
                     if captcha_info and self.captcha_solver.is_enabled():
                         print(f"[CAPTCHA] Detected in {endpoint}: {captcha_info.get('type', 'unknown')}")
                         captcha_token = self.captcha_solver.solve_captcha_challenge(captcha_info, url)
-                        
+
                         if captcha_token:
                             print(f"[CAPTCHA] Solved successfully, retrying {endpoint}...")
                             if data is None:
                                 data = {}
                             elif not isinstance(data, dict):
                                 data = {"_body": data}
-                            
-                            # Add captcha token
-                            data['captcha_key'] = captcha_token
-                            
-                            # Small delay before retry
+
+                            data["captcha_key"] = captcha_token
                             time.sleep(0.5)
-                            
-                            # Retry with captcha token
                             return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
                         else:
                             print(f"[CAPTCHA] Failed to solve captcha for {endpoint}")
                     else:
-                        # Check for other 400 errors that might need special handling
-                        error_code = response_data.get('code', 0)
-                        error_msg = response_data.get('message', str(response_data))
+                        error_code = response_data.get("code", 0)
+                        error_msg = response_data.get("message", str(response_data))
                         print(f"[API-ERROR] {endpoint}: [{error_code}] {error_msg}")
-                        
                 except Exception as e:
                     print(f"[ERROR] Captcha detection failed: {e}")
-            
+
             # Handle rate limiting (429)
             if response.status_code == 429:
                 retry_after = self.rate_limiter.handle_429(dict(response.headers), endpoint)
                 print(f"[RATE-LIMIT] Waiting {retry_after}s before retrying {endpoint}...")
-                time.sleep(min(retry_after, 5))  # Cap at 5 seconds
+                time.sleep(min(retry_after, 5))
                 return self.request(method, endpoint, data, params, headers, max_retries, retry_count)
-            
+
             # Update rate limit buckets
             if "X-RateLimit-Bucket" in response.headers:
                 bucket_hash = self.rate_limiter.parse_bucket_hash(dict(response.headers))
                 self.rate_limiter.update_bucket(bucket_hash, dict(response.headers))
-            
+
             self.rate_limiter.decrement(endpoint)
-            
             return response
-            
+
         except Exception as e:
             msg = str(e)
             if "curl: (23)" in msg or "Failure writing output" in msg or "SSLError" in msg:
@@ -178,7 +184,7 @@ class DiscordAPIClient:
         return response.json() if response and response.status_code == 200 else None
     
     def get_messages(self, channel_id: str, limit: int = 50, before: Optional[str] = None) -> List[Dict[str, Any]]:
-        params = {"limit": limit}
+        params: Dict[str, Any] = {"limit": limit}
         if before:
             params["before"] = before
         
