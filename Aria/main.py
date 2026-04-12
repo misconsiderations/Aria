@@ -846,9 +846,9 @@ def main():
     # Integrate enhanced command engine (500+ commands, ANSI-safe help)
     try:
         integrate_command_engine(bot, bot.api, bot.prefix)
-    except Exception:
+    except Exception as e:
         # Integration failure should not break main startup
-        pass
+        print(f"[command_integration] failed: {e}")
     voice_manager = SimpleVoice(bot.api, token, bot)
     backup_manager = BackupManager(bot.api)
     mod_manager = ModerationManager(bot.api)
@@ -940,18 +940,30 @@ def main():
     # Fetch current server boost counts
     boost_manager.fetch_server_boosts()
     
-    from boost_commands import setup_boost_commands
-    setup_boost_commands(bot, bot.api, delete_after_delay)
+    try:
+        from boost_commands import setup_boost_commands
+        setup_boost_commands(bot, bot.api, delete_after_delay)
+    except Exception as e:
+        print(f"[boost_commands] failed: {e}")
     
     # Setup extended commands and new systems
-    from extended_commands import setup_extended_commands
-    setup_extended_commands(bot, delete_after_delay)
-    
-    from extended_system_commands import setup_extended_system_commands
-    setup_extended_system_commands(bot, delete_after_delay)
+    try:
+        from extended_commands import setup_extended_commands
+        setup_extended_commands(bot, delete_after_delay)
+    except Exception as e:
+        print(f"[extended_commands] failed: {e}")
 
-    from bulk_commands import setup_bulk_commands
-    setup_bulk_commands(bot, delete_after_delay)
+    try:
+        from extended_system_commands import setup_extended_system_commands
+        setup_extended_system_commands(bot, delete_after_delay)
+    except Exception as e:
+        print(f"[extended_system_commands] failed: {e}")
+
+    try:
+        from bulk_commands import setup_bulk_commands
+        setup_bulk_commands(bot, delete_after_delay)
+    except Exception as e:
+        print(f"[bulk_commands] failed: {e}")
 
     # Initialize friend scraper
     from friend_scraper import EnhancedFriendScraper
@@ -3918,7 +3930,6 @@ Example Usage:
     def show_help(ctx, args):
         import formatter as fmt
         p = bot.prefix  # live prefix — auto-reflects config changes
-        aria_version = "1.0.0"
 
         def help_page(title, *lines):
             return {"title": title, "lines": list(lines)}
@@ -3936,9 +3947,18 @@ Example Usage:
                     out.append("")
                 else:
                     out.append(str(line))
-            page_sfx = f"  [{current_page}/{total_pages}]"
-            footer = f"\n\n{p}help {page_name.lower()} [{current_page}-{total_pages}]"
-            return f"```| Aria :: v{aria_version} :: {title}{page_sfx}\n" + "\n".join(out) + footer + "```"
+            body = "\n".join(out)
+            pager = fmt.footer_page(p, page_name, current_page, total_pages)
+            return "\n".join(
+                [
+                    fmt.header("Help"),
+                    fmt._block(
+                        f"{fmt.PURPLE}{title}{fmt.RESET} [{current_page}/{total_pages}]\n"
+                        f"\n{body}\n"
+                        f"\n{fmt.CYAN}Usage{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{pager}{fmt.RESET}"
+                    ),
+                ]
+            )
 
         help_pages = {
             # ── General ──────────────────────────────────────────────────────
@@ -5416,11 +5436,41 @@ Example Usage:
             if 'msg' in locals() and msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
         else:
-            page_options = "general utility messaging profile server voice social rpc boost backup moderation hosting token owner afk nitro agct quest all"
-            msg = ctx["api"].send_message(
-                ctx["channel_id"],
-                f"```| Aria :: v{aria_version} :: Help |\nUnknown page. Available:\n{page_options}\n\n{p}help <page>```",
-            )
+            # Fallback: if the user asked for a real command name that lacks a static help page,
+            # show command details dynamically so new commands remain discoverable.
+            lookup = (full_page or (args[0] if args else "")).strip().lower()
+            cmd = ctx["bot"].commands.get(lookup) if lookup else None
+            if cmd:
+                aliases = ", ".join(cmd.aliases) if getattr(cmd, "aliases", None) else "none"
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    "\n".join(
+                        [
+                            fmt.header("Help"),
+                            fmt._block(
+                                f"{fmt.CYAN}Command{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{p}{cmd.name}{fmt.RESET}\n"
+                                f"{fmt.CYAN}Aliases{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{aliases}{fmt.RESET}\n"
+                                f"{fmt.CYAN}Tip{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}Use {p}cmdwall to view all loaded commands{fmt.RESET}"
+                            ),
+                        ]
+                    ),
+                )
+            else:
+                page_options = "general utility messaging profile server voice social rpc boost backup moderation hosting token owner afk nitro agct quest all"
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    "\n".join(
+                        [
+                            fmt.header("Help"),
+                            fmt._block(
+                                f"{fmt.YELLOW}Unknown help page{fmt.RESET}\n"
+                                f"{fmt.CYAN}Available{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{page_options}{fmt.RESET}\n"
+                                f"{fmt.CYAN}Try{fmt.DARK}       :: {fmt.RESET}{fmt.WHITE}{p}help <page>{fmt.RESET}\n"
+                                f"{fmt.CYAN}Or{fmt.DARK}        :: {fmt.RESET}{fmt.WHITE}{p}cmdwall{fmt.RESET}"
+                            ),
+                        ]
+                    ),
+                )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
