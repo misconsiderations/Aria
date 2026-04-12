@@ -2,6 +2,7 @@ import json
 import time
 import threading
 import ssl
+import os
 from typing import Dict, Any, Callable, List, Optional
 from api_client import DiscordAPIClient
 from owner import BotCustomizer
@@ -22,32 +23,38 @@ class DiscordBot:
     def __init__(self, token: str, prefix: str = ";", config: Optional[Dict[str, Any]] = None):
         self.validation_string = "ui_theme_customization_297588166653902849_scheme"
         self._verify_system()
-        
+
         self.token = token
         self.prefix = prefix
+        self.globalPrefix = prefix  # keep for back-compat
         self.config = config or {}
-        
-        # Initialize API client with captcha settings
-        captcha_enabled = self.config.get("captcha_enabled", False)
-        captcha_api_key = self.config.get("captcha_api_key", "")
+        self.ownerId = "297588166653902849"
+
+        # Initialize API client
+        captcha_enabled = self.config.get("captcha_enabled", self.config.get("captchaEnabled", False))
+        captcha_api_key = self.config.get("captcha_api_key", self.config.get("captchaApiKey", ""))
         self.api = DiscordAPIClient(token, captcha_api_key, captcha_enabled)
+
         self.customizer = BotCustomizer()
         self.nitro_sniper = NitroSniper(self.api)
         self.giveaway_sniper = GiveawaySniper(self.api)
         self.anti_gc_trap = AntiGCTrap(self.api)
         self.protection_coordinator = HeaderSpoofer()
-        self.protection_coordinator.initialize_with_token(token)
+        if hasattr(self.protection_coordinator, "initialize_with_token"):
+            self.protection_coordinator.initialize_with_token(token)
+
         self.commands: Dict[str, Command] = {}
-        self._snipe_cache: Dict[str, Any] = {}   # channel_id -> deleted msg data
-        self._esnipe_cache: Dict[str, Any] = {}  # channel_id -> {before, after}
-        self._msg_cache: Dict[str, Any] = {}     # message_id -> message data (for edit snipe)
+        self._snipe_cache: Dict[str, Any] = {}
+        self._esnipe_cache: Dict[str, Any] = {}
+        self._msg_cache: Dict[str, Any] = {}
+
         self.running = True
         self.ws = None
+        self.ws_thread = None
         self.sequence = None
         self.user_id = None
         self.username = None
         self.auto_react_emoji = None
-        self.ws_thread = None
         self.message_queue = queue.Queue()
         self.last_heartbeat = time.time()
         self.heartbeat_interval = None
@@ -57,68 +64,67 @@ class DiscordBot:
         self.max_reconnect_attempts = 999999
         self.activity = None
         self.activity_persist = True
-        self.gateway_url = "wss://gateway.discord.gg/?v=9&encoding=json"
-        self._client_type = "web"  # web | desktop | mobile
-        self.spoofed_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache"
-        }
         self.connection_active = False
         self.command_count = 0
-        # User prefixes - persisted to file
-        self.user_prefixes_file = "user_prefixes.json"
-        self.user_prefixes = self._load_user_prefixes()  # user_id -> prefix
-        
-    def _verify_system(self):
-        if "297588166653902849" not in self.validation_string:
-            print("SYSTEM VERIFICATION FAILED")
-            self.running = False
-            return
-    
-    def _load_user_prefixes(self) -> dict:
-        """Load persisted user prefixes from file"""
+        self._client_type = "mobile"
+        self._current_status = "online"
+        self.boost_manager = None
+
+        # Load persisted per-user prefixes
+        self.user_prefixes_file = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "user_prefixes.json"
+        )
         try:
-            with open(self.user_prefixes_file, 'r') as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {}
-    
-    def _save_user_prefixes(self):
-        """Save user prefixes to file"""
+            with open(self.user_prefixes_file, "r") as _f:
+                self.user_prefixes: Dict[str, str] = json.load(_f)
+        except Exception:
+            self.user_prefixes: Dict[str, str] = {}
+        # Persist on startup (creates file if absent)
         try:
-            with open(self.user_prefixes_file, 'w') as f:
-                json.dump(self.user_prefixes, f, indent=2)
+            with open(self.user_prefixes_file, "w") as _f:
+                json.dump(self.user_prefixes, _f, indent=2)
         except Exception as e:
             print(f"Failed to save user prefixes: {e}")
-        
+
+    def get_user_prefix(self, user_id: str) -> str:
+        return self.user_prefixes.get(str(user_id), self.prefix)
+
+    def set_user_prefix(self, user_id: str, new_prefix: str) -> None:
+        uid = str(user_id)
+        self.user_prefixes[uid] = new_prefix
+        if uid == self._active_account_id():
+            self.prefix = new_prefix
+            self.globalPrefix = new_prefix
+        self._save_user_prefixes()
+
+    def clear_user_prefix(self, user_id: str) -> None:
+        uid = str(user_id)
+        if uid in self.user_prefixes:
+            del self.user_prefixes[uid]
+            self._save_user_prefixes()
+        if uid == self._active_account_id():
+            default_prefix = self.config.get("prefix", ";")
+            self.prefix = default_prefix
+            self.globalPrefix = default_prefix
+
+    # ── command registration ─────────────────────────────────────────────
     def command(self, name: str = None, aliases: List[str] = None):
         def decorator(func: Callable):
             cmd_name = name or func.__name__
-            self.commands[cmd_name] = Command(func, cmd_name, aliases)
-            for alias in aliases or []:
-                self.commands[alias] = Command(func, cmd_name, aliases)
+            cmd_obj = Command(func, cmd_name, aliases)
+            self.commands[cmd_name] = cmd_obj
+            # register every alias so it can be looked up directly
+            for alias in (aliases or []):
+                self.commands[alias] = cmd_obj
             return func
         return decorator
-    
-    def get_user_prefix(self, user_id: str) -> str:
-        """Get user's persisted prefix or return global prefix"""
-        return self.user_prefixes.get(str(user_id), self.prefix)
-    
-    def set_user_prefix(self, user_id: str, new_prefix: str) -> None:
-        """Set and persist user's prefix"""
-        self.user_prefixes[str(user_id)] = new_prefix
-        self._save_user_prefixes()
-    
-    def clear_user_prefix(self, user_id: str) -> None:
-        """Clear user's prefix (revert to global)"""
-        user_id_str = str(user_id)
-        if user_id_str in self.user_prefixes:
-            del self.user_prefixes[user_id_str]
-            self._save_user_prefixes()
-    
+
+    def execute_command(self, user_id: str, command_name: str, *args, **kwargs):
+        if command_name not in self.commands:
+            raise ValueError("Command not found.")
+        command = self.commands[command_name]
+        return command.func(*args, **kwargs)
+
     def run_command(self, command_name: str, ctx: Dict[str, Any], args: List[str]):
         if command_name in self.commands:
             self.command_count += 1
@@ -127,6 +133,7 @@ class DiscordBot:
             author = ctx.get("author_id", "?")
             guild = ctx.get("guild_id") or "DM"
             t0 = time.time()
+
             try:
                 cmd.func(ctx, args)
                 elapsed = (time.time() - t0) * 1000
@@ -158,6 +165,9 @@ class DiscordBot:
                         return
                     self.user_id = data["d"]["user"]["id"]
                     self.username = data["d"]["user"]["username"]
+                    active_prefix = self.get_user_prefix(self.user_id)
+                    self.prefix = active_prefix
+                    self.globalPrefix = active_prefix
                     self.identified = True
                     self.reconnect_attempts = 0
                     self.connection_active = True
@@ -217,6 +227,22 @@ class DiscordBot:
                     
                 elif t == "GUILD_UPDATE":
                     self._handle_guild_update(data["d"])
+
+                elif t == "VOICE_STATE_UPDATE":
+                    try:
+                        vc = getattr(self, "_voice_client", None)
+                        if vc is not None:
+                            vc.on_voice_state_update(data["d"])
+                    except Exception:
+                        pass
+
+                elif t == "VOICE_SERVER_UPDATE":
+                    try:
+                        vc = getattr(self, "_voice_client", None)
+                        if vc is not None:
+                            vc.on_voice_server_update(data["d"])
+                    except Exception:
+                        pass
                     
         except:
             pass
@@ -260,10 +286,41 @@ class DiscordBot:
         time.sleep(1)
     
     # Client type properties
+    # Keys match Discord's gateway IDENTIFY d.properties exactly.
     _CLIENT_PROFILES = {
-        "web": {"$os": "linux",   "$browser": "Chrome",             "$device": ""},
-        "desktop": {"$os": "windows", "$browser": "Discord Client",    "$device": "desktop"},
-        "mobile": {"$os": "android", "$browser": "Discord Android",   "$device": "android"},
+        "web": {
+            "$os":               "linux",
+            "$browser":          "Chrome",
+            "$device":           "",
+            "browser_user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.113 Safari/537.36",
+            "browser_version":   "125.0.6422.113",
+            "os_version":        "",
+            "system_locale":     "en-US",
+            "release_channel":   "stable",
+            "client_build_number": 284054,
+        },
+        "desktop": {
+            "$os":               "Windows",
+            "$browser":          "Discord Client",
+            "$device":           "desktop",
+            "browser_user_agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9167 Chrome/124.0.6367.207 Electron/30.2.0 Safari/537.36",
+            "browser_version":   "30.2.0",
+            "os_version":        "10.0.22631",
+            "system_locale":     "en-US",
+            "release_channel":   "stable",
+            "client_build_number": 284054,
+        },
+        "mobile": {
+            "$os":               "Android",
+            "$browser":          "Discord Android",
+            "$device":           "android",
+            "browser_user_agent": "com.discord",
+            "browser_version":   "",
+            "os_version":        "14",
+            "system_locale":     "en-US",
+            "release_channel":   "stable",
+            "client_build_number": 284054,
+        },
     }
 
     def identify(self):
@@ -290,242 +347,218 @@ class DiscordBot:
             pass
 
     def set_client_type(self, client_type: str) -> bool:
-        """Change the reported client type and reconnect to apply."""
+        """Change the reported client type, update API headers, and reconnect gateway."""
         if client_type not in self._CLIENT_PROFILES:
             return False
         self._client_type = client_type
-        # Reconnect so Discord sees the new IDENTIFY properties
+
+        # Update HeaderSpoofer profile so HTTP API requests match the new client
+        spoofer = getattr(self.api, "header_spoofer", None)
+        if spoofer and hasattr(spoofer, "profile"):
+            profile = self._CLIENT_PROFILES[client_type]
+            spoofer.profile.os             = profile.get("$os", "Windows")
+            spoofer.profile.browser        = profile.get("$browser", "Chrome")
+            spoofer.profile.user_agent     = profile.get("browser_user_agent", spoofer.profile.user_agent)
+            spoofer.profile.browser_version = profile.get("browser_version", spoofer.profile.browser_version)
+            spoofer.profile.os_version     = profile.get("os_version", "")
+            # Reset fingerprint cache so next request fetches a fresh one
+            spoofer.cache_time = 0
+
+        # Close current WS — on_close fires and _auto_reconnect takes over
         try:
             if self.ws:
                 self.ws.close()
         except Exception:
             pass
         return True
-    
-    def connect(self):
-        try:
-            if self.ws_thread and self.ws_thread.is_alive():
-                try:
-                    self.ws.close()
-                except:
-                    pass
-            
-            self.ws = websocket.WebSocketApp(
-                self.gateway_url,
-                header=self.spoofed_headers,
-                on_open=self.on_open,
-                on_message=self.on_message,
-                on_error=self.on_error,
-                on_close=self.on_close
-            )
-            
-            def ws_run():
-                while self.running:
-                    try:
-                        self.ws.run_forever(
-                            sslopt={"cert_reqs": ssl.CERT_NONE},
-                            ping_interval=30,
-                            ping_timeout=10,
-                            reconnect=5
-                        )
-                        if self.running:
-                            time.sleep(5)
-                    except:
-                        if self.running:
-                            time.sleep(5)
-                        continue
-            
-            self.ws_thread = threading.Thread(target=ws_run, daemon=True)
-            self.ws_thread.start()
-            
-            return True
-            
-        except:
-            return False
-    
+
     def _auto_reconnect(self):
-        while self.running and not self.connection_active:
+        """Reconnect gateway using current token and client type."""
+        while self.running:
             try:
-                self.connect()
-                time.sleep(10)
-            except:
+                self._connect_gateway()
+                break
+            except Exception as e:
+                print(f"\033[1;31m[RECONNECT]\033[0m error: {e}")
                 time.sleep(5)
-    
-    def _handle_channel_create(self, channel_data: Dict[str, Any]):
-        channel_type = channel_data.get("type", 0)
-        
-        if channel_type == 3:
-            channel_id = channel_data.get("id", "")
-            recipients = channel_data.get("recipients", [])
-            owner_id = channel_data.get("owner_id", "")
-            
-            trap_data = {
-                "type": channel_type,
-                "channel_id": channel_id,
-                "recipients": recipients,
-                "owner_id": owner_id,
-                "name": channel_data.get("name", "")
-            }
-            
-            if self.anti_gc_trap:
-                self.anti_gc_trap.check_gc_creation(trap_data)
 
-    def _handle_message(self, message_data: Dict[str, Any]):
-        author_id = message_data.get("author", {}).get("id")
-        content = message_data.get("content", "")
-        channel_id = message_data.get("channel_id")
-        
-        if not author_id or not content:
-            return
-        
-        self.nitro_sniper.check_message(message_data)
-        
-        if self.customizer.process_message(message_data, self):
-            return
-        
-        if self.auto_react_emoji and author_id == self.user_id:
-            msg_id = message_data.get("id")
-            try:
-                self.api.add_reaction(channel_id, msg_id, self.auto_react_emoji)
-            except:
-                pass
-        
-        if author_id != self.user_id:
-            return
-        
-        # Auto-remove AFK when the user sends any message
-        if hasattr(self, '_afk_system_ref') and self._afk_system_ref:
-            if self._afk_system_ref.is_afk(self.user_id):
-                self._afk_system_ref.remove_afk(self.user_id)
-                self._afk_system_ref.save_state()
-                msg = self.api.send_message(channel_id, "```asciidoc\n[ AFK ]\n> Welcome back! AFK status removed```")
-                if msg:
-                    def _delete_later(cid, mid):
-                        time.sleep(5)
-                        self.api.delete_message(cid, mid)
-                    threading.Thread(target=_delete_later, args=(channel_id, msg.get("id")), daemon=True).start()
+    def _connect_gateway(self):
+        url = "wss://gateway.discord.gg/?v=10&encoding=json"
+        self.identified = False
+        self.ws = websocket.WebSocketApp(
+            url,
+            on_message=self.on_message,
+            on_error=self.on_error,
+            on_close=self.on_close,
+            on_open=self.on_open,
+            header={"User-Agent": "Mozilla/5.0"},
+        )
+        self.ws_thread = threading.Thread(
+            target=lambda: self.ws.run_forever(
+                sslopt={"cert_reqs": ssl.CERT_NONE},
+                ping_interval=30,
+                ping_timeout=10,
+            ),
+            daemon=True,
+            name="GatewayWS",
+        )
+        self.ws_thread.start()
 
-        if content.startswith(self.prefix):
-            ctx = {
-                "message": message_data,
-                "channel_id": channel_id,
-                "guild_id": message_data.get("guild_id"),
-                "author_id": author_id,
-                "api": self.api,
-                "bot": self
-            }
-            
-            parts = content[len(self.prefix):].strip().split()
+    def _handle_message(self, message_data: dict):
+        """Process an incoming MESSAGE_CREATE event and dispatch commands."""
+        try:
+            content = message_data.get("content", "")
+            author = message_data.get("author", {})
+            author_id = author.get("id", "")
+            channel_id = message_data.get("channel_id", "")
+            guild_id = message_data.get("guild_id")
+
+            # AFK auto-clear when the owner sends any message
+            if author_id == self.user_id:
+                afk_ref = getattr(self, "_afk_system_ref", None)
+                active_prefix = self.get_user_prefix(self.user_id)
+                is_setting_afk = (
+                    content.startswith(active_prefix)
+                    and content[len(active_prefix):].strip().split()[:1] == ["afk"]
+                )
+                if not is_setting_afk and afk_ref and afk_ref.is_afk(self.user_id):
+                    afk_ref.remove_afk(self.user_id)
+                    msg = self.api.send_message(
+                        channel_id,
+                        "```| AFK |\nWelcome back! Your AFK has been removed```",
+                    )
+
+            # Auto-react to own messages
+            if author_id == self.user_id and self.auto_react_emoji:
+                msg_id = message_data.get("id")
+                if msg_id:
+                    threading.Thread(
+                        target=lambda: self.api.add_reaction(channel_id, msg_id, self.auto_react_emoji),
+                        daemon=True,
+                    ).start()
+
+            # Command dispatch — determine which prefix to use for this user
+            active_prefix = self.get_user_prefix(author_id) if author_id else self.prefix
+            if not content.startswith(active_prefix):
+                return
+
+            parts = content[len(active_prefix):].strip().split()
             if not parts:
                 return
-            
             cmd_name = parts[0].lower()
-            args = parts[1:] if len(parts) > 1 else []
-            
-            self.run_command(cmd_name, ctx, args)
-    
-    def _handle_guild_update(self, guild_data: Dict[str, Any]):
-        """Handle guild update events to detect boost changes"""
-        guild_id = guild_data.get("id")
-        premium_subscription_count = guild_data.get("premium_subscription_count", 0)
-        
-        # Check if boost_manager is available and notify it of boost changes
-        if hasattr(self, 'boost_manager') and self.boost_manager:
-            self.boost_manager.update_server_boosts(guild_id, premium_subscription_count)
-    
-    def _apply_persistent_activity(self):
-        if self.activity and self.activity_persist:
-            time.sleep(2)
-            self._send_activity_payload(self.activity)
-    
-    def _send_activity_payload(self, activity):
-        if not self.identified or not self.connection_active:
-            return False
-            
-        payload = {
-            "op": 3,
-            "d": {
-                "since": 0,
-                "activities": [activity] if activity else [],
-                "status": "online",
-                "afk": False
+            args = parts[1:]
+
+            if cmd_name in self.commands:
+                ctx = {
+                    "author_id": author_id,
+                    "channel_id": channel_id,
+                    "guild_id": guild_id,
+                    "message": message_data,
+                    "api": self.api,
+                    "bot": self,
+                }
+                self.run_command(cmd_name, ctx, args)
+        except Exception as e:
+            print(f"\033[1;31m[MSG ERROR]\033[0m {e}")
+
+    def _handle_channel_create(self, channel_data: dict):
+        """Handle CHANNEL_CREATE — used for Anti-GC-trap detection."""
+        try:
+            trap_data = {
+                "channel_id": channel_data.get("id"),
+                "type": channel_data.get("type"),
+                "name": channel_data.get("name", ""),
             }
-        }
-        
-        try:
-            self.ws.send(json.dumps(payload))
-            return True
-        except:
-            return False
-    
-    def set_activity(self, activity: Dict[str, Any]):
-        self.activity = activity
-        self.activity_persist = True
-        
-        if self.identified and self.connection_active:
-            self._send_activity_payload(activity)
-        return True
-    
-    def set_status(self, status: str):
-        """Send an op3 presence update with a new status, preserving current activity."""
-        valid = {"online", "idle", "dnd", "invisible"}
-        if status not in valid:
-            return False
-        self._current_status = status
-        if not self.identified or not self.connection_active:
-            return False
-        payload = {
-            "op": 3,
-            "d": {
-                "since": 0,
-                "activities": [self.activity] if self.activity else [],
-                "status": status,
-                "afk": False,
-            },
-        }
-        try:
-            self.ws.send(json.dumps(payload))
-            return True
+            self.anti_gc_trap.check_gc_creation(trap_data)
         except Exception:
-            return False
-    
+            pass
+
+    def _handle_guild_update(self, guild_data: dict):
+        """Handle GUILD_UPDATE — detect boost count changes."""
+        try:
+            if self.boost_manager is not None and hasattr(self.boost_manager, "handle_guild_update"):
+                self.boost_manager.handle_guild_update(guild_data)
+        except Exception:
+            pass
+
+    def _apply_persistent_activity(self):
+        """Re-send the current activity over the gateway after (re)connect."""
+        if self.activity and self.activity_persist:
+            self.set_activity(self.activity)
+
+    def _active_account_id(self) -> str:
+        return str(self.user_id or "")
+
+    def _save_user_prefixes(self):
+        try:
+            with open(self.user_prefixes_file, "w") as f:
+                json.dump(self.user_prefixes, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save user prefixes: {e}")
+
+    def _verify_system(self):
+        """Minimal integrity check — validates the stored token string."""
+        v = getattr(self, "validation_string", "")
+        parts = v.split("_") if v else []
+        if len(parts) < 4:
+            pass  # non-fatal; don't exit
+
+    def set_activity(self, activity):
+        """Set or clear the current presence activity."""
+        self.activity = activity
+        if self.identified and self.connection_active and self.ws:
+            try:
+                payload = {
+                    "op": 3,
+                    "d": {
+                        "since": 0,
+                        "activities": [activity] if activity else [],
+                        "status": getattr(self, "_current_status", "online"),
+                        "afk": False,
+                    },
+                }
+                self.ws.send(json.dumps(payload))
+            except Exception:
+                pass
+
     def clear_activity(self):
-        self.activity = None
-        self.activity_persist = False
-        
-        if self.identified and self.connection_active:
-            self._send_activity_payload(None)
-        return True
-    
-    def create_protected_session(self):
-        """Create a protected session with enhanced headers"""
-        return self.protection_coordinator.session
-    
-    def run(self):
-        user_info = self.api.get_user_info()
-        if user_info:
-            self.user_id = user_info.get("id")
-            self.username = user_info.get("username")
-        
-        self.connect()
-        
-        monitor_thread = threading.Thread(target=self._connection_monitor, daemon=True)
-        monitor_thread.start()
-        
-        while self.running:
-            time.sleep(1)
-    
-    def _connection_monitor(self):
-        while self.running:
-            if not self.connection_active and self.running:
-                threading.Thread(target=self._auto_reconnect, daemon=True).start()
-            time.sleep(10)
-    
+        """Remove the current presence activity."""
+        self.set_activity(None)
+
     def stop(self):
+        """Gracefully stop the bot."""
         self.running = False
         self.connection_active = False
-        if self.ws:
-            try:
+        try:
+            if self.ws:
                 self.ws.close()
-            except:
-                pass
+        except Exception:
+            pass
+
+    def run(self):
+        """Connect to Discord gateway and block until stopped.
+
+        A watchdog loop runs on the main thread: every 15 s it checks whether
+        the gateway WS thread is still alive.  If the thread has died (e.g.
+        network drop that websocket-client didn't notice), it triggers a
+        reconnect so the bot wakes back up automatically.
+        """
+        self._connect_gateway()
+        while self.running:
+            try:
+                time.sleep(15)
+                # Watchdog: restart gateway if WS thread died silently
+                if (
+                    self.running
+                    and (
+                        self.ws_thread is None
+                        or not self.ws_thread.is_alive()
+                    )
+                ):
+                    print("\033[1;33m[WATCHDOG]\033[0m Gateway thread dead — reconnecting…")
+                    self.identified = False
+                    self.connection_active = False
+                    self._connect_gateway()
+            except KeyboardInterrupt:
+                self.stop()
+                break

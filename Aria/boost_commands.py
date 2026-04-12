@@ -9,15 +9,18 @@ def setup_boost_commands(bot, api_client, delete_after_delay_func):
     @bot.command(name="boost")
     def boost_cmd(ctx, args):
         if not args:
-            help_text = """```asciidoc
-[ Boost Commands ]
-boost <server_id> :: Boost a server
-boost transfer <from_id> <to_id> :: Transfer boost
-boost auto <server1,server2,...> :: Auto-boost from list
-boost rotate <server1,server2,...> [hours] :: Auto-rotation
-boost stop :: Stop rotation
-boost status :: Check boost status
-boost list :: List boosted servers```"""
+            import formatter as fmt
+            p = bot.prefix
+            cmds = [
+                (f"{p}boost <server_id>", "Boost a server"),
+                (f"{p}boost transfer <to_id>", "Transfer boost slots"),
+                (f"{p}boost auto <s1,s2,...>", "Auto-boost from list"),
+                (f"{p}boost rotate <s1,...> [hours]", "Auto-rotation"),
+                (f"{p}boost stop", "Stop rotation"),
+                (f"{p}boost status", "Check boost status"),
+                (f"{p}boost list", "List boosted servers"),
+            ]
+            help_text = fmt.header("Boost Commands") + "\n" + fmt.command_list(cmds)
             msg = ctx["api"].send_message(ctx["channel_id"], help_text)
             if msg:
                 delete_after_delay_func(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -49,16 +52,21 @@ boost list :: List boosted servers```"""
         
         elif args[0] == "transfer" and len(args) >= 2:
             to_id = args[1]
+            import formatter as fmt
             status_msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```asciidoc\n[ Boost Transfer ]\n> Finding available slots for {to_id}...```"
+                fmt.header("Boost Transfer") + "\n" + fmt._block(
+                    f"{fmt.DARK}Finding available slots for {fmt.RESET}{fmt.WHITE}{to_id}{fmt.RESET}{fmt.DARK}...{fmt.RESET}"
+                )
             )
             results, success_count = boost_manager.transfer_boost_slots(to_id)
             if not results:
                 if status_msg:
                     ctx["api"].edit_message(
                         ctx["channel_id"], status_msg.get("id"),
-                        f"```asciidoc\n[ Boost Transfer ]\n> No available boost slots (all on cooldown or already boosting target)```"
+                        fmt.header("Boost Transfer") + "\n" + fmt._block(
+                            f"{fmt.RED}No available boost slots (all on cooldown or already boosting target){fmt.RESET}"
+                        )
                     )
                 msg = status_msg
             else:
@@ -103,14 +111,27 @@ boost list :: List boosted servers```"""
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **Boost** rotation stopped. {message}.")
         
         elif args[0] == "list":
+            import formatter as fmt
             boosted = boost_manager.get_boosted_servers()
             if boosted:
-                boosted_list = "\n".join([f"• {server_id}" for server_id in boosted[:10]])
-                if len(boosted) > 10:
-                    boosted_list += f"\n• ... and {len(boosted) - 10} more"
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```asciidoc\n[ Boosted Servers ]\n{boosted_list}```")
+                shown = boosted[:15]
+                items = [(sid, "") for sid in shown]
+                overflow = len(boosted) - len(shown)
+                overflow_line = [(f"... +{overflow} more", "")] if overflow > 0 else []
+                rows = [(fmt.CYAN + sid + fmt.RESET, "") for sid in shown]
+                lines = [f"{fmt.CYAN}{sid}{fmt.RESET}" for sid in shown]
+                if overflow > 0:
+                    lines.append(f"{fmt.DARK}... +{overflow} more{fmt.RESET}")
+                body = "\n".join(lines)
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    fmt.header("Boosted Servers") + "\n" + fmt._block(body),
+                )
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc\n[ Boost ]\n> No boosted servers```")
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    fmt.header("Boost") + "\n" + fmt._block(f"{fmt.DARK}No boosted servers{fmt.RESET}"),
+                )
         
         else:
             server_id = args[0]

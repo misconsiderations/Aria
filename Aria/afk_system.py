@@ -1,49 +1,63 @@
-import discord
-from discord.ext import commands
-import logging
+import json
+import os
 import time
-from utils.general import format_message, quote_block
 
-logger = logging.getLogger(__name__)
 
-class afk_system(commands.Cog):
-    """Handle AFK status and auto-responses"""
-    def __init__(self, bot):
-        self.bot = bot
-        self.afk = False
-        self.afk_message = "I'm currently AFK."
-        self.last_afk_message = {} 
-        self.cooldown = 60 
-        self.afk_since = None
+class AFKSystem:
+    def __init__(self, state_file="afk_state.json"):
+        self.state_file = state_file
+        self.afk_users = {}
+        self.webhook_url = None
 
-    def reset_afk(self):
-        self.afk = False
-        self.afk_message = "I'm currently AFK."
-        self.afk_since = None
-        self.last_afk_message.clear()
-
-    @commands.command(aliases=['away'])
-    async def afk(self, ctx, *, message: str = None):
+    def load_state(self):
         try:
-            try: await ctx.message.delete()
-            except: pass
-            self.afk = True
-            self.afk_since = time.time()
-            if message: self.afk_message = message
-            await ctx.send(format_message(f"AFK enabled: {self.afk_message}"))
-        except Exception as e:
-            logger.error(f"Error in afk command: {e}")
+            if os.path.exists(self.state_file):
+                with open(self.state_file, "r") as handle:
+                    data = json.load(handle)
+                self.afk_users = data.get("afk_users", {}) or {}
+                self.webhook_url = data.get("webhook_url")
+        except Exception:
+            self.afk_users = {}
+            self.webhook_url = None
 
-    def get_time_message(self):
-        if not self.afk_since: return ""
-        elapsed = int(time.time() - self.afk_since)
-        seconds = elapsed % 60
-        return f"`AFK for {seconds}s`"
+    def save_state(self):
+        try:
+            with open(self.state_file, "w") as handle:
+                json.dump(
+                    {
+                        "afk_users": self.afk_users,
+                        "webhook_url": self.webhook_url,
+                    },
+                    handle,
+                    indent=2,
+                )
+        except Exception:
+            pass
 
-    async def _handle_message(self, message):
-        if not message.author.bot and message.author.id == self.bot.user.id:
-            if self.afk and not message.content.startswith(f"{self.bot.command_prefix}afk"):
-                self.reset_afk()
+    def set_afk(self, user_id, reason="AFK"):
+        user_id = str(user_id)
+        self.afk_users[user_id] = {
+            "reason": reason or "AFK",
+            "since": int(time.time()),
+        }
+        return True
 
-    async def setup(bot):
-        await bot.add_cog(afk_system(bot))
+    def remove_afk(self, user_id):
+        user_id = str(user_id)
+        if user_id in self.afk_users:
+            del self.afk_users[user_id]
+            return True
+        return False
+
+    def is_afk(self, user_id):
+        return str(user_id) in self.afk_users
+
+    def get_afk_info(self, user_id):
+        return self.afk_users.get(str(user_id), {})
+
+    def set_webhook(self, webhook_url):
+        self.webhook_url = webhook_url.strip() if webhook_url else None
+        return True
+
+
+afk_system = AFKSystem()

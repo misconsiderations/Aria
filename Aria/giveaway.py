@@ -4,7 +4,7 @@ import urllib.parse
 import time
 
 
-GIVEAWAY_KEYWORDS = ["giveaway", "win", "prize", "hosted by", "ends in", "🎉, react to win, React to win, Nitro, Giveaway, giveaway"]
+GIVEAWAY_KEYWORDS = ["giveaway", "prize", "hosted by", "ends in", "react to win", "🎉"]
 
 
 class GiveawaySniper:
@@ -14,6 +14,7 @@ class GiveawaySniper:
         self._entered = set()          # message IDs already entered
         self._lock = threading.Lock()
         self.stats = {"entered": 0, "won": 0, "failed": 0}
+        self.last_win = None           # {"sender", "sender_id", "source", "channel_id", "guild_id"}
 
     # ------------------------------------------------------------------
     # Public entry point — called from bot.py MESSAGE_CREATE
@@ -122,9 +123,6 @@ class GiveawaySniper:
         button = self._first_button(message_data)
         reactions = self._reaction_identifiers(message_data)
 
-        if not button and not reactions:
-            return
-
         with self._lock:
             if msg_id in self._entered:
                 return
@@ -135,6 +133,9 @@ class GiveawaySniper:
             success = self._click_button(message_data, button)
         if not success and reactions:
             success = self._add_reactions(message_data, reactions)
+        # Fallback: fresh giveaway has no reactions/buttons yet — try standard 🎉
+        if not success and not button and not reactions:
+            success = self._add_reactions(message_data, [urllib.parse.quote("🎉")])
 
         if success:
             self.stats["entered"] += 1
@@ -214,9 +215,22 @@ class GiveawaySniper:
         if mentioned and any(kw in content for kw in ["congratulations", "won", "winner", "🎉"]):
             self.stats["won"] += 1
             ts = time.strftime("%H:%M:%S")
+            author = message_data.get("author") or {}
+            sender_name = author.get("username") or author.get("global_name") or "Unknown"
+            sender_id = str(author.get("id", ""))
+            guild_id = message_data.get("guild_id")
+            channel_id = str(message_data.get("channel_id", ""))
+            source = f"Channel {channel_id}" if guild_id else f"DM ({channel_id})"
+            self.last_win = {
+                "sender": sender_name,
+                "sender_id": sender_id,
+                "source": source,
+                "channel_id": channel_id,
+                "guild_id": guild_id or "DM",
+            }
             print(
-                f"\033[1;32m[GIVEAWAY WIN]\033[0m [{ts}] WON! | guild={message_data.get('guild_id')} "
-                f"| channel={message_data.get('channel_id')} | total_wins={self.stats['won']}"
+                f"\033[1;32m[GIVEAWAY WIN]\033[0m [{ts}] WON! | sender={sender_name} "
+                f"| source={source} | total_wins={self.stats['won']}"
             )
 
     # ------------------------------------------------------------------
@@ -233,4 +247,5 @@ class GiveawaySniper:
             "entered": self.stats["entered"],
             "won": self.stats["won"],
             "failed": self.stats["failed"],
+            "last_win": self.last_win,
         }

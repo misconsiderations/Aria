@@ -94,15 +94,23 @@ class HostManager:
                 if data["token"] == token:
                     return False, "Already hosted"
 
-            config_file = f"hosted_{int(time.time())}.json"
+            token_id = str(int(time.time() * 1000))
+            config_file = f"hosted_{token_id}.json"
             with open(config_file, "w") as f:
                 json.dump({"token": token, "prefix": prefix}, f)
 
-            process = self._run_their_bot(config_file, token)
+            process = self._run_their_bot(
+                config_file,
+                token,
+                prefix=prefix,
+                hosted_uid=token_id,
+                owner_id=owner_id,
+                user_id=user_id,
+                username=username,
+            )
             if not process:
                 return False, "Start failed"
 
-            token_id = str(int(time.time()))
             entry = {
                 "uid": token_id,
                 "user_id": user_id or "",
@@ -138,7 +146,7 @@ class HostManager:
         
         return token_input if "." in token_input else ""
     
-    def _run_their_bot(self, config_file, token):
+    def _run_their_bot(self, config_file, token, prefix=";", hosted_uid=None, owner_id=None, user_id=None, username=None):
         try:
             runner_code = f"""
 import sys, os, json, time, subprocess, shutil
@@ -152,39 +160,17 @@ for file in os.listdir("."):
 
 os.chdir(temp_dir)
 
-main_py_content = ""
-with open("main.py", "r") as f:
-    main_py_content = f.read()
-
-lines = main_py_content.split('\\n')
-new_lines = []
-
-i = 0
-while i < len(lines):
-    line = lines[i]
-    
-    if line.strip().startswith('@bot.command(name="host"'):
-        i += 2
-        continue
-    
-    if line.strip().startswith('@bot.command(name="stophost"'):
-        i += 2
-        continue
-    
-    if line.strip().startswith('@bot.command(name="listhosted"'):
-        i += 2
-        continue
-    
-    new_lines.append(line)
-    i += 1
-
-with open("main.py", "w") as f:
-    f.write('\\n'.join(new_lines))
-
 with open("config.json", "w") as f:
-    json.dump({{"token": "{token}", "prefix": ";"}}, f)
+    json.dump({{"token": "{token}", "prefix": "{prefix}"}}, f)
 
-subprocess.run([sys.executable, "main.py"])
+env = os.environ.copy()
+env["HOSTED_TOKEN"] = "true"
+env["HOSTED_UID"] = {hosted_uid!r}
+env["HOSTED_OWNER_ID"] = {owner_id!r}
+env["HOSTED_USER_ID"] = {user_id!r}
+env["HOSTED_USERNAME"] = {username!r}
+
+subprocess.run([sys.executable, "main.py"], env=env)
 """
             
             runner_file = f"runner_{int(time.time())}.py"
@@ -210,7 +196,7 @@ subprocess.run([sys.executable, "main.py"])
         with self.lock:
             to_stop = []
             for token_id, data in self.active_tokens.items():
-                if data["owner"] == owner_id:
+                if str(data["owner"]) == str(owner_id):
                     to_stop.append((token_id, data))
             
             for token_id, data in to_stop:
@@ -257,12 +243,135 @@ subprocess.run([sys.executable, "main.py"])
     def list_hosted(self, requester_id):
         """Return only entries owned by requester_id."""
         with self.lock:
-            return [v for v in self.saved_users.values() if v.get("owner") == requester_id]
+            requester_id = str(requester_id)
+            return [v for v in self.saved_users.values() if str(v.get("owner")) == requester_id]
+
+    def list_hosted_entries(self, requester_id=None):
+        """Return sorted (token_id, entry) pairs, optionally filtered by owner."""
+        with self.lock:
+            entries = []
+            for token_id, data in self.saved_users.items():
+                if requester_id is not None and str(data.get("owner")) != str(requester_id):
+                    continue
+                entry = data.copy()
+                entry.setdefault("uid", token_id)
+                entry["token_id"] = token_id
+                entries.append((token_id, entry))
+
+        entries.sort(key=lambda item: (
+            str(item[1].get("username") or "").lower(),
+            str(item[1].get("user_id") or ""),
+            str(item[1].get("uid") or item[0]),
+        ))
+        return entries
+
+    def remove_hosts(self, requester_id=None, selectors=None, all_hosts=False):
+        """Remove hosted entries by index, uid, token_id, or user_id."""
+        scoped_entries = self.list_hosted_entries(None if all_hosts else requester_id)
+        if not scoped_entries:
+            return 0
+
+        selector_values = [str(sel).strip() for sel in (selectors or []) if str(sel).strip()]
+        selected_ids = []
+
+        if selector_values:
+            for selector in selector_values:
+                matched = False
+                if selector.isdigit():
+                    index = int(selector) - 1
+                    if 0 <= index < len(scoped_entries):
+                        selected_ids.append(scoped_entries[index][0])
+                        matched = True
+                if matched:
+                    continue
+
+                for token_id, entry in scoped_entries:
+                    if selector in {
+                        str(token_id),
+                        str(entry.get("uid") or ""),
+                        str(entry.get("user_id") or ""),
+                    }:
+                        selected_ids.append(token_id)
+                        matched = True
+                if matched:
+                    continue
+        else:
+            selected_ids = [token_id for token_id, _ in scoped_entries]
+
+        removed = 0
+        with self.lock:
+            for token_id in list(dict.fromkeys(selected_ids)):
+                data = self.saved_users.get(token_id)
+                if not data:
+                    continue
+                proc = self.processes.pop(token_id, None)
+                if proc:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+                self.active_tokens.pop(token_id, None)
+                self.saved_users.pop(token_id, None)
+                removed += 1
+            self._save_users()
+
+        return removed
 
     def list_all_hosted(self):
         """Return all saved hosted-user dicts (owner-only view)."""
         with self.lock:
             return list(self.saved_users.values())
+
+    def restore_hosted_users(self):
+        """Restart persisted hosted users on startup in the main controller process."""
+        with self.lock:
+            saved_entries = [(token_id, data.copy()) for token_id, data in self.saved_users.items()]
+
+        restored = 0
+
+        for token_id, data in saved_entries:
+            token = data.get("token")
+            if not self._is_token_valid(token):
+                continue
+
+            with self.lock:
+                if token_id in self.active_tokens:
+                    continue
+
+            prefix = data.get("prefix", ";")
+            config_file = f"hosted_{token_id}.json"
+            process = self._run_their_bot(
+                config_file,
+                token,
+                prefix=prefix,
+                hosted_uid=data.get("uid") or token_id,
+                owner_id=data.get("owner"),
+                user_id=data.get("user_id"),
+                username=data.get("username"),
+            )
+            if not process:
+                continue
+
+            entry = {
+                "uid": data.get("uid") or token_id,
+                "user_id": data.get("user_id", ""),
+                "username": data.get("username", ""),
+                "token": token,
+                "prefix": prefix,
+                "owner": data.get("owner", ""),
+                "config": config_file,
+            }
+
+            with self.lock:
+                self.active_tokens[token_id] = entry
+                self.processes[token_id] = process
+
+            restored += 1
+
+        if restored:
+            print(f"\033[1;36m[HOST]\033[0m Restored hosted users: {restored}")
+
+        return restored
     
     def _cleanup(self, runner_file, config_file, process):
         process.wait()

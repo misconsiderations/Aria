@@ -1,504 +1,465 @@
+"""
+voice.py — Discord voice channel join/leave for user tokens.
+
+Uses the existing bot.ws (websocket-client) gateway connection to send op 4
+(Voice State Update) instead of opening a second gateway, which would kick
+the main bot off Discord.  bot.py must forward VOICE_STATE_UPDATE and
+VOICE_SERVER_UPDATE events via VoiceClient.on_voice_state_update() /
+VoiceClient.on_voice_server_update().
+"""
+
 import json
 import asyncio
 import websockets
+import socket
+import struct
 import time
 import threading
+import random
+from typing import Optional, Dict
+
+_VOICE_WS_VERSION = 4
+
 
 class VoiceClient:
-    def __init__(self, api_client, token):
-        self.api = api_client
-        self.token = token
+    """Manages a single voice channel connection."""
+
+    def __init__(self, bot_ws, user_id: str):
+        # bot_ws is the websocket.WebSocketApp from bot.py
+        self.bot_ws = bot_ws
+        self.user_id = str(user_id)
+
         self.voice_ws = None
-        self.gateway_ws = None
-        self.voice_thread = None
-        self.gateway_thread = None
+        self.voice_thread: Optional[threading.Thread] = None
+        self.voice_loop: Optional[asyncio.AbstractEventLoop] = None
         self.running = False
-        self.gateway_running = False
-        self.voice_gateway_url = None
-        self.session_id = None
-        self.token_v = None
-        self.endpoint = None
-        self.guild_id = None
-        self.channel_id = None
-        self.user_id = None
-        self.sequence = 0
-        self.heartbeat_interval = None
-        self.ssrc = None
-        self.secret_key = None
-        self.speaking = False
+
+        self.guild_id: Optional[str] = None
+        self.channel_id: Optional[str] = None
         self.is_dm_call = False
-        self.call_channel_id = None
-        self.voice_data_received = False
-        self.gateway_connected = False
+        self.call_channel_id: Optional[str] = None
+
+        # Populated by gateway events forwarded from bot.py
+        self.session_id: Optional[str] = None
+        self.voice_token: Optional[str] = None
+        self.endpoint: Optional[str] = None
+
+        self.ssrc: Optional[int] = None
+        self.secret_key = None
+
+        # Threading events so connect() can block until gateway data arrives
+        self._session_event = threading.Event()
+        self._server_event = threading.Event()
     
-    def connect_to_voice(self, target_id):
-        self.channel_id = target_id
-        
-        try:
-            channel_info = self.api.request("GET", f"/channels/{target_id}")
-            if channel_info and channel_info.status_code == 200:
-                data = channel_info.json()
-                channel_type = data.get('type', 0)
-                
-                if channel_type == 2:
-                    self.is_dm_call = False
-                    self.guild_id = data.get('guild_id')
-                    print(f"Joining server voice: {target_id}")
-                    return self._connect_guild_voice(target_id)
-                elif channel_type in [1, 3]:
-                    self.is_dm_call = True
-                    self.guild_id = None
-                    self.call_channel_id = target_id
-                    print(f"Starting DM call: {target_id}")
-                    return self._connect_dm_voice(target_id)
-                else:
-                    print(f"Not a voice channel")
-                    return False
-            else:
-                print(f"No channel info")
-                return False
-        except Exception as e:
-            print(f"Error: {e}")
-            return False
-    
-    def _connect_guild_voice(self, channel_id):
-        if not self.guild_id:
-            print(f"No guild ID")
-            return False
-        
-        if hasattr(self.api, 'user_id'):
-            self.user_id = self.api.user_id
-        
-        print(f"1. Updating voice state for guild {self.guild_id}")
-        response = self.api.request("PATCH", f"/guilds/{self.guild_id}/voice-states/@me", data={
-            "channel_id": channel_id,
-            "self_mute": False,
-            "self_deaf": False
-        })
-        
-        if response and response.status_code in (200, 204):
-            print(f"2. Voice state updated, starting gateway")
-            self.gateway_thread = threading.Thread(target=self._gateway_thread_func, args=(channel_id,), daemon=True)
-            self.gateway_thread.start()
-            
-            for i in range(10):
-                if self.gateway_connected:
-                    break
-                time.sleep(1)
-            
-            if self.gateway_connected:
-                print(f"3. Gateway connected, waiting for voice data")
-                for i in range(15):
-                    if self.endpoint and self.session_id and self.token_v:
-                        print(f"4. Got all voice data, connecting to voice gateway")
-                        self.voice_thread = threading.Thread(target=self._voice_connect_thread, daemon=True)
-                        self.voice_thread.start()
-                        time.sleep(3)
-                        return True
-                    time.sleep(1)
-                print(f"Timeout waiting for voice data")
-                return False
-            else:
-                print(f"Gateway not connected")
-                return False
-        else:
-            print(f"Voice state failed: {response.status_code if response else 'No response'}")
-            return False
-    
-    def _connect_dm_voice(self, channel_id):
-        self.call_channel_id = channel_id
-        print(f"Starting DM call gateway")
-        self.gateway_thread = threading.Thread(target=self._gateway_thread_func, args=(channel_id,), daemon=True)
-        self.gateway_thread.start()
-        time.sleep(2)
-        return True
-    
-    def _gateway_thread_func(self, channel_id):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(self._connect_to_gateway(channel_id))
-    
-    async def _connect_to_gateway(self, channel_id):
-        try:
-            print(f"Gateway: Connecting...")
-            ws = await websockets.connect(
-                "wss://gateway.discord.gg/?v=10&encoding=json",
-                max_size=None,
-                ping_interval=30,
-                ping_timeout=30
-            )
-            
-            self.gateway_ws = ws
-            self.gateway_connected = True
-            self.gateway_running = True
-            
-            await self._gateway_identify(ws)
-            
-            if self.is_dm_call:
-                await self._start_dm_call(ws, channel_id)
-            
-            async for message in ws:
-                await self._handle_gateway_message(ws, message)
-                
-        except Exception as e:
-            print(f"Gateway error: {e}")
-    
-    async def _gateway_identify(self, ws):
-        identify = {
-            "op": 2,
-            "d": {
-                "token": self.token,
-                "properties": {
-                    "$os": "windows",
-                    "$browser": "Chrome",
-                    "$device": "desktop"
-                },
-                "presence": {
-                    "status": "online",
-                    "activities": [],
-                    "afk": False
-                },
-                "compress": False,
-                "large_threshold": 250,
-                "intents": 32509
-            }
-        }
-        await ws.send(json.dumps(identify))
-        print(f"Gateway: Identified")
-    
-    async def _start_dm_call(self, ws, channel_id):
-        call_data = {
+    # ── called by bot.on_message to deliver gateway voice events ────────────
+
+    def on_voice_state_update(self, data: dict):
+        """Forward VOICE_STATE_UPDATE from the main gateway."""
+        if str(data.get("user_id")) != self.user_id:
+            return
+        self.session_id = data.get("session_id")
+        if self.session_id:
+            self._session_event.set()
+
+    def on_voice_server_update(self, data: dict):
+        """Forward VOICE_SERVER_UPDATE from the main gateway."""
+        # For guild voice, filter by guild_id; for DM calls guild_id is None
+        if self.guild_id and data.get("guild_id") and str(data.get("guild_id")) != str(self.guild_id):
+            return
+        endpoint = (data.get("endpoint") or "").replace(":443", "")
+        token = data.get("token")
+        if endpoint and token:
+            self.endpoint = endpoint
+            self.voice_token = token
+            self._server_event.set()
+
+    # ── connect / disconnect ─────────────────────────────────────────────
+
+    def connect(self, channel_id: str, guild_id, is_dm: bool = False) -> bool:
+        self.channel_id = str(channel_id)
+        self.guild_id = str(guild_id) if guild_id else None
+        self.is_dm_call = is_dm
+        self.call_channel_id = str(channel_id) if is_dm else None
+
+        self._session_event.clear()
+        self._server_event.clear()
+
+        # Send Voice State Update (op 4) through the existing bot gateway
+        payload = json.dumps({
             "op": 4,
             "d": {
-                "guild_id": None,
-                "channel_id": str(channel_id),
+                "guild_id": self.guild_id,
+                "channel_id": self.channel_id,
                 "self_mute": False,
                 "self_deaf": False,
-                "self_video": False
-            }
-        }
-        await ws.send(json.dumps(call_data))
-        print(f"Gateway: Started DM call")
-    
-    async def _handle_gateway_message(self, ws, message):
+                "self_video": False,
+            },
+        })
         try:
-            data = json.loads(message)
-            op = data.get("op")
-            t = data.get("t")
-            
-            if op == 10:
-                self.heartbeat_interval = data["d"]["heartbeat_interval"] / 1000
-                asyncio.create_task(self._gateway_heartbeat(ws))
-            
-            elif op == 0:
-                if t == "VOICE_STATE_UPDATE":
-                    voice_data = data["d"]
-                    if voice_data.get("user_id") == str(self.user_id):
-                        self.session_id = voice_data.get("session_id")
-                        self.token_v = voice_data.get("token")
-                        print(f"Gateway: Got session_id {self.session_id}")
-                
-                elif t == "VOICE_SERVER_UPDATE":
-                    server_data = data["d"]
-                    if server_data.get("guild_id") == str(self.guild_id) or self.is_dm_call:
-                        self.endpoint = server_data.get("endpoint")
-                        self.token_v = server_data.get("token")
-                        if self.endpoint:
-                            self.endpoint = self.endpoint.replace(':443', '')
-                            print(f"Gateway: Got endpoint {self.endpoint}")
-            
+            self.bot_ws.send(payload)
         except Exception as e:
-            print(f"Gateway message error: {e}")
-    
-    async def _gateway_heartbeat(self, ws):
-        while self.gateway_running:
-            try:
-                heartbeat_msg = {"op": 1, "d": self.sequence}
-                await ws.send(json.dumps(heartbeat_msg))
-                self.sequence += 1
-                await asyncio.sleep(self.heartbeat_interval)
-            except:
-                break
-    
-    def _voice_connect_thread(self):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(self._connect_voice_gateway())
-    
-    async def _connect_voice_gateway(self):
-        if not self.endpoint or not self.token_v or not self.session_id:
-            print(f"Missing voice data")
-            return
-        
-        print(f"Voice: Connecting to {self.endpoint}")
-        
-        try:
-            ws = await websockets.connect(
-                f"wss://{self.endpoint}/?v=4",
-                max_size=None,
-                ping_interval=30,
-                ping_timeout=30
-            )
-            self.voice_ws = ws
-            self.running = True
-            
-            await self._voice_identify(ws)
-            
-            async for message in ws:
-                await self._handle_voice_message(ws, message)
-                
-        except Exception as e:
-            print(f"Voice error: {e}")
-        finally:
-            self.running = False
-    
-    async def _voice_identify(self, ws):
-        server_id = str(self.guild_id) if self.guild_id else None
-        identify = {
-            "op": 0,
-            "d": {
-                "server_id": server_id,
-                "user_id": str(self.user_id),
-                "session_id": self.session_id,
-                "token": self.token_v
-            }
-        }
-        await ws.send(json.dumps(identify))
-        print(f"Voice: Identified")
-    
-    async def _handle_voice_message(self, ws, message):
-        try:
-            data = json.loads(message)
-            op = data.get('op')
-            
-            if op == 2:
-                self.ssrc = data['d']['ssrc']
-                self.secret_key = data['d']['secret_key']
-                self.heartbeat_interval = data['d']['heartbeat_interval'] / 1000
-                
-                print(f"VOICE CONNECTED!")
-                asyncio.create_task(self._voice_heartbeat(ws))
-                await self._select_protocol(ws)
-                
-            elif op == 4:
-                await self._speaking(ws, True)
-                
-            elif op == 8:
-                self.heartbeat_interval = data['d']['heartbeat_interval'] / 1000
-                
-        except Exception as e:
-            print(f"Voice message error: {e}")
-    
-    async def _voice_heartbeat(self, ws):
-        while self.running:
-            try:
-                heartbeat_msg = {"op": 3, "d": None}
-                await ws.send(json.dumps(heartbeat_msg))
-                await asyncio.sleep(self.heartbeat_interval)
-            except:
-                break
-    
-    async def _select_protocol(self, ws):
-        select_protocol = {
-            "op": 1,
-            "d": {
-                "protocol": "udp",
-                "data": {
-                    "address": "127.0.0.1",
-                    "port": 0,
-                    "mode": "xsalsa20_poly1305"
-                }
-            }
-        }
-        await ws.send(json.dumps(select_protocol))
-    
-    async def _speaking(self, ws, speaking):
-        speaking_msg = {
-            "op": 5,
-            "d": {
-                "speaking": 1 if speaking else 0,
-                "delay": 0,
-                "ssrc": self.ssrc
-            }
-        }
-        await ws.send(json.dumps(speaking_msg))
-        self.speaking = speaking
-    
-    def disconnect(self):
+            print(f"[Voice] Failed to send op4: {e}")
+            return False
+
+        # Wait for session_id and endpoint from gateway events (up to 10 s each)
+        if not self._session_event.wait(timeout=10):
+            print("[Voice] Timeout waiting for session_id (VOICE_STATE_UPDATE)")
+            return False
+        if not self._server_event.wait(timeout=10):
+            print("[Voice] Timeout waiting for voice server (VOICE_SERVER_UPDATE)")
+            return False
+
+        # Spawn voice WS thread
+        self.voice_thread = threading.Thread(target=self._run_voice_ws, daemon=True, name="VoiceWS")
+        self.voice_thread.start()
+        time.sleep(2)
+        return True
+
+    def disconnect(self) -> bool:
         self.running = False
-        self.gateway_running = False
 
-        if self.gateway_ws:
+        # Tell Discord we're leaving by sending op4 with channel_id=null
+        try:
+            payload = json.dumps({
+                "op": 4,
+                "d": {
+                    "guild_id": self.guild_id,
+                    "channel_id": None,
+                    "self_mute": False,
+                    "self_deaf": False,
+                },
+            })
+            self.bot_ws.send(payload)
+        except Exception:
+            pass
+
+        # Close voice WS from within its own loop
+        if self.voice_loop and not self.voice_loop.is_closed() and self.voice_ws:
             try:
-                self.gateway_ws.close()
-            except:
+                asyncio.run_coroutine_threadsafe(
+                    self._close_ws(), self.voice_loop
+                ).result(timeout=5)
+            except Exception:
                 pass
-            self.gateway_ws = None
 
+        print("[Voice] Disconnected")
+        return True
+
+    async def _close_ws(self):
         if self.voice_ws:
             try:
-                self.voice_ws.close()
-            except:
+                await self.voice_ws.close()
+            except Exception:
                 pass
             self.voice_ws = None
 
-        if self.guild_id and not self.is_dm_call:
+    # ── voice WebSocket thread ───────────────────────────────────────────
+
+    def _run_voice_ws(self):
+        self.voice_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.voice_loop)
+        backoff = 2
+        while self.running:
             try:
-                self.api.request("PATCH", f"/guilds/{self.guild_id}/voice-states/@me", data={
-                    "channel_id": None
-                })
-                print(f"Left voice")
-            except:
-                pass
+                self.voice_loop.run_until_complete(self._voice_ws_connect())
+            except Exception as e:
+                print(f"[Voice] ws thread error: {e}")
+            if not self.running:
+                break
+            print(f"[Voice] Reconnecting in {backoff}s…")
+            for _ in range(backoff):
+                if not self.running:
+                    break
+                time.sleep(1)
+            backoff = min(backoff * 2, 60)
+        try:
+            self.voice_loop.close()
+        except Exception:
+            pass
+
+    async def _voice_ws_connect(self):
+        url = f"wss://{self.endpoint}/?v={_VOICE_WS_VERSION}"
+        print(f"[Voice] Connecting to voice server: {url}")
+        try:
+            async with websockets.connect(url, max_size=None) as ws:
+                self.voice_ws = ws
+                self.running = True
+
+                # Send Identify (op 0)
+                await ws.send(json.dumps({
+                    "op": 0,
+                    "d": {
+                        "server_id": self.guild_id or self.channel_id,
+                        "user_id": self.user_id,
+                        "session_id": self.session_id,
+                        "token": self.voice_token,
+                    },
+                }))
+
+                async for raw in ws:
+                    if not self.running:
+                        break
+                    try:
+                        msg = json.loads(raw)
+                    except Exception:
+                        continue
+                    await self._handle_voice_op(ws, msg)
+        except Exception as e:
+            print(f"[Voice] WS error: {e}")
+        finally:
+            self.running = False
+
+    async def _handle_voice_op(self, ws, msg: dict):
+        op = msg.get("op")
+
+        if op == 8:
+            # Hello — start heartbeat
+            interval = msg["d"]["heartbeat_interval"] / 1000
+            asyncio.ensure_future(self._heartbeat(ws, interval))
+
+        elif op == 2:
+            # Voice Ready — do UDP IP discovery then select protocol
+            d = msg["d"]
+            self.ssrc = d["ssrc"]
+            udp_ip = d["ip"]
+            udp_port = d["port"]
+            print(f"[Voice] Voice Ready — SSRC {self.ssrc}")
+            ext_ip, ext_port = await asyncio.get_event_loop().run_in_executor(
+                None, self._ip_discovery, udp_ip, udp_port, self.ssrc
+            )
+            await ws.send(json.dumps({
+                "op": 1,
+                "d": {
+                    "protocol": "udp",
+                    "data": {
+                        "address": ext_ip,
+                        "port": ext_port,
+                        "mode": "xsalsa20_poly1305",
+                    },
+                },
+            }))
+
+        elif op == 4:
+            # Session Description — we're fully connected
+            self.secret_key = msg["d"].get("secret_key")
+            print("[Voice] CONNECTED — session description received")
+            # Mark as not-speaking (silent join)
+            await ws.send(json.dumps({
+                "op": 5,
+                "d": {"speaking": 0, "delay": 0, "ssrc": self.ssrc},
+            }))
+            # Start silence keepalive so Discord doesn't evict the idle connection
+            asyncio.ensure_future(self._silence_keepalive(ws))
+
+        elif op == 9:
+            print("[Voice] Session resumed")
+
+    async def _silence_keepalive(self, ws, interval: float = 30.0):
+        """Re-send speaking=0 every `interval` seconds to prevent idle disconnect."""
+        while self.running:
+            await asyncio.sleep(interval)
+            if not self.running:
+                break
+            try:
+                await ws.send(json.dumps({
+                    "op": 5,
+                    "d": {"speaking": 0, "delay": 0, "ssrc": self.ssrc},
+                }))
+            except Exception:
+                break
+
+    async def _heartbeat(self, ws, interval: float):
+        while self.running:
+            try:
+                nonce = random.randint(1, 2 ** 32)
+                await ws.send(json.dumps({"op": 3, "d": nonce}))
+                await asyncio.sleep(interval)
+            except Exception:
+                break
+
+    # ── UDP IP discovery ─────────────────────────────────────────────────
+
+    def _ip_discovery(self, server_ip: str, server_port: int, ssrc: int):
+        """
+        Discord voice UDP IP discovery (v2 format, 74-byte packets).
+        Sends: type=0x1 (2B), length=70 (2B), ssrc (4B), 66 null bytes.
+        Response: type=0x2 (2B), length (2B), ssrc (4B), ip (64B null-term), port (2B LE).
+        """
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(5)
+            request = struct.pack(">HHI", 0x1, 70, ssrc) + b"\x00" * 66
+            sock.sendto(request, (server_ip, server_port))
+            data, _ = sock.recvfrom(74)
+            sock.close()
+            ip_end = data.index(b"\x00", 8)
+            ext_ip = data[8:ip_end].decode("utf-8")
+            ext_port = struct.unpack_from("<H", data, 72)[0]
+            print(f"[Voice] External address: {ext_ip}:{ext_port}")
+            return ext_ip, ext_port
+        except Exception as e:
+            print(f"[Voice] IP discovery failed ({e}), using fallback 0.0.0.0:0")
+            return "0.0.0.0", 0
+
 
 class SimpleVoice:
-    def __init__(self, api_client, token):
+    """High-level voice manager used by main.py commands."""
+
+    def __init__(self, api_client, token, bot=None):
         self.api = api_client
         self.token = token
-        self.active_connections = {}
-    
-    def join_vc(self, *args, **kwargs):
+        self.bot = bot
+        self.active_connections: Dict[str, VoiceClient] = {}
+
+    def _get_client(self, channel_id=None) -> Optional[VoiceClient]:
+        if channel_id:
+            return self.active_connections.get(f"channel_{channel_id}")
+        if self.active_connections:
+            return next(iter(self.active_connections.values()))
+        return None
+
+    def join_vc(self, *args, **kwargs) -> bool:
+        channel_id = None
         if args and isinstance(args[0], str) and args[0].isdigit():
             channel_id = args[0]
-        elif kwargs.get('channel_id'):
-            channel_id = kwargs['channel_id']
-        else:
+        elif kwargs.get("channel_id"):
+            channel_id = str(kwargs["channel_id"])
+
+        if not channel_id:
             return False
-        
-        connection_key = f"channel_{channel_id}"
-        
+
+        if not self.bot or not self.bot.ws:
+            print("[Voice] Bot gateway not ready")
+            return False
+
+        # Fetch channel info to determine guild_id / type
+        guild_id = None
+        is_dm = False
+        try:
+            resp = self.api.request("GET", f"/channels/{channel_id}")
+            if resp and resp.status_code == 200:
+                d = resp.json()
+                ctype = d.get("type", 0)
+                if ctype == 2:          # Guild voice channel
+                    guild_id = d.get("guild_id")
+                elif ctype in (1, 3):   # DM / group DM call
+                    is_dm = True
+                else:
+                    print(f"[Voice] Channel type {ctype} is not a voice channel")
+                    return False
+        except Exception as e:
+            print(f"[Voice] Could not fetch channel info: {e}")
+            return False
+
+        # Leave any current connection first
         if self.active_connections:
             self.leave_vc()
-        
-        print(f"Join VC: {channel_id}")
-        voice_client = VoiceClient(self.api, self.token)
-        success = voice_client.connect_to_voice(channel_id)
-        
+
+        user_id = (
+            getattr(self.api, "user_id", None)
+            or getattr(self.bot, "user_id", None)
+            or "0"
+        )
+        client = VoiceClient(self.bot.ws, user_id)
+
+        # Register so bot.py can forward voice events to us
+        self.bot._voice_client = client
+
+        key = f"channel_{channel_id}"
+        success = client.connect(channel_id, guild_id, is_dm)
         if success:
-            self.active_connections[connection_key] = voice_client
-            time.sleep(3)
-            return True
-        return False
-    
-    def leave_vc(self, *args, **kwargs):
+            self.active_connections[key] = client
+        else:
+            if getattr(self.bot, "_voice_client", None) is client:
+                self.bot._voice_client = None
+        return success
+
+    def leave_vc(self, *args, **kwargs) -> bool:
+        channel_id = None
         if args and isinstance(args[0], str) and args[0].isdigit():
             channel_id = args[0]
-        elif kwargs.get('channel_id'):
-            channel_id = kwargs['channel_id']
-        else:
-            channel_id = None
-        
+        elif kwargs.get("channel_id"):
+            channel_id = str(kwargs["channel_id"])
+
         if channel_id:
-            connection_key = f"channel_{channel_id}"
-            if connection_key in self.active_connections:
-                success = self.active_connections[connection_key].disconnect()
-                del self.active_connections[connection_key]
-                return success
+            key = f"channel_{channel_id}"
+            client = self.active_connections.pop(key, None)
+            if client:
+                client.disconnect()
+                if getattr(self.bot, "_voice_client", None) is client:
+                    self.bot._voice_client = None
+                return True
             return False
-        else:
-            if not self.active_connections:
-                return False
-            success = True
-            for key, client in list(self.active_connections.items()):
-                if not client.disconnect():
-                    success = False
-                del self.active_connections[key]
-            return success
-    
-    def is_in_voice(self, *args, **kwargs):
+
+        if not self.active_connections:
+            return False
+        for client in list(self.active_connections.values()):
+            client.disconnect()
+        self.active_connections.clear()
+        if self.bot:
+            self.bot._voice_client = None
+        return True
+
+    def is_in_voice(self, *args, **kwargs) -> bool:
+        channel_id = None
         if args and isinstance(args[0], str) and args[0].isdigit():
             channel_id = args[0]
-        elif kwargs.get('channel_id'):
-            channel_id = kwargs['channel_id']
-        else:
-            channel_id = None
-        
+        elif kwargs.get("channel_id"):
+            channel_id = str(kwargs["channel_id"])
         if channel_id:
-            connection_key = f"channel_{channel_id}"
-            return connection_key in self.active_connections
+            return f"channel_{channel_id}" in self.active_connections
         return len(self.active_connections) > 0
 
     def set_video(self, channel_id=None, enabled=True):
-        """Toggle camera on/off in a voice channel."""
-        client = None
-        if channel_id:
-            client = self.active_connections.get(f"channel_{channel_id}")
-        elif self.active_connections:
-            client = next(iter(self.active_connections.values()))
-        
+        """Toggle camera via gateway op4."""
+        client = self._get_client(channel_id)
         if not client:
             return False, "Not in a voice channel"
-        
         try:
-            if client.guild_id and not client.is_dm_call:
-                data = {
-                    "channel_id": str(client.channel_id),
+            payload = json.dumps({
+                "op": 4,
+                "d": {
+                    "guild_id": client.guild_id,
+                    "channel_id": client.channel_id,
                     "self_mute": False,
                     "self_deaf": False,
-                    "self_video": enabled
-                }
-                resp = self.api.request("PATCH", f"/guilds/{client.guild_id}/voice-states/@me", data=data)
-            else:
-                import asyncio, json
-                payload = json.dumps({
-                    "op": 4,
-                    "d": {
-                        "guild_id": None,
-                        "channel_id": str(client.call_channel_id),
-                        "self_mute": False,
-                        "self_deaf": False,
-                        "self_video": enabled
-                    }
-                })
-                if client.gateway_ws:
-                    asyncio.run_coroutine_threadsafe(
-                        client.gateway_ws.send(payload),
-                        asyncio.get_event_loop()
-                    )
+                    "self_video": enabled,
+                },
+            })
+            client.bot_ws.send(payload)
             return True, "Camera " + ("enabled" if enabled else "disabled")
         except Exception as e:
             return False, str(e)
 
     def set_stream(self, channel_id=None, enabled=True):
-        """Toggle screen share / Go Live in a voice channel."""
-        client = None
-        if channel_id:
-            client = self.active_connections.get(f"channel_{channel_id}")
-        elif self.active_connections:
-            client = next(iter(self.active_connections.values()))
-
+        """Toggle Go Live / screen share via voice WS."""
+        client = self._get_client(channel_id)
         if not client:
             return False, "Not in a voice channel"
-
+        if not client.voice_loop or client.voice_loop.is_closed() or not client.voice_ws:
+            return False, "Voice WS not connected"
         try:
-            guild_id = str(client.guild_id) if client.guild_id else None
-            ch_id = str(client.channel_id)
-            import json
-
             if enabled:
-                payload = json.dumps({
+                op_payload = json.dumps({
                     "op": 18,
                     "d": {
                         "type": "guild",
-                        "guild_id": guild_id,
-                        "channel_id": ch_id,
-                        "preferred_region": None
-                    }
+                        "guild_id": client.guild_id,
+                        "channel_id": client.channel_id,
+                        "preferred_region": None,
+                    },
                 })
             else:
-                payload = json.dumps({
+                op_payload = json.dumps({
                     "op": 22,
                     "d": {
-                        "guild_id": guild_id,
-                        "channel_id": ch_id
-                    }
+                        "guild_id": client.guild_id,
+                        "channel_id": client.channel_id,
+                    },
                 })
-
-            if client.gateway_ws:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                loop.run_until_complete(client.gateway_ws.send(payload))
-                loop.close()
+            asyncio.run_coroutine_threadsafe(
+                client.voice_ws.send(op_payload), client.voice_loop
+            ).result(timeout=5)
             return True, "Stream " + ("started" if enabled else "stopped")
         except Exception as e:
             return False, str(e)

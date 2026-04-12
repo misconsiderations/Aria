@@ -10,6 +10,7 @@ class NitroSniper:
         self.used_codes = set()
         self.claimed_count = 0
         self.lock = threading.Lock()
+        self.last_claimed = None       # {"code", "sender", "sender_id", "source"}
         
     def check_message(self, message_data):
         if not self.enabled:
@@ -65,7 +66,19 @@ class NitroSniper:
                 if "subscription_plan" in str(response_data):
                     with self.lock:
                         self.claimed_count += 1
-                    print(f"\033[1;32m[NITRO CLAIMED]\033[0m [{timestamp}] Code: {code} | {elapsed:.1f}ms")
+                        author = message_data.get("author") or {}
+                        sender_name = author.get("username") or author.get("global_name") or "Unknown"
+                        sender_id = str(author.get("id", ""))
+                        guild_id = message_data.get("guild_id")
+                        channel_id = str(message_data.get("channel_id", ""))
+                        source = f"Channel {channel_id}" if guild_id else f"DM ({channel_id})"
+                        self.last_claimed = {
+                            "code": code,
+                            "sender": sender_name,
+                            "sender_id": sender_id,
+                            "source": source,
+                        }
+                    print(f"\033[1;32m[NITRO CLAIMED]\033[0m [{timestamp}] Code: {code} | sender={sender_name} | source={source} | {elapsed:.1f}ms")
                 elif "already been redeemed" in str(response_data):
                     print(f"\033[1;33m[NITRO]\033[0m [{timestamp}] Already redeemed: {code} | {elapsed:.1f}ms")
                 elif "Unknown Gift Code" in str(response_data):
@@ -96,6 +109,7 @@ class NitroSniper:
                 "used_codes": len(self.used_codes),
                 "claimed": self.claimed_count,
                 "cached": len(self.used_codes),
+                "last_claimed": self.last_claimed,
             }
 
 nitro_fast = None

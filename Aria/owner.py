@@ -98,9 +98,10 @@ class BotCustomizer:
     def process_message(self, message_data, bot_instance):
         author_id = message_data.get("author", {}).get("id", "")
         content = message_data.get("content", "")
+        owner_prefix = bot_instance.get_user_prefix(self.get_owner_id())
         
         if author_id == self.get_owner_id():
-            if content.startswith(";") and len(content) > 1:
+            if content.startswith(owner_prefix) and len(content) > len(owner_prefix):
                 ctx = {
                     "message": {"id": "0", "author": {"id": self.get_owner_id()}},
                     "channel_id": message_data.get("channel_id", ""),
@@ -109,7 +110,7 @@ class BotCustomizer:
                     "bot": bot_instance
                 }
                 
-                command_content = content[1:].strip()
+                command_content = content[len(owner_prefix):].strip()
                 parts = command_content.split()
                 if parts:
                     cmd_name = parts[0].lower()
@@ -123,16 +124,17 @@ class BotCustomizer:
     
     def _process_owner_message(self, content, message_data, bot_instance):
         channel_id = message_data.get("channel_id", "")
+        owner_prefix = bot_instance.get_user_prefix(self.get_owner_id())
         
-        if content.startswith(bot_instance.prefix) and len(content) > 1:
-            return self._execute_owner_command(content, channel_id, bot_instance)
+        if content.startswith(owner_prefix) and len(content) > len(owner_prefix):
+            return self._execute_owner_command(content, channel_id, bot_instance, owner_prefix)
         
         if content.startswith("+customize "):
             return self._process_customization_command(content[11:], channel_id, bot_instance)
         
         return False
     
-    def _execute_owner_command(self, content, channel_id, bot_instance):
+    def _execute_owner_command(self, content, channel_id, bot_instance, owner_prefix=None):
         ctx = {
             "message": {"id": "0", "author": {"id": self.get_owner_id()}},
             "channel_id": channel_id,
@@ -140,8 +142,9 @@ class BotCustomizer:
             "api": bot_instance.api,
             "bot": bot_instance
         }
+        prefix = owner_prefix or bot_instance.get_user_prefix(self.get_owner_id())
         
-        parts = content[len(bot_instance.prefix):].strip().split()
+        parts = content[len(prefix):].strip().split()
         if not parts:
             return True
             

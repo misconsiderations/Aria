@@ -32,7 +32,10 @@ class _CffiNoiseSuppressor:
         return getattr(self._real, name)
 
 sys.stderr = _CffiNoiseSuppressor(sys.stderr)
-import aiohttp
+try:
+    import aiohttp
+except ImportError:
+    aiohttp = None
 import base64
 import asyncio
 from bot import DiscordBot
@@ -653,13 +656,27 @@ def main():
         return
     
     bot = DiscordBot(token, config.get("prefix", ";"), config)
+
+    command_response_state = threading.local()
+    original_api_send_message = bot.api.send_message
+
+    def managed_send_message(channel_id, content, reply_to=None, tts=False):
+        msg = original_api_send_message(channel_id, content, reply_to=reply_to, tts=tts)
+        active_channel = getattr(command_response_state, "channel_id", None)
+        active_delay = getattr(command_response_state, "delay", 20)
+        if msg and getattr(command_response_state, "enabled", False) and channel_id == active_channel:
+            delete_after_delay(bot.api, channel_id, msg.get("id"), active_delay)
+        return msg
+
+    bot.api.send_message = managed_send_message
+
     # Integrate enhanced command engine (500+ commands, ANSI-safe help)
     try:
         integrate_command_engine(bot, bot.api, bot.prefix)
     except Exception:
         # Integration failure should not break main startup
         pass
-    voice_manager = SimpleVoice(bot.api, token)
+    voice_manager = SimpleVoice(bot.api, token, bot)
     backup_manager = BackupManager(bot.api)
     mod_manager = ModerationManager(bot.api)
     web_panel = WebPanel(bot.api, bot, host='127.0.0.1', port=8080)
@@ -681,8 +698,9 @@ def main():
     guild_rotator = GuildRotator(bot.api)
     developer_tools = DeveloperTools()
 
-    owner_user_id = str(bot.customizer.get_owner_id())
-    developer_user_id = str(developer_tools.get_dev_id())
+    owner_user_id = str(bot.ownerId)
+    developer_tools.dev_id = owner_user_id
+    developer_user_id = owner_user_id
 
     def is_owner_user(user_id):
         return str(user_id) == owner_user_id
@@ -692,6 +710,10 @@ def main():
 
     def is_hosted_user(user_id):
         user_id = str(user_id)
+        if HOSTED_MODE:
+            hosted_user_id = str(os.environ.get("HOSTED_USER_ID", "") or bot.user_id or "")
+            if user_id == hosted_user_id or user_id == str(bot.user_id or ""):
+                return True
         for entry in host_manager.saved_users.values():
             if str(entry.get("user_id", "")) == user_id:
                 return True
@@ -708,7 +730,7 @@ def main():
             label = "Hosted users only"
         else:
             label = "Owner only"
-        msg = ctx["api"].send_message(ctx["channel_id"], f"```| {title} |\n{label}```")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```{title}\n{label}```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
         return False
@@ -731,7 +753,10 @@ def main():
     
     from extended_system_commands import setup_extended_system_commands
     setup_extended_system_commands(bot, delete_after_delay)
-    
+
+    from bulk_commands import setup_bulk_commands
+    setup_bulk_commands(bot, delete_after_delay)
+
     # Initialize friend scraper
     from friend_scraper import EnhancedFriendScraper
     friend_scraper = EnhancedFriendScraper(bot.api)
@@ -740,6 +765,9 @@ def main():
     # Initialize self-hosting system
     from self_hosting import self_hosting_manager
     bot.self_hosting_manager = self_hosting_manager
+
+    if not HOSTED_MODE:
+        host_manager.restore_hosted_users()
     
     # Print all loaded users summary (once, at the end of initialization)
     # This fixes the duplicate user loading issue
@@ -772,7 +800,10 @@ def main():
             stats = ctx["bot"].nitro_sniper.get_stats()
             status = "ON" if stats["enabled"] else "OFF"
             import formatter as fmt
-        msg = ctx["api"].send_message(ctx["channel_id"], fmt.nitro_status(status, stats['claimed']))
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.nitro_status(status, stats["claimed"], stats["cached"], stats.get("last_claimed")),
+            )
     @bot.command(name="giveaway", aliases=["gw", "gsnipe"])
     def giveaway_cmd(ctx, args):
         gs = ctx["bot"].giveaway_sniper
@@ -790,7 +821,7 @@ def main():
             import formatter as fmt
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt.giveaway_status(status, s['entered'], s['won'], s['failed']),
+                fmt.giveaway_status(status, s["entered"], s["won"], s["failed"], s.get("last_win")),
             )
 
         if msg:
@@ -997,137 +1028,163 @@ def main():
 
         status = ctx["api"].send_message(
             ctx["channel_id"],
-            f"> **Purging** {amount} messages{' for user ' + target_user if target_user else ''}...",
+            f"```| Purge |\nDeleting up to {amount} messages{' for user ' + target_user if target_user else ''}```",
         )
         status_id = status.get("id") if status else None
-        messages = ctx["api"].get_messages(ctx["channel_id"], amount)
+        scan_limit = min(1000, max(amount, 1))
+        messages = []
+        before = None
+        while len(messages) < scan_limit:
+            batch_size = min(100, scan_limit - len(messages))
+            batch = ctx["api"].get_messages(ctx["channel_id"], batch_size, before=before)
+            if not batch:
+                break
+            messages.extend(batch)
+            before = batch[-1].get("id")
+            if len(batch) < batch_size or not before:
+                break
+
         deleted = 0
+        failed = 0
+        forbidden = 0
+        scanned = 0
+        mine_id = str(bot.user_id)
         for m in messages:
             if status_id and m.get("id") == status_id:
                 continue
 
             author_id = m.get("author", {}).get("id", "")
-            is_mine = author_id == str(bot.user_id)
+            is_mine = author_id == mine_id
+            scanned += 1
 
             if target_user:
-                # Delete target user messages and our own status messages
-                if author_id != target_user and not is_mine:
+                if author_id != target_user:
                     continue
             else:
-                # Without a target, only delete our own messages
                 if not is_mine:
                     continue
 
             try:
-                ctx["api"].delete_message(ctx["channel_id"], m["id"])
-                deleted += 1
+                ok = ctx["api"].delete_message(ctx["channel_id"], m["id"])
+                if ok:
+                    deleted += 1
+                else:
+                    failed += 1
+                    if target_user and not is_mine:
+                        forbidden += 1
                 time.sleep(0.3)
             except:
-                pass
+                failed += 1
 
         if status:
+            suffix = f" | Failed {failed}" if failed else ""
+            if forbidden:
+                suffix += " | Missing perms for some target-user messages"
             ctx["api"].edit_message(
                 ctx["channel_id"], status.get("id"),
-                f"> **Purge Complete** | Deleted {deleted} messages",
+                f"```| Purge |\nDeleted {deleted} messages | Scanned {scanned}{suffix}```",
             )
             delete_after_delay(ctx["api"], ctx["channel_id"], status.get("id"))
     
     @bot.command(name="massdm")
     def mass_dm(ctx, args):
-        if len(args) >= 2:
-            try:
-                option = int(args[0])
-                message = " ".join(args[1:])
-                
-                option_names = {1: "DM History", 2: "Friends", 3: "Both"}
-                if option not in [1, 2, 3]:
-                    msg = ctx["api"].send_message(ctx["channel_id"], "```| DM Sender |\nInvalid option. Use 1, 2, or 3```")
-                    if msg:
-                        delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                    return
-                
-                status_msg = ctx["api"].send_message(ctx["channel_id"], f"```| DM Sender |\nMode: {option_names[option]}\nMessage: {message[:30]}...\nFetching targets...```")
-                
-                dms_response = ctx["api"].request("GET", "/users/@me/channels")
-                if not dms_response or dms_response.status_code != 200:
-                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```| DM Sender |\nFailed to fetch DMs```")
-                    delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
-                    return
-                
-                dm_data = dms_response.json()
-                targets = []
-                target_names = []
-                
-                for dm in dm_data:
-                    if dm.get("type") == 1 and dm.get("recipients"):
-                        recipient = dm["recipients"][0] if dm["recipients"] else {}
-                        user_id = recipient.get("id")
-                        username = recipient.get("username", "Unknown")
-                        if user_id:
-                            targets.append((dm["id"], user_id, username))
-                            target_names.append(username)
-                
-                if option == 2 or option == 3:
-                    friends_response = ctx["api"].request("GET", "/users/@me/relationships")
-                    if friends_response and friends_response.status_code == 200:
-                        friends_data = friends_response.json()
-                        for friend in friends_data:
-                            if friend.get("type") == 1:
-                                user = friend.get("user", {})
-                                user_id = user.get("id")
-                                username = user.get("username", "Unknown")
-                                dm_found = False
-                                for target in targets:
-                                    if target[1] == user_id:
-                                        dm_found = True
-                                        break
-                                if not dm_found:
-                                    dm_channel = ctx["api"].create_dm(user_id)
-                                    if dm_channel and "id" in dm_channel:
-                                        targets.append((dm_channel["id"], user_id, username))
-                                        target_names.append(username)
-                
-                if not targets:
-                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```| DM Sender |\nNo targets found```")
-                    delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
-                    return
-                
-                sent = 0
-                total = len(targets)
-                failed = 0
-                current_target = ""
-                
-                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| DM Sender |\nMode: {option_names[option]}\nTargets: {total}\nStatus: Starting...\nSent: 0/{total}\nFailed: 0```")
-                
-                for i, (channel_id, user_id, username) in enumerate(targets):
-                    current_target = username
-                    result = ctx["api"].send_message(channel_id, message)
-                    if result:
-                        sent += 1
-                    else:
-                        failed += 1
-                    
-                    if (i + 1) % 3 == 0 or i == total - 1:
-                        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| DM Sender |\nMode: {option_names[option]}\nTargets: {total}\nStatus: Sending...\nSent: {sent}/{total}\nFailed: {failed}\nCurrent: {username}```")
-                    
-                    time.sleep(random.uniform(2.5, 4.0))
-                
-                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| DM Sender |\nMode: {option_names[option]}\nStatus: Complete\nSent: {sent}/{total}\nFailed: {failed}\nTime: {time.strftime('%H:%M:%S')}```")
-                delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
-                
-            except Exception as e:
-                print(f"Mass DM error: {e}")
-                help_text = """```asciidoc
-| DM Sender Options |
-1 :: Mass DM all your DM history
-2 :: Mass DM all your friends (with existing DMs)
-3 :: Both (DM history + friends with existing DMs)
+        if len(args) < 2:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Mass DM |\nUsage: {bot.prefix}massdm <1|2|3> <message>\n1 = DM history  2 = Friends  3 = Both```",
+            )
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
 
-Usage: ;massdm <1|2|3> <message>
-Example:;massdm 1 Hello everyone!```"""
-                msg = ctx["api"].send_message(ctx["channel_id"], help_text)
+        try:
+            option = int(args[0])
+            message = " ".join(args[1:])
+            
+            option_names = {1: "DM History", 2: "Friends", 3: "Both"}
+            if option not in [1, 2, 3]:
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Mass DM |\nInvalid option. Use 1, 2, or 3```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+                return
+            
+            status_msg = ctx["api"].send_message(ctx["channel_id"], f"```| Mass DM |\nMode: {option_names[option]}\nFetching targets...```")
+            
+            dms_response = ctx["api"].request("GET", "/users/@me/channels")
+            if not dms_response or dms_response.status_code != 200:
+                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```| Mass DM |\nFailed to fetch DMs```")
+                delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
+                return
+            
+            dm_data = dms_response.json()
+            targets = []
+            target_names = []
+            
+            for dm in dm_data:
+                if dm.get("type") == 1 and dm.get("recipients"):
+                    recipient = dm["recipients"][0] if dm["recipients"] else {}
+                    user_id = recipient.get("id")
+                    username = recipient.get("username", "Unknown")
+                    if user_id:
+                        targets.append((dm["id"], user_id, username))
+                        target_names.append(username)
+            
+            if option == 2 or option == 3:
+                friends_response = ctx["api"].request("GET", "/users/@me/relationships")
+                if friends_response and friends_response.status_code == 200:
+                    friends_data = friends_response.json()
+                    for friend in friends_data:
+                        if friend.get("type") == 1:
+                            user = friend.get("user", {})
+                            user_id = user.get("id")
+                            username = user.get("username", "Unknown")
+                            dm_found = False
+                            for target in targets:
+                                if target[1] == user_id:
+                                    dm_found = True
+                                    break
+                            if not dm_found:
+                                dm_channel = ctx["api"].create_dm(user_id)
+                                if dm_channel and "id" in dm_channel:
+                                    targets.append((dm_channel["id"], user_id, username))
+                                    target_names.append(username)
+            
+            if not targets:
+                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```| Mass DM |\nNo targets found```")
+                delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
+                return
+            
+            sent = 0
+            total = len(targets)
+            failed = 0
+            current_target = ""
+            
+            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass DM |\nMode: {option_names[option]}\nTargets: {total}\nStatus: Starting\nSent: 0/{total}\nFailed: 0```")
+            
+            for i, (channel_id, user_id, username) in enumerate(targets):
+                current_target = username
+                result = ctx["api"].send_message(channel_id, message)
+                if result:
+                    sent += 1
+                else:
+                    failed += 1
+                
+                if (i + 1) % 3 == 0 or i == total - 1:
+                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass DM |\nMode: {option_names[option]}\nTargets: {total}\nStatus: Sending\nSent: {sent}/{total}\nFailed: {failed}\nCurrent: {username}```")
+                
+                time.sleep(random.uniform(2.5, 4.0))
+            
+            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass DM |\nMode: {option_names[option]}\nSent: {sent}/{total}\nFailed: {failed}\nTime: {time.strftime('%H:%M:%S')}```")
+            delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
+            
+        except Exception as e:
+            print(f"Mass DM error: {e}")
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Mass DM |\nUsage: {bot.prefix}massdm <1|2|3> <message>\n1 = DM history  2 = Friends  3 = Both```",
+            )
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="join", aliases=["acceptinvite"])
     def join_cmd(ctx, args):
@@ -1245,7 +1302,7 @@ Example:;massdm 1 Hello everyone!```"""
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
-    @bot.command(name="hypesquad leave", aliases=["leavehypesquad", "hsl"])
+    @bot.command(name="hypesquad_leave", aliases=["leavehypesquad", "hsl", "hypesquadleave"])
     def hypesquad_leave_cmd(ctx, args):
         resp = ctx["api"].request(
             "DELETE",
@@ -1280,22 +1337,34 @@ Example:;massdm 1 Hello everyone!```"""
 
     @bot.command(name="client", aliases=["clienttype", "ct"])
     def client_cmd(ctx, args):
+        import formatter as fmt
         valid = {"web", "desktop", "mobile"}
         ctype = (args[0].lower() if args else "")
+        labels = {
+            "web":     "Web (Chrome/Linux)",
+            "desktop": "Desktop (Discord Client/Windows)",
+            "mobile":  "Android (Discord Android)",
+        }
         if ctype not in valid:
-            current = getattr(ctx["bot"], "_client_type", "web")
+            current = getattr(ctx["bot"], "_client_type", "mobile")
+            cmds = [
+                (f"{bot.prefix}client web", "Web browser client"),
+                (f"{bot.prefix}client desktop", "Desktop app client"),
+                (f"{bot.prefix}client mobile", "Android mobile client"),
+            ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```| Client |\nCurrent :: {current}\nUsage   :: {bot.prefix}client web/desktop/mobile```",
+                fmt.header("Client Type") + "\n" + fmt.command_list(cmds) + "\n" +
+                fmt._block(f"{fmt.CYAN}Current{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{labels.get(current, current)}{fmt.RESET}"),
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
         ok = ctx["bot"].set_client_type(ctype)
-        labels = {"web": "Web (Chrome)", "desktop": "Discord Desktop", "mobile": "Discord Android"}
+        result = f"Switched to {labels[ctype]} — reconnecting..." if ok else "Failed to switch client type"
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```| Client |\n{'Switched to ' + labels[ctype] + ' — reconnecting...' if ok else 'Failed'}```",
+            fmt.status_box("Client Type", {"Status": result, "Type": labels.get(ctype, ctype)}),
         )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -1442,19 +1511,35 @@ Example:;massdm 1 Hello everyone!```"""
     def setprefix_cmd(ctx, args):
         if not args:
             user_prefix = bot.get_user_prefix(ctx["author_id"])
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Prefix** | Current: **{user_prefix}** | Usage: {bot.prefix}setprefix <symbol>")
+            import formatter as fmt
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.status_box("Prefix", {
+                    "Current": user_prefix,
+                    "Usage": f"{user_prefix}setprefix <symbol>",
+                })
+            )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
 
         new_prefix = args[0]
+        if any(ch.isspace() for ch in new_prefix) or len(new_prefix) > 5:
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Prefix |\nPrefix must be 1-5 non-space characters```")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
         user_prefix = bot.get_user_prefix(ctx["author_id"])
         old_prefix = user_prefix
         
         # Set user's prefix (persisted to file)
         bot.set_user_prefix(ctx["author_id"], new_prefix)
         
-        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Prefix Updated** | Old: **{old_prefix}** → New: **{new_prefix}** | ✓ Saved")
+        import formatter as fmt
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            fmt.status_box("Prefix", {"Old": old_prefix, "New": new_prefix}),
+        )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -1748,11 +1833,11 @@ Example Usage:
     
     @bot.command(name="closedms")
     def closedms(ctx, args):
-        status_msg = ctx["api"].send_message(ctx["channel_id"], "> **Fetching** DM channels...")
+        status_msg = ctx["api"].send_message(ctx["channel_id"], "```| Close DMs |\nFetching DM channels...```")
         
         dms_response = ctx["api"].request("GET", "/users/@me/channels")
         if not dms_response or dms_response.status_code != 200:
-            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> **Failed** to fetch DMs.")
+            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```| Close DMs |\nFailed to fetch DMs```")
             delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
             return
         
@@ -1764,14 +1849,14 @@ Example Usage:
                 dm_channels.append(dm)
         
         if not dm_channels:
-            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> No **DM channels** to close.")
+            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```| Close DMs |\nNo DM channels to close```")
             delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
             return
         
         closed_count = 0
         total = len(dm_channels)
         
-        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **Closing** {total} DM channels...\nClosed: 0/{total}")
+        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Close DMs |\nClosing {total} DM channels...\nClosed: 0/{total}```")
         
         for i, dm in enumerate(dm_channels):
             try:
@@ -1780,13 +1865,13 @@ Example Usage:
                     closed_count += 1
                 
                 if (i + 1) % 5 == 0 or i == total - 1:
-                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"Closing {total} DM channels...\nClosed: {closed_count}/{total}```")
+                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Close DMs |\nClosing {total} DM channels...\nClosed: {closed_count}/{total}```")
                 
                 time.sleep(0.5)
             except:
                 pass
         
-        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **Successfully*** closed {closed_count}/{total} DM channels.")
+        ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Close DMs |\nClosed: {closed_count}/{total}```")
         delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
     
     @bot.command(name="setpfp")
@@ -2079,20 +2164,17 @@ Example Usage:
     @bot.command(name="rpc", aliases=["rich_presence"])
     def rich_presence(ctx, args):
         if not args:
-            help_text = """```asciidoc
-| RPC Commands |
-spotify "Song | Artist | Album | Duration [| image_url]"
-listening "Details | State | Name [| image_url] [>> Button Label >> Button URL]"
-streaming "Details | State | Name [| image_url] [>> Button Label >> Button URL]"
-playing "Details | State | Name [| image_url] [>> Button Label >> Button URL]"
-timer "Details | State | Name | Start | End [| image_url]"
-
-Examples:
-+rpc spotify "Song Name | Artist Name | Album Name | 3.5 | https://image.url"
-rpc listening "Playing my playlist | 15 tracks | Spotify | https://image.url >> Listen Now >> https://spotify.com"
-rpc streaming "Playing GTA V | In session | Twitch | https://image.url >> Watch Live >> https://twitch.tv"
-rpc playing "Level 85 | Questing | World of Warcraft | https://image.url"
-rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https://image.url"```"""
+            import formatter as fmt
+            p = bot.prefix
+            cmds = [
+                (f"{p}rpc spotify", '"Song | Artist | Album | Duration [| img]"'),
+                (f"{p}rpc listening", '"Details | State | Name [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc streaming", '"Details | State | Name [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc playing", '"Details | State | Name [| img]"'),
+                (f"{p}rpc timer", '"Details | State | Name | Start | End [| img]"'),
+                (f"{p}rpc stop", "Clear all activities"),
+            ]
+            help_text = fmt.header("RPC Commands") + "\n" + fmt.command_list(cmds)
             msg = ctx["api"].send_message(ctx["channel_id"], help_text)
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -2848,7 +2930,7 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
-    @bot.command(name="help", aliases=["h"])
+    @bot.command(name="help", aliases=["h", "commands"])
     def show_help(ctx, args):
         import formatter as fmt
         p = bot.prefix  # live prefix — auto-reflects config changes
@@ -2873,10 +2955,33 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
         def render_help_page(page_name, content, current_page, total_pages):
             title = content.get("title", "Help")
             body = format_native_lines(content.get("lines", []))
-            footer = content.get("footer") or f"{p}help {page_name} [1-{total_pages}]"
+            footer = content.get("footer") or fmt.footer_page(p, page_name, current_page, total_pages)
             return fmt.layout(title, body, footer)
 
         help_pages = {
+            # ── General ──────────────────────────────────────────────────────
+            "general": {
+                "title": f"{p}help General",
+                "lines": [
+                    ("help [category|command]", "Open the main help system"),
+                    ("helpwall", "Show the full command wall"),
+                    ("quickhelp", "Show common starter commands"),
+                    ("categories", "List command-engine categories"),
+                    ("commands", "Show command overview"),
+                    ("ping", "Test bot latency"),
+                    ("profile [user_id]", "Show a user profile"),
+                    ("guilds", "List your guilds"),
+                    ("autoreact [emoji]", "Auto-react to your own messages"),
+                    ("bold <text>", "Make text bold"),
+                    ("italic <text>", "Make text italic"),
+                    ("quote <text>", "Quote text"),
+                    ("mock <text>", "Mock text"),
+                    ("flip <text>", "Flip text upside down"),
+                    ("version", "Show Aria version"),
+                    ("restart", "Restart the bot"),
+                ],
+            },
+
             # ── Utility ──────────────────────────────────────────────────────
             "utility": {
                 "title": f"{p}help Utility",
@@ -3714,28 +3819,25 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
 
             # ── Owner ────────────────────────────────────────────────────────
             "owner": {
-                "title": f"{p}help Owner - Developer Commands",
+                "title": f"{p}help Owner",
                 "lines": [
-                    {"type": "section", "text": "Core Developer Commands"},
-                    (f"{p}drun", "Execute commands on multiple instances"),
+                    ("hoston", "Enable hosting for other users"),
+                    ("hostoff", "Disable hosting for other users"),
+                    ("listallhosted", "List every hosted token"),
+                    ("hoststopall", "Stop every hosted token"),
+                    (f"{p}drun", "Execute commands on instances"),
                     (f"{p}dlog", "Manage developer logging"),
-                    (f"{p}ddebug", "Toggle debug mode"),
+                    (f"{p}ddebug", "Toggle developer debug mode"),
                     (f"{p}dmetrics", "Show developer metrics"),
-                    "",
-                    {"type": "section", "text": "Guild Management (Multi-Instance)"},
                     (f"{p}djoininvite", "Join servers with instances"),
-                    (f"{p}dleaveguild", "Leave specific guilds"),
+                    (f"{p}dleaveguild", "Leave guilds with instances"),
                     (f"{p}dmyguilds", "List guilds for instances"),
-                    (f"{p}dmassleave", "Leave multiple guilds"),
-                    (f"{p}dguildmembers", "Show guild members"),
-                    "",
-                    {"type": "section", "text": "Token Management (Multi-Instance)"},
-                    (f"{p}dchecktoken", "Validate token"),
-                    (f"{p}dbulkcheck", "Check multiple tokens"),
-                    (f"{p}dexportguilds", "Export guild list"),
-                    "",
-                    {"type": "section", "text": "Message Tracking"},
-                    (f"{p}drecentmessages", "View tracked messages (flexible filtering)"),
+                    (f"{p}dmassleave", "Mass leave guilds with instances"),
+                    (f"{p}dguildmembers", "List guild members on instances"),
+                    (f"{p}dchecktoken", "Validate a token"),
+                    (f"{p}dbulkcheck", "Validate multiple tokens"),
+                    (f"{p}dexportguilds", "Export guild lists"),
+                    (f"{p}drecentmessages", "Show tracked recent messages"),
                 ],
             },
 
@@ -4135,6 +4237,8 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
                     ("stealbanner <user_id>", "Steal banner"),
                     ("setpronouns <text>", "Set pronouns"),
                     ("host <token>", "Host token"),
+                    ("hoston", "Enable public hosting"),
+                    ("hostoff", "Disable public hosting"),
                     ("listhosted", "Your hosted tokens"),
                     ("afk [reason]", "Set AFK status"),
                     ("afkstatus [id]", "Check AFK"),
@@ -4144,6 +4248,7 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
                     ("badges user <user_id>", "User badges"),
                     ("stophost", "Stop hosting"),
                     ("listallhosted", "All hosted (owner)"),
+                    ("hoststopall", "Stop all hosted (owner)"),
                     ("setbio <text>", "Set bio"),
                     ("setdisplayname <text>", "Set display name"),
                     ("stealname <user_id>", "Steal name"),
@@ -4186,25 +4291,26 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
                     ("stop", "Stop bot"),
                     ("restart", "Restart bot"),
                     ("help [page]", "This help"),
-                    (f"{p}drun", "Dev: Execute on instances"),
-                    (f"{p}dlog", "Dev: Logging"),
-                    (f"{p}ddebug", "Dev: Debug mode"),
-                    (f"{p}dmetrics", "Dev: Metrics"),
-                    (f"{p}djoininvite", "Dev: Join servers"),
-                    (f"{p}dleaveguild", "Dev: Leave guilds"),
-                    (f"{p}dmyguilds", "Dev: List guilds"),
-                    (f"{p}dmassleave", "Dev: Mass leave"),
-                    (f"{p}dguildmembers", "Dev: Guild members"),
-                    (f"{p}dchecktoken", "Dev: Check token"),
-                    (f"{p}dbulkcheck", "Dev: Bulk tokens"),
-                    (f"{p}dexportguilds", "Dev: Export guilds"),
-                    (f"{p}drecentmessages", "Dev: Messages"),
+                    (f"{p}drun", "Owner: Execute on instances"),
+                    (f"{p}dlog", "Owner: Logging"),
+                    (f"{p}ddebug", "Owner: Debug mode"),
+                    (f"{p}dmetrics", "Owner: Metrics"),
+                    (f"{p}djoininvite", "Owner: Join servers"),
+                    (f"{p}dleaveguild", "Owner: Leave guilds"),
+                    (f"{p}dmyguilds", "Owner: List guilds"),
+                    (f"{p}dmassleave", "Owner: Mass leave"),
+                    (f"{p}dguildmembers", "Owner: Guild members"),
+                    (f"{p}dchecktoken", "Owner: Check token"),
+                    (f"{p}dbulkcheck", "Owner: Bulk tokens"),
+                    (f"{p}dexportguilds", "Owner: Export guilds"),
+                    (f"{p}drecentmessages", "Owner: Messages"),
                 ],
             },
         }
 
         if not args:
             categories = [
+                ("General", f"Popular & starter commands"),
                 ("Utility", f"General Tools & Commands"),
                 ("Messaging", f"DM & Group Chat Protocols "),
                 ("Profile", f"User identity & Presence"),
@@ -4245,7 +4351,7 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
             # Rebuild the page key without the number
             full_page = " ".join(args[:-1]).lower()
         
-        page = full_page if full_page in help_pages else args[0].lower() if args else page
+        page = full_page if full_page in help_pages else (args[0].lower() if args else "")
         
         if page in help_pages:
             content = help_pages[page]
@@ -4269,7 +4375,7 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
             if 'msg' in locals() and msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
         else:
-            page_options = "Available pages: Utility, Messaging, Profile, Server, Voice, Social, Boost, Backup, Moderation, Hosting, Token, Owner, AFK, Nitro, AGCT, Quest, All"
+            page_options = "Available pages: General, Utility, Messaging, Profile, Server, Voice, Social, Boost, Backup, Moderation, Hosting, Token, Owner, AFK, Nitro, AGCT, Quest, All"
             error_body = f"{fmt.RED}Invalid page{fmt.RESET}\n{fmt.WHITE}{page_options}{fmt.RESET}"
             error_msg = fmt.layout("Help", error_body, f"{p}help all")
             
@@ -4279,82 +4385,41 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
 
     @bot.command(name="cmdwall", aliases=["commandsraw", "allcmds"])
     def cmdwall(ctx, args):
-        all_commands = """```python
-@bot.command(name="ms", aliases=["ping"])
-@bot.command(name="spam")
-@bot.command(name="purge")
-@bot.command(name="massdm")
-@bot.command(name="block")
-@bot.command(name="guilds")
-@bot.command(name="autoreact")
-@bot.command(name="mutualinfo")
-@bot.command(name="closedms")
-@bot.command(name="setpfp")
-@bot.command(name="stealpfp")
-@bot.command(name="setserverpfp", aliases=["serverspfp", "guildpfp"])
-@bot.command(name="setbanner", aliases=["banner"])
-@bot.command(name="stealbanner", aliases=["copybanner", "takebanner"])
-@bot.command(name="setpronouns", aliases=["setpronoun"])
-@bot.command(name="pronouns")
-@bot.command(name="setbio", aliases=["setaboutme"])
-@bot.command(name="bio")
-@bot.command(name="setdisplayname", aliases=["setglobalname"])
-@bot.command(name="displayname", aliases=["globalname"])
-@bot.command(name="stealname", aliases=["copyname"])
-@bot.command(name="setstatus", aliases=["customstatus"])
-@bot.command(name="stealstatus", aliases=["copystatus"])
-@bot.command(name="servercopy")
-@bot.command(name="serverload")
-@bot.command(name="vc", aliases=["voice", "joinvc"])
-@bot.command(name="vce", aliases=["leavevc", "disconnect"])
-@bot.command(name="vccam", aliases=["cam", "camera"])
-@bot.command(name="vcstream", aliases=["stream", "golive"])
-@bot.command(name="rpc", aliases=["rich_presence"])
-@bot.command(name="nitro")
-@bot.command(name="afk")
-@bot.command(name="afkwebhook")
-@bot.command(name="afkstatus")
-@bot.command(name="agct", aliases=["antigctrap"])
-@bot.command(name="backup", aliases=["save"])
-@bot.command(name="mod", aliases=["moderation"])
-@bot.command(name="web", aliases=["panel"])
-@bot.command(name="host")
-@bot.command(name="stophost")
-@bot.command(name="listhosted")
-@bot.command(name="customize", aliases=["theme", "ui"])
-@bot.command(name="terminal", aliases=["term", "shell"])
-@bot.command(name="ui", aliases=["interface", "settings"])
-@bot.command(name="help", aliases=["h"])
-@bot.command(name="cmdwall", aliases=["commandsraw", "allcmds"])
-@bot.command(name="stop", aliases=["exit", "quit"])
-@bot.command(name="restart")
-```"""
-        
-        if len(all_commands) > 2000:
-            parts = []
-            current = ""
-            lines = all_commands.split('\n')
-            
-            for line in lines:
-                if len(current + line + '\n') > 1990:
-                    parts.append(current + "```")
-                    current = "```python\n" + line + '\n'
-                else:
-                    current += line + '\n'
-            
-            if current:
-                parts.append(current)
-            
-            for i, part in enumerate(parts):
-                msg = ctx["api"].send_message(ctx["channel_id"], part)
-                if msg and i < len(parts) - 1:
-                    time.sleep(0.5)
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"), 3)
-                elif msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-        else:
-            msg = ctx["api"].send_message(ctx["channel_id"], all_commands)
-            if msg:
+        unique_commands = []
+        seen = set()
+        for key in sorted(ctx["bot"].commands.keys()):
+            command_obj = ctx["bot"].commands[key]
+            canonical = command_obj.name
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            unique_commands.append(canonical)
+
+        lines = [f"@bot.command(name=\"{name}\")" for name in unique_commands]
+        chunks = []
+        current_lines = ["```python"]
+        current_len = len(current_lines[0]) + 1
+
+        for line in lines:
+            projected = current_len + len(line) + 1 + len("```")
+            if projected > 1990:
+                current_lines.append("```")
+                chunks.append("\n".join(current_lines))
+                current_lines = ["```python", line]
+                current_len = len("```python") + len(line) + 2
+            else:
+                current_lines.append(line)
+                current_len += len(line) + 1
+
+        current_lines.append("```")
+        chunks.append("\n".join(current_lines))
+
+        for i, part in enumerate(chunks):
+            msg = ctx["api"].send_message(ctx["channel_id"], part)
+            if msg and i < len(chunks) - 1:
+                time.sleep(0.3)
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"), 15)
+            elif msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="restart")
@@ -4651,7 +4716,7 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
     @bot.command(name="host")
     def host_cmd(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host |\n{bot.prefix}host <token>```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host |\nUsage: {bot.prefix}host <token> [prefix]```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -4676,14 +4741,9 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
         hosted_username = ""
         try:
             clean_token = token_input.strip('"\' ')
-            import requests
-            r = requests.get(
-                "https://discord.com/api/v9/users/@me",
-                headers={"Authorization": clean_token},
-                timeout=5,
-            )
-            if r.status_code == 200:
-                data = r.json()
+            probe_api = ctx["api"].__class__(clean_token, "", False)
+            data = probe_api.get_user_info(force=True)
+            if data:
                 hosted_user_id = data.get("id", "")
                 hosted_username = data.get("username", "") or data.get("global_name", "")
         except Exception:
@@ -4696,32 +4756,35 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
             username=hosted_username,
         )
 
-        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Host: {message}**")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host |\n{message}```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="stophost")
     def stophost_cmd(ctx, args):
         success, message = host_manager.stop_hosting(ctx["author_id"])
-        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Hosting **stopped**. {message}")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host |\n{message}```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="listhosted")
     def listhosted_cmd(ctx, args):
-        import formatter as fmt
-        hosted = host_manager.list_hosted(ctx["author_id"])
+        hosted = host_manager.list_hosted_entries(ctx["author_id"])
         if not hosted:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```You have no hosted tokens```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Hosted Tokens |\nNo hosted tokens found```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
-        cmds = [("User", "#ID"), ("----", "---")]
-        for u in hosted:
+        lines = ["Your hosted tokens"]
+        for index, (_, u) in enumerate(hosted, start=1):
             name = u.get("username") or "Unknown"
             user_id = u.get("user_id", "?")
-            cmds.append((name, f"#{user_id}"))
-        status_msg = fmt.command_page("Your Hosted Tokens", cmds, f"{bot.prefix}host <token>")
+            uid = u.get("uid") or u.get("token_id")
+            prefix = u.get("prefix", ";")
+            lines.append(f"{index}. {name} | user_id={user_id} | uid={uid} | prefix={prefix}")
+        lines.append("")
+        lines.append(f"Use {bot.prefix}clearhostlist <index|uid|user_id>")
+        status_msg = "```" + "\n".join(lines) + "```"
         msg = ctx["api"].send_message(ctx["channel_id"], status_msg)
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -4732,23 +4795,51 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
             deny_restricted_command(ctx, "List All Hosted")
             return
 
-        import formatter as fmt
-        hosted = host_manager.list_all_hosted()
+        hosted = host_manager.list_hosted_entries()
         if not hosted:
             msg = ctx["api"].send_message(ctx["channel_id"], "```| All Hosted Tokens |\nNo hosted users```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
 
-        cmds = [("User", "Owner", "#ID"), ("----", "-----", "---")]
-        for u in hosted:
+        lines = ["All hosted tokens"]
+        for index, (_, u) in enumerate(hosted, start=1):
             name = u.get("username") or "Unknown"
             owner = u.get("owner") or "Unknown"
             user_id = u.get("user_id", "?")
-            cmds.append((name, owner, f"#{user_id}"))
+            uid = u.get("uid") or u.get("token_id")
+            prefix = u.get("prefix", ";")
+            lines.append(f"{index}. {name} | owner={owner} | user_id={user_id} | uid={uid} | prefix={prefix}")
+        lines.append("")
+        lines.append(f"Use {bot.prefix}clearhostlist all or {bot.prefix}clearhostlist <index|uid|user_id>")
 
-        status_msg = fmt.command_page("All Hosted Tokens", cmds, f"{bot.prefix}listallhosted")
+        status_msg = "```" + "\n".join(lines) + "```"
         msg = ctx["api"].send_message(ctx["channel_id"], status_msg)
+        if msg:
+            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+
+    @bot.command(name="clearhostlist")
+    def clearhostlist_cmd(ctx, args):
+        requester_id = ctx["author_id"]
+        is_owner = is_owner_user(requester_id)
+
+        all_hosts = False
+        selectors = []
+        if args:
+            if args[0].lower() == "all":
+                if not is_owner:
+                    deny_restricted_command(ctx, "Clear Host List")
+                    return
+                all_hosts = True
+                selectors = args[1:]
+            elif args[0].lower() == "mine":
+                selectors = args[1:]
+            else:
+                selectors = args
+
+        removed = host_manager.remove_hosts(requester_id, selectors=selectors, all_hosts=all_hosts)
+        scope = "all hosted entries" if all_hosts else "your hosted entries"
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Clear Host List |\nRemoved {removed} entries from {scope}```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -4758,7 +4849,7 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
             deny_restricted_command(ctx, "Host")
             return
         count = host_manager.stop_all()
-        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Hosting **stopped**. {count} token(s).")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host |\nStopped {count} hosted token(s)```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -4768,7 +4859,7 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
             deny_restricted_command(ctx, "Host")
             return
         host_manager.hosting_enabled = True
-        msg = ctx["api"].send_message(ctx["channel_id"], "> **Hosting **enabled**.")
+        msg = ctx["api"].send_message(ctx["channel_id"], "```| Host |\nHosting enabled```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -4778,25 +4869,26 @@ rpc timer "Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https
             deny_restricted_command(ctx, "Host")
             return
         host_manager.hosting_enabled = False
-        msg = ctx["api"].send_message(ctx["channel_id"], "> **Hosting **disabled**.")
+        msg = ctx["api"].send_message(ctx["channel_id"], "```| Host |\nHosting disabled```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="backup", aliases=["save"])
     def backup_cmd(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], """```asciidoc
-| Backup Commands |
-backup user :: Backup user data, friends, guilds
-backup messages <channel_id> [limit] :: Backup channel messages
-backup full :: Create complete backup (zipped)
-backup list :: List all backups
-backup restore <filename> :: Restore from backup
-
-Examples:
-;backup user
-;backup messages 1234567890 500
-;backup list```""")
+            import formatter as fmt
+            p = bot.prefix
+            cmds = [
+                (f"{p}backup user", "Backup user data, friends, guilds"),
+                (f"{p}backup messages <ch_id> [limit]", "Backup channel messages"),
+                (f"{p}backup full", "Create complete backup (zipped)"),
+                (f"{p}backup list", "List all backups"),
+                (f"{p}backup restore <filename>", "Restore from backup"),
+            ]
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.header("Backup Commands") + "\n" + fmt.command_list(cmds),
+            )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -4837,22 +4929,23 @@ Examples:
     @bot.command(name="mod", aliases=["moderation"])
     def mod_cmd(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], """```asciidoc
-| Moderation Commands |
-mod kick <user_id1,user_id2,...> :: Kick multiple users
-mod ban <user_id1,user_id2,...> [delete_days] :: Ban users
-mod filter add <word1,word2,...> :: Add word filter
-mod filter check <text> :: Check text against filters
-mod cleanup channels :: Delete all channels
-mod cleanup roles :: Delete all roles
-mod members [limit] :: List server members
-mod channels :: List all channels
-mod roles :: List all roles
-
-Examples:
-;mod kick 1111111111,2222222222
-;mod ban 1111111111,2222222222 1
-;mod filter add bad,word,here```""")
+            import formatter as fmt
+            p = bot.prefix
+            cmds = [
+                (f"{p}mod kick <id1,id2,...>", "Kick multiple users"),
+                (f"{p}mod ban <id1,id2,...> [days]", "Ban users"),
+                (f"{p}mod filter add <w1,w2,...>", "Add word filter"),
+                (f"{p}mod filter check <text>", "Check text against filters"),
+                (f"{p}mod cleanup channels", "Delete all channels"),
+                (f"{p}mod cleanup roles", "Delete all roles"),
+                (f"{p}mod members [limit]", "List server members"),
+                (f"{p}mod channels", "List all channels"),
+                (f"{p}mod roles", "List all roles"),
+            ]
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.header("Moderation Commands") + "\n" + fmt.command_list(cmds),
+            )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -4920,26 +5013,41 @@ Examples:
 
     @bot.command(name="web", aliases=["panel"])
     def web_cmd(ctx, args):
+        import formatter as fmt
         started = web_panel.start()
         status_line = "Started web interface" if started else "Web interface already running"
-        msg = ctx["api"].send_message(ctx["channel_id"], f"""```asciidoc
-| Web Panel |
-    {status_line}:
-http://127.0.0.1:8080
-
-Features:
-• View bot status
-• View history/boost snapshot
-• Refresh status panel
-
-Note: Discord remains the only command interface```""")
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            fmt.header("Web Panel") + "\n" + fmt._block(
+                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
+                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
+                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
+                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
+                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
+            ),
+        )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
     original_run_command = bot.run_command
     def new_run_command(cmd_name, ctx, args):
-        # delete_command_message(ctx["api"], ctx["channel_id"], ctx["message"]["id"])  # Commented out to speed up
-        original_run_command(cmd_name, ctx, args)
+        channel_id = ctx.get("channel_id")
+        message = ctx.get("message") or {}
+        message_id = message.get("id")
+        author_id = str(ctx.get("author_id") or "")
+
+        command_response_state.enabled = True
+        command_response_state.channel_id = channel_id
+        command_response_state.delay = 20
+        try:
+            original_run_command(cmd_name, ctx, args)
+        finally:
+            command_response_state.enabled = False
+            command_response_state.channel_id = None
+            command_response_state.delay = 20
+
+        if channel_id and message_id and (author_id == str(bot.user_id) or is_control_user(author_id)):
+            delete_after_delay(ctx["api"], channel_id, message_id, 20)
     
     bot.run_command = new_run_command
     
@@ -4964,40 +5072,29 @@ Note: Discord remains the only command interface```""")
         is_control = is_control_user(author_id)
         is_hosted = is_hosted_user(author_id)
 
-        # ------------------------------------------------------------------
-        # Hosted-user command routing
-        # If a saved hosted user sends a message with their configured prefix,
-        # route it through the bot's command system on their behalf.
-        # ------------------------------------------------------------------
-        if content and author_id and author_id != bot.user_id:
-            for entry in host_manager.saved_users.values():
-                hosted_user_id = str(entry.get("user_id", ""))
-                hosted_prefix = entry.get("prefix", bot.prefix)
+        # AFK notice check runs for ALL messages before the owner-only filter
+        # so users who ping us while we're AFK get a reply
+        if (
+            content
+            and author_id
+            and author_id != str(bot.user_id)
+            and channel_id
+            and (f"<@{bot.user_id}>" in content or f"<@!{bot.user_id}>" in content)
+            and afk_system.is_afk(bot.user_id)
+        ):
+            afk_data = afk_system.get_afk_info(bot.user_id)
+            afk_since = int(time.time() - afk_data.get("since", time.time()))
+            hours = afk_since // 3600
+            minutes = (afk_since % 3600) // 60
+            time_str = (f"{hours}h " if hours > 0 else "") + f"{minutes}m"
+            bot.api.send_message(
+                channel_id,
+                f"```| AFK Notice |\nI'm currently AFK\nReason: {afk_data.get('reason', 'AFK')}\nDuration: {time_str}```",
+            )
 
-                # Only proceed if the message uses the hosted prefix
-                if not (content.startswith(hosted_prefix) and len(content) > len(hosted_prefix)):
-                    continue
-
-                # Allow execution only when the sender is the hosted user or the global owner
-                if str(author_id) != hosted_user_id and not is_owner_user(author_id):
-                    continue
-
-                ctx = {
-                    "message": message_data,
-                    "channel_id": channel_id,
-                    "author_id": hosted_user_id if is_owner_user(author_id) else author_id,
-                    "api": bot.api,
-                    "bot": bot,
-                }
-
-                parts = content[len(hosted_prefix):].strip().split()
-                if parts:
-                    bot.run_command(parts[0].lower(), ctx, parts[1:])
-                    return
-
-        # Ignore normal message handling for anyone who is not hosted.
-        # Control users still need access to owner/developer management paths.
-        if author_id and author_id != bot.user_id and not is_hosted and not is_control:
+        # Hosted users should use their own hosted instance, not control the main account.
+        # Only the main account itself and control users can execute commands here.
+        if author_id and author_id != bot.user_id and not is_control:
             return
         
         # Super react is handled by SuperReactClient WebSocket
@@ -5013,27 +5110,6 @@ Note: Discord remains the only command interface```""")
         # if author_id in super_react.ssr_targets:
         #     for emoji in super_react.ssr_targets[author_id]:
         #         super_react.executor.submit(super_react._react_single, guild_id, channel_id, msg_id, emoji)
-        
-        if content:
-            author_id = message_data.get("author", {}).get("id", "")
-            
-            if f"<@{bot.user_id}>" in content or f"<@!{bot.user_id}>" in content:
-                if afk_system.is_afk(author_id):
-                    afk_data = afk_system.get_afk_info(author_id)
-                    afk_since = int(time.time() - afk_data["since"])
-                    
-                    hours = afk_since // 3600
-                    minutes = (afk_since % 3600) // 60
-                    
-                    time_str = ""
-                    if hours > 0:
-                        time_str += f"{hours}h "
-                    if minutes > 0 or hours == 0:
-                        time_str += f"{minutes}m"
-                    
-                    channel_id = message_data.get("channel_id")
-                    if channel_id:
-                        bot.api.send_message(channel_id, f"```| AFK Notice |\nUser <@{author_id}> is AFK\nReason: {afk_data['reason']}\nDuration: {time_str}```")
 
         if is_control and developer_tools.process_message(message_data, bot):
             return
@@ -5043,22 +5119,21 @@ Note: Discord remains the only command interface```""")
     @bot.command(name="history", aliases=["hist"])
     def history_cmd(ctx, args):
         if not args:
-            help_text = """```asciidoc
-| History Commands |
-history user <user_id> :: View user profile history
-history server <server_id> :: View server history  
-history scrape user <user_id> :: Scrape user profile (only if bot shares server)
-history scrape server <server_id> :: Scrape server data
-history scrape all :: Scrape all accessible data
-history scrape queue <user_id> [user_id2 ...] :: Queue users for scraping
-history scrape process :: Process queued users
-history changes user <user_id> :: Show user profile changes
-history changes server <server_id> :: Show server changes
-history stats :: Show history statistics
-history health :: Show system health status
-
-Background scraping is disabled. Use +localstats and +export instead.
-```"""
+            import formatter as fmt
+            p = bot.prefix
+            cmds = [
+                (f"{p}history user <id>", "View user profile history"),
+                (f"{p}history server <id>", "View server history"),
+                (f"{p}history scrape user <id>", "Scrape user profile"),
+                (f"{p}history scrape server <id>", "Scrape server data"),
+                (f"{p}history changes user <id>", "Show user profile changes"),
+                (f"{p}history changes server <id>", "Show server changes"),
+                (f"{p}history stats", "Show history statistics"),
+                (f"{p}history health", "Show system health"),
+                (f"{p}localstats", "Local account stats"),
+                (f"{p}export", "Export real-time account data"),
+            ]
+            help_text = fmt.header("History Commands") + "\n" + fmt.command_list(cmds)
             msg = ctx["api"].send_message(ctx["channel_id"], help_text)
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5072,24 +5147,24 @@ Background scraping is disabled. Use +localstats and +export instead.
                 msg = ctx["api"].send_message(ctx["channel_id"], f"```| User History |\nNo history found for user {user_id}```")
             else:
                 latest = history[-1]
-                history_text = f"""```asciidoc
-| User Profile History |
-User: {latest.get('username', 'Unknown')}#{latest.get('discriminator', '0000')}
-ID: {user_id}
-Snapshots: {len(history)}
-Latest: {time.strftime('%Y-%m-%d %H:%M', time.localtime(latest['timestamp']))}
-
-Current Profile
-Username: {latest.get('username', 'N/A')}
-Display Name: {latest.get('global_name', 'N/A')}
-Bio: {latest.get('bio', 'N/A') or 'None'}
-Pronouns: {latest.get('pronouns', 'N/A') or 'None'}
-Server Nick: {latest.get('nick', 'N/A') or 'None'}
-Avatar: {'Yes' if latest.get('avatar') else 'No'}
-Banner: {'Yes' if latest.get('banner') else 'No'}
-Connected Accounts: {len(latest.get('connected_accounts', []))}
-Shared Servers Seen: {latest.get('mutual_guild_count', len(latest.get('source_guild_ids', [])))}
-Nitro: {'Yes' if latest.get('premium_type') else 'No'}```"""
+                import formatter as fmt
+                history_text = fmt.header("User Profile History") + "\n" + fmt.status_box(
+                    f"{latest.get('username', 'Unknown')}#{latest.get('discriminator', '0000')}",
+                    {
+                        "ID": user_id,
+                        "Snapshots": str(len(history)),
+                        "Latest": time.strftime('%Y-%m-%d %H:%M', time.localtime(latest['timestamp'])),
+                        "Display Name": latest.get('global_name', 'N/A'),
+                        "Bio": latest.get('bio') or 'None',
+                        "Pronouns": latest.get('pronouns') or 'None',
+                        "Server Nick": latest.get('nick') or 'None',
+                        "Avatar": 'Yes' if latest.get('avatar') else 'No',
+                        "Banner": 'Yes' if latest.get('banner') else 'No',
+                        "Connected Accs": str(len(latest.get('connected_accounts', []))),
+                        "Shared Servers": str(latest.get('mutual_guild_count', len(latest.get('source_guild_ids', [])))),
+                        "Nitro": 'Yes' if latest.get('premium_type') else 'No',
+                    }
+                )
                 msg = ctx["api"].send_message(ctx["channel_id"], history_text)
         
         elif args[0] == "server" and len(args) >= 2:
@@ -5100,20 +5175,21 @@ Nitro: {'Yes' if latest.get('premium_type') else 'No'}```"""
                 msg = ctx["api"].send_message(ctx["channel_id"], f"```| Server History |\nNo history found for server {server_id}```")
             else:
                 latest = history[-1]
-                history_text = f"""```asciidoc
-| Server History |
-Server: {latest.get('name', 'Unknown')}
-ID: {server_id}
-Snapshots: {len(history)}
-Latest: {time.strftime('%Y-%m-%d %H:%M', time.localtime(latest['timestamp']))}
-
-Current Server Info
-Members: {latest.get('approximate_member_count', 'Unknown')}
-Boosts: {latest.get('premium_subscription_count', 0)}
-Channels: {len(latest.get('channels', []))}
-Roles: {len(latest.get('roles', []))}
-Owner: {latest.get('owner_id', 'Unknown')}
-Region: {latest.get('region', 'Unknown')}```"""
+                import formatter as fmt
+                history_text = fmt.header("Server History") + "\n" + fmt.status_box(
+                    latest.get('name', 'Unknown'),
+                    {
+                        "ID": server_id,
+                        "Snapshots": str(len(history)),
+                        "Latest": time.strftime('%Y-%m-%d %H:%M', time.localtime(latest['timestamp'])),
+                        "Members": str(latest.get('approximate_member_count', 'Unknown')),
+                        "Boosts": str(latest.get('premium_subscription_count', 0)),
+                        "Channels": str(len(latest.get('channels', []))),
+                        "Roles": str(len(latest.get('roles', []))),
+                        "Owner": str(latest.get('owner_id', 'Unknown')),
+                        "Region": latest.get('region', 'Unknown'),
+                    }
+                )
                 msg = ctx["api"].send_message(ctx["channel_id"], history_text)
         
         elif args[0] == "scrape" and len(args) >= 2:
@@ -5255,23 +5331,33 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
             msg = ctx["api"].send_message(ctx["channel_id"], stats_text)
         
         elif args[0] == "auto" and len(args) >= 2:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```asciidoc |\nHistory Auto-Scrape\nDisabled. Use +localstats for summaries and +export for real-time account data.```")
+            import formatter as fmt
+            p = bot.prefix
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.header("History Auto-Scrape") + "\n" + fmt._block(
+                    f"{fmt.DARK}Background scraping is disabled.{fmt.RESET}\n"
+                    f"{fmt.DARK}Use {fmt.RESET}{fmt.CYAN}{p}localstats{fmt.RESET}{fmt.DARK} for summaries and "
+                    f"{fmt.RESET}{fmt.CYAN}{p}export{fmt.RESET}{fmt.DARK} for real-time account data.{fmt.RESET}"
+                ),
+            )
         
         elif args[0] == "health":
+            import formatter as fmt
             health_status = history_manager.perform_health_check()
-            health_text = f"""```asciidoc
-| History System Health |
-Status: {'✓ Healthy' if health_status['healthy'] else '✗ Issues Detected'}
-API Response Time: {health_status['metrics']['last_api_call']:.1f}s ago
-Consecutive Failures: {health_status['metrics']['consecutive_failures']}
-Profiles: {health_status['metrics']['profiles_count']}
-Servers: {health_status['metrics']['servers_count']}
-Recent Users: {health_status['metrics']['recent_users']}
-Queued Users: {health_status['metrics']['queued_users']}"""
-            
+            m = health_status['metrics']
+            details = {
+                "Status": '\u2713 Healthy' if health_status['healthy'] else '\u2717 Issues Detected',
+                "API Response": f"{m['last_api_call']:.1f}s ago",
+                "Failures": str(m['consecutive_failures']),
+                "Profiles": str(m['profiles_count']),
+                "Servers": str(m['servers_count']),
+                "Recent Users": str(m['recent_users']),
+                "Queued Users": str(m['queued_users']),
+            }
             if health_status['issues']:
-                health_text += f"\n\nIssues\n" + "\n".join(f"> {issue}" for issue in health_status['issues'][:3])
-            health_text += "```"
+                details["Issues"] = ", ".join(health_status['issues'][:3])
+            health_text = fmt.header("History System Health") + "\n" + fmt.status_box("", details)
             msg = ctx["api"].send_message(ctx["channel_id"], health_text)
         
         if 'msg' in locals() and msg:
@@ -5446,7 +5532,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
             return
 
         if args[0].lower() == "stop":
-            bot.set_activity(None)
+            bot.clear_activity()
             msg = ctx["api"].send_message(ctx["channel_id"], "```| VR RPC |\nCleared VR activity```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5519,7 +5605,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
                 oauth_token = VR_HEADLESS_LOOP.get("oauth_token", "") or str(config.get("vr_oauth_token", "")).strip()
 
                 if oauth_token and VR_HEADLESS_TOKEN:
-                    ok, info = await clear_vr_headless_status(bot, oauth_token, VR_HEADLESS_TOKEN)
+                    ok, info = clear_vr_headless_status(bot, oauth_token, VR_HEADLESS_TOKEN)
                     if not ok:
                         return f"```| VR Headless |\nFailed to fully disable\nError: {info}```"
 
@@ -5531,7 +5617,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
                 if not preset:
                     return "```| VR RPC |\nUnknown preset\nAvailable: social, battle, explore, chill```"
 
-                await send_vr_activity(
+                send_vr_activity(
                     bot,
                     preset["world"],
                     details=preset["details"],
@@ -5562,7 +5648,7 @@ Queued Users: {health_status['metrics']['queued_users']}"""
                 state = parts[2]
                 image_url = parts[3] if len(parts) >= 4 and parts[3] else None
 
-                await send_vr_activity(
+                send_vr_activity(
                     bot,
                     world,
                     details=details,
@@ -5630,13 +5716,15 @@ Queued Users: {health_status['metrics']['queued_users']}"""
     @bot.command(name="badges", aliases=["badge"])
     def badges_cmd(ctx, args):
         if not args:
-            help_text = """```asciidoc
-| Badge Commands |
-badges user <user_id> :: Scrape badges for one user
-badges server <server_id> [limit] :: Scrape badges from server members
-badges export <server_id> [limit] :: Scrape and export badge results
-badges decode <public_flags> :: Decode a public_flags integer
-```"""
+            import formatter as fmt
+            p = bot.prefix
+            cmds = [
+                (f"{p}badges user <user_id>", "Scrape badges for one user"),
+                (f"{p}badges server <id> [limit]", "Scrape badges from server members"),
+                (f"{p}badges export <id> [limit]", "Scrape and export badge results"),
+                (f"{p}badges decode <public_flags>", "Decode a public_flags integer"),
+            ]
+            help_text = fmt.header("Badge Commands") + "\n" + fmt.command_list(cmds)
             msg = ctx["api"].send_message(ctx["channel_id"], help_text)
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -7662,7 +7750,7 @@ badges decode <public_flags> :: Decode a public_flags integer
             oauth_token = VR_HEADLESS_LOOP.get("oauth_token", "")
             if oauth_token and VR_HEADLESS_TOKEN:
                 try:
-                    ok, info = asyncio.run(clear_vr_headless_status(bot, oauth_token, VR_HEADLESS_TOKEN))
+                    ok, info = clear_vr_headless_status(bot, oauth_token, VR_HEADLESS_TOKEN)
                     if ok:
                         print("[VR Headless] Session cleared on shutdown")
                     else:

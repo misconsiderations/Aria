@@ -131,26 +131,17 @@ class CommandEngine:
         real_category = self._resolve_category(category) or category
         if real_category not in self.categories:
             raise ValueError(f"Unknown category: {category}")
-        
-        cmd = self.categories[category].add(name, description, aliases)
+
+        compact_name = name.replace("_", "")
+        cmd = self.categories[real_category].add(compact_name, description, aliases)
         self.all_commands[name] = cmd
+        self.all_commands[compact_name] = cmd
 
         # Register aliases and underscore-less variants
         for alias in (aliases or []):
             self.all_commands[alias] = cmd
-
-        # Also register an underscore-less version of the command name
-        if "_" in name:
-            compact = name.replace("_", "")
-            if compact not in self.all_commands:
-                self.all_commands[compact] = cmd
-
-        # And register compact forms for any aliases that contain underscores
-        for alias in (aliases or []):
-            if "_" in alias:
-                compact_alias = alias.replace("_", "")
-                if compact_alias not in self.all_commands:
-                    self.all_commands[compact_alias] = cmd
+            compact_alias = alias.replace("_", "")
+            self.all_commands[compact_alias] = cmd
 
         return cmd
     
@@ -166,39 +157,41 @@ class CommandEngine:
         """Get all categories with descriptions"""
         return {cat.name: cat.description for cat in self.categories.values()}
     
+    def count_commands(self) -> int:
+        """Count the total number of commands registered."""
+        return len(self.all_commands)
+    
     # ── HELP & DISPLAY FUNCTIONS (ANSI-SAFE) ─────────────────────────────
     
-    def help_category(self, category: str, page: int = 1, items_per_page: int = 12) -> str:
-        """Generate help page for a category - ANSI SAFE with pagination"""""
+    def help_category(self, category: str, page: int = 1, items_per_page: int = 12, is_owner: bool = False) -> str:
+        """Generate help page for a category - ANSI SAFE with pagination"""
         resolved = self._resolve_category(category)
         if not resolved:
             return fmt.error(f"Unknown category: {category}")
-        
+
         cmds = self.get_category_commands(resolved)
-        total_pages = (len(cmds) + items_per_page - 1) // items_per_page
-        
+
+        # Filter owner-only commands if not the owner
+        if not is_owner:
+            cmds = [(name, desc) for name, desc in cmds if not self.all_commands[name].detailed_help.startswith("Owner Only")]
+
+        paginated_cmds, total_pages = fmt.paginate(cmds, page, items_per_page)
+
         if page < 1 or page > total_pages:
             return fmt.error(f"Invalid page. Use pages 1-{total_pages}\nExample: {self.prefix}help {category.lower()} 2")
-        
-        start = (page - 1) * items_per_page
-        end = start + items_per_page
-        page_cmds = cmds[start:end]
-        
-        cat_obj = self.categories[category]
+
+        cat_obj = self.categories[resolved]
         cat_desc = cat_obj.description
         title = f"{self.prefix}help {category.lower()} — {cat_desc}"
-        
+
         # Build command list with proper formatting
         lines = []
-        for cmd_name, cmd_desc in page_cmds:
+        for cmd_name, cmd_desc in paginated_cmds:
             lines.append((cmd_name.ljust(15), cmd_desc))
-        
+
         # Enhanced footer with pagination details
-        if total_pages > 1:
-            footer = f"Page {page}/{total_pages} | Use {self.prefix}help {category.lower()} 1-{total_pages} for other pages"
-        else:
-            footer = f"✓ All {len(cmds)} commands in category {category}"
-        
+        footer = fmt.footer_page(self.prefix, category, page, total_pages)
+
         return fmt.command_page(title, lines, footer)
     
     def help_all_categories(self) -> str:
@@ -612,3 +605,12 @@ if __name__ == "__main__":
     print(engine.help_all_categories())
     print("\n" + "="*50 + "\n")
     print(engine.help_category("system"))
+    
+    # Debug: Print total command count
+    print(f"Total commands registered: {len(engine.all_commands)}")
+    
+    # Debug: Check if placeholder commands are registered
+    for i in range(278, 601):
+        cmd_name = f"command{i}"
+        if cmd_name not in engine.all_commands:
+            print(f"Placeholder command {cmd_name} not registered")

@@ -53,7 +53,10 @@ def footer_main() -> str:
     return _block(f"{DARK}Developed by {WHITE}{AUTHOR}{RESET}")
 
 def footer_page(prefix: str, category: str, page: int, total: int) -> str:
-    return _block(f"{DARK}{prefix}help {category.lower()} [1-{total}]{RESET}")
+    remaining = max(total - page, 0)
+    if total <= 1:
+        return f"{prefix}help {category.lower()} | page 1/1"
+    return f"{prefix}help {category.lower()} [1-{total}] | page {page}/{total} | {remaining} left"
 
 def layout(header_text: str, body_text: str, footer_text: str) -> str:
     return "\n".join([
@@ -104,20 +107,39 @@ def boost_status(status: str, claimed: int, cached: int) -> str:
         f"{CYAN}{'Cached':<15}{DARK}:: {RESET}{WHITE}{cached} codes{RESET}"
     )
 
-def nitro_status(status: str, codes_checked: int) -> str:
-    return _block(
+def nitro_status(status: str, claimed: int, cached: int, last_claimed: dict = None) -> str:
+    lines = (
         f"{CYAN}{'Status':<15}{DARK}:: {RESET}{WHITE}{status}{RESET}\n"
-        f"{CYAN}{'Claimed':<15}{DARK}:: {RESET}{WHITE}{codes_checked}{RESET}\n"
-        f"{CYAN}{'Cached':<15}{DARK}:: {RESET}{WHITE}{codes_checked} codes{RESET}"
+        f"{CYAN}{'Claimed':<15}{DARK}:: {RESET}{WHITE}{claimed}{RESET}\n"
+        f"{CYAN}{'Cached':<15}{DARK}:: {RESET}{WHITE}{cached} codes{RESET}"
     )
+    if last_claimed:
+        source = last_claimed.get("source", "Unknown")
+        sender = last_claimed.get("sender", "Unknown")
+        code = last_claimed.get("code", "")
+        lines += (
+            f"\n{CYAN}{'Last Code':<15}{DARK}:: {RESET}{WHITE}{code}{RESET}\n"
+            f"{CYAN}{'Sender':<15}{DARK}:: {RESET}{WHITE}{sender}{RESET}\n"
+            f"{CYAN}{'From':<15}{DARK}:: {RESET}{WHITE}{source}{RESET}"
+        )
+    return _block(lines)
 
-def giveaway_status(status: str, entered: int, won: int, failed: int) -> str:
-    return _block(
+def giveaway_status(status: str, entered: int, won: int, failed: int, last_win: dict = None) -> str:
+    lines = (
         f"{CYAN}{'Status':<15}{DARK}:: {RESET}{WHITE}{status}{RESET}\n"
         f"{CYAN}{'Entered':<15}{DARK}:: {RESET}{WHITE}{entered}{RESET}\n"
         f"{CYAN}{'Won':<15}{DARK}:: {RESET}{WHITE}{won}{RESET}\n"
         f"{CYAN}{'Failed':<15}{DARK}:: {RESET}{WHITE}{failed}{RESET}"
     )
+    if last_win:
+        sender = last_win.get("sender", "Unknown")
+        source = last_win.get("source", "Unknown")
+        lines += (
+            f"\n{CYAN}{'Last Win':<15}{DARK}:: {RESET}{WHITE}─{RESET}\n"
+            f"{CYAN}{'  Sender':<15}{DARK}:: {RESET}{WHITE}{sender}{RESET}\n"
+            f"{CYAN}{'  From':<15}{DARK}:: {RESET}{WHITE}{source}{RESET}"
+        )
+    return _block(lines)
 
 def info_block(title: str, content: str) -> str:
     head = _block(f"{PURPLE}{BOLD}{title}{RESET}")
@@ -132,3 +154,10 @@ def formatted_list(items: list, color: str = CYAN) -> str:
     for item in items:
         lines.append(f"{color}• {item}{RESET}")
     return _block("\n".join(lines))
+
+def paginate(content: list, page: int, per_page: int = 10):
+    """Paginate a list of content."""
+    total_pages = (len(content) + per_page - 1) // per_page
+    start = (page - 1) * per_page
+    end = start + per_page
+    return content[start:end], total_pages

