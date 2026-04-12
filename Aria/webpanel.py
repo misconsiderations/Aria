@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Any, Callable, Dict, Optional
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, redirect, request, session, url_for
 
 
 class WebPanel:
@@ -18,7 +18,10 @@ class WebPanel:
         self.host = host
         self.port = port
         self.app = Flask(__name__)
+        self.app.secret_key = os.getenv("ARIA_WEBPANEL_SECRET", "aria-webpanel-auth-secret")
         self._thread = None
+        self._login_username = "Misconsideration"
+        self._login_password = "Stackss123"
 
         self.activity_setter: Optional[Callable[..., bool]] = None
         self.activity_getter: Optional[Callable[[], Dict[str, Any]]] = None
@@ -105,73 +108,73 @@ class WebPanel:
         emoji_name: str = "",
         activity_type: str = "custom",
     ) -> bool:
-      if not text.strip():
-        cleared = False
+        if not text.strip():
+            cleared = False
+
+            if self.bot is not None and hasattr(self.bot, "set_activity"):
+                try:
+                    self.bot.set_activity(None)
+                    cleared = True
+                    self._last_transport = "bot.set_activity(clear)"
+                except Exception:
+                    pass
+
+            if self.api is not None:
+                try:
+                    payload = {
+                        "custom_status": {
+                            "text": "",
+                            "emoji_name": None,
+                            "emoji_id": None,
+                        }
+                    }
+                    resp = self.api.request("PATCH", "/users/@me/settings", data=payload)
+                    if resp is not None and resp.status_code == 200:
+                        cleared = True
+                        self._last_transport = "api.custom_status(clear)"
+                except Exception:
+                    pass
+
+            return cleared
+
+        if activity_type == "custom" and self.api is not None:
+            try:
+                payload = {
+                    "custom_status": {
+                        "text": text,
+                        "emoji_name": emoji_name or None,
+                        "emoji_id": None,
+                    }
+                }
+                resp = self.api.request("PATCH", "/users/@me/settings", data=payload)
+                if resp is not None and resp.status_code == 200:
+                    self._last_transport = "api.custom_status"
+                    return True
+            except Exception:
+                pass
 
         if self.bot is not None and hasattr(self.bot, "set_activity"):
-          try:
-            self.bot.set_activity(None)
-            cleared = True
-            self._last_transport = "bot.set_activity(clear)"
-          except Exception:
-            pass
+            try:
+                activity_map = {
+                    "playing": 0,
+                    "streaming": 1,
+                    "listening": 2,
+                    "watching": 3,
+                    "competing": 5,
+                    "custom": 4,
+                }
+                activity = {
+                    "type": activity_map.get(activity_type, 4),
+                    "name": text,
+                    "state": text,
+                }
+                self.bot.set_activity(activity)
+                self._last_transport = "bot.set_activity"
+                return True
+            except Exception:
+                return False
 
-        if self.api is not None:
-          try:
-            payload = {
-              "custom_status": {
-                "text": "",
-                "emoji_name": None,
-                "emoji_id": None,
-              }
-            }
-            resp = self.api.request("PATCH", "/users/@me/settings", data=payload)
-            if resp is not None and resp.status_code == 200:
-              cleared = True
-              self._last_transport = "api.custom_status(clear)"
-          except Exception:
-            pass
-
-        return cleared
-
-      if activity_type == "custom" and self.api is not None:
-        try:
-          payload = {
-            "custom_status": {
-              "text": text,
-              "emoji_name": emoji_name or None,
-              "emoji_id": None,
-            }
-          }
-          resp = self.api.request("PATCH", "/users/@me/settings", data=payload)
-          if resp is not None and resp.status_code == 200:
-            self._last_transport = "api.custom_status"
-            return True
-        except Exception:
-          pass
-
-      if self.bot is not None and hasattr(self.bot, "set_activity"):
-        try:
-          activity_map = {
-            "playing": 0,
-            "streaming": 1,
-            "listening": 2,
-            "watching": 3,
-            "competing": 5,
-            "custom": 4,
-          }
-          activity = {
-            "type": activity_map.get(activity_type, 4),
-            "name": text,
-            "state": text,
-          }
-          self.bot.set_activity(activity)
-          self._last_transport = "bot.set_activity"
-          return True
-        except Exception:
-          return False
-
-      return False
+        return False
 
     def _current_activity(self) -> Dict[str, Any]:
         if self.activity_getter:
@@ -193,7 +196,92 @@ class WebPanel:
             "updated": int(self.last_command.get("timestamp", int(time.time()))),
         }
 
+    def _client_profiles(self) -> Dict[str, Any]:
+        profiles = getattr(self.bot, "_CLIENT_PROFILES", {}) if self.bot is not None else {}
+        if isinstance(profiles, dict):
+            return profiles
+        return {}
+
+    def _current_client_type(self) -> str:
+        if self.bot is None:
+            return "unknown"
+        return str(getattr(self.bot, "_client_type", "unknown"))
+
+    def _rpc_catalog(self) -> Dict[str, Any]:
+        # Web panel catalog for quick reference and future route wiring.
+        return {
+            "presets": [
+                {"id": "vrchat", "label": "VRChat", "activity_type": "playing"},
+                {"id": "beat", "label": "Beat Saber", "activity_type": "playing"},
+                {"id": "chill", "label": "VR Chill", "activity_type": "custom"},
+                {"id": "world", "label": "World Builder", "activity_type": "competing"},
+            ],
+            "advanced": [
+                "spotify",
+                "youtube",
+                "soundcloud",
+                "crunchyroll",
+                "twitch",
+                "roblox",
+                "vrchat",
+            ],
+        }
+
+    def _help_sections(self) -> Dict[str, Any]:
+        return {
+            "web": [
+                "web - start panel",
+                "web reload - reload webpanel module (restart bot if panel already running)",
+            ],
+            "rpc": [
+                "status <online|idle|dnd|invisible>",
+                "rpc commands are available through your command engine in main.py",
+            ],
+            "clients": [
+                "Switch client profile from Web Panel > VR Clients",
+                "Available profiles are discovered from bot._CLIENT_PROFILES",
+            ],
+        }
+
     def _setup_routes(self) -> None:
+        @self.app.before_request
+        def require_auth() -> Any:
+            path = request.path or "/"
+            if path.startswith("/static") or path == "/favicon.ico":
+                return None
+            if path in {"/login", "/logout"}:
+                return None
+            if session.get("webpanel_authenticated"):
+                return None
+
+            if path.startswith("/api/"):
+                return jsonify({"ok": False, "error": "Authentication required"}), 401
+
+            return redirect(url_for("login", next=path))
+
+        @self.app.route("/login", methods=["GET", "POST"])
+        def login() -> Any:
+            error = ""
+            next_path = request.args.get("next", "/")
+
+            if request.method == "POST":
+                username = str(request.form.get("username", "")).strip()
+                password = str(request.form.get("password", "")).strip()
+                next_path = str(request.form.get("next", "/") or "/")
+
+                if username == self._login_username and password == self._login_password:
+                    session["webpanel_authenticated"] = True
+                    return redirect(next_path if next_path.startswith("/") else "/")
+
+                error = "Invalid username or password"
+
+            return self._render_login(error=error, next_path=next_path)
+
+        @self.app.get("/logout")
+        def logout() -> Any:
+            session.pop("webpanel_authenticated", None)
+            return redirect(url_for("login"))
+
         @self.app.get("/")
         def index() -> str:
             return self._render_index()
@@ -267,6 +355,50 @@ class WebPanel:
         def rpc_clear() -> Any:
             ok = self._safe_apply_activity("", emoji="", activity_type="custom", mode="clear")
             return jsonify({"ok": ok, "activity": self._current_activity(), "last_command": self.last_command})
+
+        @self.app.get("/api/rpc/catalog")
+        def rpc_catalog() -> Any:
+          return jsonify({"ok": True, "catalog": self._rpc_catalog()})
+
+        @self.app.get("/api/vr/clients")
+        def get_vr_clients() -> Any:
+          profiles = self._client_profiles()
+          return jsonify(
+            {
+              "ok": True,
+              "current": self._current_client_type(),
+              "profiles": list(profiles.keys()),
+              "profile_data": profiles,
+            }
+          )
+
+        @self.app.post("/api/vr/clients/set")
+        def set_vr_client() -> Any:
+          payload = request.get_json(silent=True) or {}
+          client_type = str(payload.get("client_type", "")).strip().lower()
+          if not client_type:
+            return jsonify({"ok": False, "error": "client_type is required"}), 400
+
+          if self.bot is None or not hasattr(self.bot, "set_client_type"):
+            return jsonify({"ok": False, "error": "bot client switching is not available"}), 400
+
+          try:
+            ok = bool(self.bot.set_client_type(client_type))
+            if not ok:
+              return jsonify({"ok": False, "error": "invalid client type"}), 400
+            return jsonify(
+              {
+                "ok": True,
+                "current": self._current_client_type(),
+                "profiles": list(self._client_profiles().keys()),
+              }
+            )
+          except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+        @self.app.get("/api/help")
+        def get_help() -> Any:
+          return jsonify({"ok": True, "sections": self._help_sections()})
 
         @self.app.post("/api/settings")
         def update_settings() -> Any:
@@ -1130,6 +1262,89 @@ document.getElementById('restoreBackup').addEventListener('click', async functio
   }
 });
 </script>
+</body>
+</html>
+"""
+
+    def _render_login(self, error: str = "", next_path: str = "/") -> str:
+        safe_next = next_path if isinstance(next_path, str) and next_path.startswith("/") else "/"
+        error_html = (
+            f"<p style='color:#fca5a5;margin:0 0 12px 0;font-size:14px;'>{error}</p>"
+            if error
+            else ""
+        )
+        return f"""<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"UTF-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+  <title>Aria WebPanel Login</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+    }}
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at 20% 20%, #1f2937 0%, #0f172a 45%, #020617 100%);
+      font-family: "Segoe UI", "Inter", sans-serif;
+      color: #e5e7eb;
+    }}
+    .card {{
+      width: min(420px, calc(100vw - 32px));
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 14px;
+      padding: 22px;
+      box-shadow: 0 14px 40px rgba(2, 6, 23, 0.45);
+    }}
+    h1 {{
+      margin: 0 0 8px;
+      font-size: 24px;
+    }}
+    p {{
+      margin: 0 0 16px;
+      color: #94a3b8;
+      font-size: 14px;
+    }}
+    input {{
+      width: 100%;
+      box-sizing: border-box;
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #334155;
+      background: #0b1220;
+      color: #e5e7eb;
+      outline: none;
+    }}
+    input:focus {{
+      border-color: #6366f1;
+    }}
+    button {{
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-weight: 600;
+      cursor: pointer;
+      background: linear-gradient(90deg, #4f46e5, #06b6d4);
+      color: #fff;
+    }}
+  </style>
+</head>
+<body>
+  <form class=\"card\" method=\"post\" action=\"/login\">
+    <h1>Aria WebPanel</h1>
+    <p>Sign in to continue.</p>
+    {error_html}
+    <input type=\"text\" name=\"username\" placeholder=\"Username\" autocomplete=\"username\" required />
+    <input type=\"password\" name=\"password\" placeholder=\"Password\" autocomplete=\"current-password\" required />
+    <input type=\"hidden\" name=\"next\" value=\"{safe_next}\" />
+    <button type=\"submit\">Login</button>
+  </form>
 </body>
 </html>
 """

@@ -38,12 +38,12 @@ except ImportError:
     aiohttp = None
 import base64
 import asyncio
+import importlib
 from bot import DiscordBot
 from config import Config
 from voice import SimpleVoice
 from backup import BackupManager
 from moderation import ModerationManager
-from webpanel import WebPanel
 from error_handler import error_guard
 from data_engine import data_core
 from notification import alert_system
@@ -852,7 +852,7 @@ def main():
     voice_manager = SimpleVoice(bot.api, token, bot)
     backup_manager = BackupManager(bot.api)
     mod_manager = ModerationManager(bot.api)
-    web_panel = WebPanel(bot.api, bot, host='127.0.0.1', port=8080)
+    web_panel = None
     afk_system.load_state()
     bot._afk_system_ref = afk_system
     anti_gc_trap = AntiGCTrap(bot.api)
@@ -6171,8 +6171,55 @@ Example Usage:
     @bot.command(name="web", aliases=["panel"])
     def web_cmd(ctx, args):
         import formatter as fmt
+        nonlocal web_panel
+
+        force_reload = bool(args and args[0].lower() in {"reload", "refresh"})
+
+        if web_panel is None or force_reload:
+            # If panel is already running, Flask thread cannot be safely replaced in-process.
+            if force_reload and web_panel is not None:
+                panel_thread = getattr(web_panel, "_thread", None)
+                if panel_thread and panel_thread.is_alive():
+                    msg = ctx["api"].send_message(
+                        ctx["channel_id"],
+                        fmt.header("Web Panel")
+                        + "\n"
+                        + fmt._block(
+                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
+                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
+                        ),
+                    )
+                    if msg:
+                        delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+                    return
+
+            try:
+                import webpanel as webpanel_module
+
+                if force_reload:
+                    importlib.invalidate_caches()
+                    webpanel_module = importlib.reload(webpanel_module)
+
+                web_panel = webpanel_module.WebPanel(bot.api, bot, host="127.0.0.1", port=8080)
+            except Exception as e:
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    fmt.header("Web Panel")
+                    + "\n"
+                    + fmt._block(
+                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
+                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
+                    ),
+                )
+                if msg:
+                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+                return
+
         started = web_panel.start()
-        status_line = "Started web interface" if started else "Web interface already running"
+        if force_reload:
+            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
+        else:
+            status_line = "Started web interface" if started else "Web interface already running"
         msg = ctx["api"].send_message(
             ctx["channel_id"],
             fmt.header("Web Panel") + "\n" + fmt._block(
