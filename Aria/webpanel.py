@@ -58,6 +58,14 @@ class UserManager:
             "created": int(time.time()),
             "last_login": 0,
             "settings": {},
+            "dashboard_profile": {
+                "email_alias": "",
+                "bio_link": "",
+                "gun_link": "",
+                "live_connect_url": "",
+                "extra_link_1": "",
+                "extra_link_2": "",
+            },
         }
         self._save_users()
         return True, "Registration successful"
@@ -80,6 +88,74 @@ class UserManager:
         """Get user data."""
         return self.users.get(user_id)
     
+    def _normalize_alias(self, alias: str) -> str:
+        alias = str(alias or "").lower().strip()
+        alias = "".join(c if c.isalnum() else "-" for c in alias)
+        while "--" in alias:
+            alias = alias.replace("--", "-")
+        alias = alias.strip("-")
+        return alias[:48]
+
+    def _alias_exists(self, alias: str, exclude_user: Optional[str] = None) -> bool:
+        if not alias:
+            return False
+        for uid, data in self.users.items():
+            if exclude_user and uid == exclude_user:
+                continue
+            profile = data.get("dashboard_profile", {})
+            if str(profile.get("email_alias", "")) == alias:
+                return True
+        return False
+
+    def set_email_alias(self, user_id: str, alias: str) -> tuple:
+        if user_id not in self.users:
+            return False, "User not found"
+        candidate = self._normalize_alias(alias)
+        if not candidate:
+            return False, "Alias must contain letters or numbers"
+        base = candidate
+        count = 1
+        while self._alias_exists(candidate, exclude_user=user_id):
+            candidate = f"{base}-{count}"
+            count += 1
+        profile = self.users[user_id].setdefault("dashboard_profile", {})
+        profile["email_alias"] = candidate
+        self._save_users()
+        return True, candidate
+
+    def generate_email_alias(self, user_id: str, desired: str = "") -> tuple:
+        if user_id not in self.users:
+            return False, "User not found"
+        desired = desired.strip() or self.users[user_id].get("username", "") or user_id
+        return self.set_email_alias(user_id, desired)
+
+    def get_dashboard_profile(self, user_id: str) -> Dict[str, Any]:
+        if user_id not in self.users:
+            return {}
+        return self.users[user_id].get("dashboard_profile", {})
+
+    def update_dashboard_profile(self, user_id: str, profile_data: Dict[str, Any]) -> tuple:
+        if user_id not in self.users:
+            return False, "User not found"
+        profile = self.users[user_id].setdefault("dashboard_profile", {
+            "email_alias": "",
+            "bio_link": "",
+            "gun_link": "",
+            "live_connect_url": "",
+            "extra_link_1": "",
+            "extra_link_2": "",
+        })
+        if "email_alias" in profile_data:
+            ok, alias_or_msg = self.set_email_alias(user_id, profile_data.get("email_alias", ""))
+            if not ok:
+                return ok, alias_or_msg
+            profile["email_alias"] = alias_or_msg
+        for key in ["bio_link", "gun_link", "live_connect_url", "extra_link_1", "extra_link_2"]:
+            if key in profile_data:
+                profile[key] = str(profile_data.get(key, "")).strip()
+        self._save_users()
+        return True, "Dashboard profile updated"
+
     def update_bot_token(self, user_id: str, bot_token: str) -> bool:
         """Update user's bot token."""
         if user_id in self.users:
@@ -114,6 +190,7 @@ class WebPanel:
         self.panel_access_checker: Optional[Callable[[str], bool]] = None
         self.panel_block_checker: Optional[Callable[[str], bool]] = None
         self.owner_overview_getter: Optional[Callable[[], Dict[str, Any]]] = None
+        self.email_domain = os.getenv("ARIA_EMAIL_DOMAIN", "stackss.lol")
         
         # Initialize multi-user system
         self.user_manager = UserManager("dashboard_users.json")
@@ -759,6 +836,7 @@ class WebPanel:
                 "last_login": user.get("last_login", 0),
                 "bot_token": "***" if user.get("bot_token") else "not set",
                 "settings": user.get("settings", {}),
+                "dashboard_profile": self.user_manager.get_dashboard_profile(user_id),
                 "is_admin": False,
             })
 
@@ -768,13 +846,13 @@ class WebPanel:
             user_id = session.get("user_id")
             if not user_id:
                 return jsonify({"ok": False, "error": "Not authenticated"}), 401
-            
+
             payload = request.get_json(silent=True) or {}
             bot_token = str(payload.get("bot_token", "")).strip()
-            
+
             if not bot_token:
                 return jsonify({"ok": False, "error": "bot_token is required"}), 400
-            
+
             if self.user_manager.update_bot_token(user_id, bot_token):
                 self._activate_user_context(user_id)
                 self._append_instance_log(str(user_id), "token_update", "updated user bot token")
@@ -793,6 +871,24 @@ class WebPanel:
                 self._append_instance_log(str(user_id), "settings_update", "updated dashboard settings")
                 return jsonify({"ok": True, "message": "Settings updated"})
             return jsonify({"ok": False, "error": "Failed to update settings"}), 500
+
+        @self.app.post("/api/user/dashboard_profile")
+        def dashboard_profile_update() -> Any:
+            user_id = str(session.get("user_id") or "")
+            if not user_id:
+                return jsonify({"ok": False, "error": "Not authenticated"}), 401
+            payload = request.get_json(silent=True) or {}
+            result, message = self.user_manager.update_dashboard_profile(user_id, payload)
+            if result:
+                self._append_instance_log(user_id, "dashboard_profile_update", "updated email/link profile")
+                return jsonify(
+                    {
+                        "ok": True,
+                        "message": message,
+                        "dashboard_profile": self.user_manager.get_dashboard_profile(user_id),
+                    }
+                )
+            return jsonify({"ok": False, "error": message}), 400
 
         @self.app.get("/api/user/instance_logs")
         def user_instance_logs() -> Any:
