@@ -3812,19 +3812,11 @@ Example Usage:
     @bot.command(name="setstatus", aliases=["customstatus"])
     def setstatus(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **SetStatus** :: Usage: `{bot.prefix}setstatus [emoji,] <text>` — e.g. `{bot.prefix}setstatus 🎮, Gaming now`")
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"> **SetStatus** :: Usage: `{bot.prefix}setstatus [emoji,] <text>` (custom status)\n> **Presence** :: Use `{bot.prefix}status online|idle|dnd|invisible`",
+            )
             return
-
-        # Compatibility path: users often call setstatus for presence state.
-        # Allow: setstatus online|idle|dnd|invisible
-        if len(args) == 1:
-            status_state = args[0].strip().lower()
-            valid_states = {"online", "idle", "dnd", "invisible"}
-            if status_state in valid_states:
-                ok = ctx["bot"].set_status(status_state)
-                result = f"Set to **{status_state}**" if ok else f"Saved **{status_state}** — applies on reconnect"
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Status** :: {result}")
-                return
         
         import re
         
