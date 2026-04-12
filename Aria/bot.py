@@ -516,6 +516,8 @@ class DiscordBot:
                     "bot": self,
                 }
                 self.run_command(cmd_name, ctx, args)
+            else:
+                self.api.send_message(channel_id, f"> **No command or category found**: **{cmd_name}**")
         except Exception as e:
             print(f"\033[1;31m[MSG ERROR]\033[0m {e}")
 

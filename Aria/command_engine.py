@@ -163,7 +163,7 @@ class CommandEngine:
     
     # ── HELP & DISPLAY FUNCTIONS (ANSI-SAFE) ─────────────────────────────
     
-    def help_category(self, category: str, page: int = 1, items_per_page: int = 12, is_owner: bool = False) -> str:
+    def help_category(self, category: str, page: int = 1, items_per_page: int = 6, is_owner: bool = False) -> str:
         """Generate help page for a category - ANSI SAFE with pagination"""
         resolved = self._resolve_category(category)
         if not resolved:

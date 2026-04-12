@@ -1489,32 +1489,38 @@ def main():
         scan_limit = min(5000, max(target_deletes * 10, 200))
         messages = []
         before = None
-        try:
-            while len(messages) < scan_limit:
-                batch_size = min(100, scan_limit - len(messages))
+        while len(messages) < scan_limit:
+            batch_size = min(100, scan_limit - len(messages))
+            try:
                 batch = ctx["api"].get_messages(ctx["channel_id"], batch_size, before=before)
-                if not batch:
-                    break
-                messages.extend(batch)
-                before = batch[-1].get("id")
-                if len(batch) < batch_size or not before:
-                    break
-        except Exception as e:
-            if status_id:
-                ctx["api"].edit_message(
-                    ctx["channel_id"], status_id,
-                    f"> **✗ Purge** :: Failed to fetch messages: {str(e)[:60]}",
-                )
-            return
+            except Exception:
+                # Do not hard-fail purge on intermittent fetch errors.
+                break
+
+            if not batch:
+                # Fallback direct fetch once when wrapper returns empty.
+                try:
+                    endpoint = f"/channels/{ctx['channel_id']}/messages?limit={batch_size}"
+                    if before:
+                        endpoint += f"&before={before}"
+                    resp = ctx["api"].request("GET", endpoint)
+                    batch = resp.json() if resp and resp.status_code == 200 else []
+                except Exception:
+                    batch = []
+
+            if not batch:
+                break
+
+            messages.extend(batch)
+            before = batch[-1].get("id")
+            if len(batch) < batch_size or not before:
+                break
 
         deleted = 0
         failed = 0
         scanned = 0
         mine_id = str(bot.user_id)
         for m in messages:
-            if status_id and m.get("id") == status_id:
-                continue
-
             author_id = m.get("author", {}).get("id", "")
             is_mine = author_id == mine_id
             scanned += 1
@@ -1547,10 +1553,13 @@ def main():
         if status:
             suffix = f" | Failed {failed}" if failed else ""
             result = f"Deleted **{deleted}/{target_deletes}** — Scanned {scanned}{suffix}"
-            ctx["api"].edit_message(
-                ctx["channel_id"], status.get("id"),
-                f"> **✓ Purge** :: {result}",
-            )
+            try:
+                ctx["api"].edit_message(
+                    ctx["channel_id"], status.get("id"),
+                    f"> **✓ Purge** :: {result}",
+                )
+            except Exception:
+                ctx["api"].send_message(ctx["channel_id"], f"> **✓ Purge** :: {result}")
     
     @bot.command(name="massdm")
     def mass_dm(ctx, args):
@@ -4035,7 +4044,11 @@ Example Usage:
     @bot.command(name="antinuke", aliases=["anti_nuke"])
     def antinuke_cmd(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Antinuke |\n+antinuke on|off|status|settings\n+antinuke actions [add|remove] <action>```")
+            p = bot.prefix
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Antinuke |\n{p}antinuke on|off|status|settings\n{p}antinuke actions [add|remove|list] <warn|kick|ban>```",
+            )
             return
         
         guild_id = str(ctx["guild_id"])
@@ -4064,6 +4077,49 @@ Example Usage:
             mode = cfg.get("mode", "off")
             actions = cfg.get("actions", [])
             msg = ctx["api"].send_message(ctx["channel_id"], f"```| Antinuke Settings |\nMode: {mode}\nActions: {actions}\nUse: +antinuke actions add|remove <action>```")
+
+        elif subcommand == "actions":
+            cfg = ANTINUKE_CONFIG.setdefault(guild_id, {"mode": "off", "actions": ["warn"]})
+            actions = cfg.setdefault("actions", ["warn"])
+            if not isinstance(actions, list):
+                actions = ["warn"]
+                cfg["actions"] = actions
+
+            allowed = {"warn", "kick", "ban"}
+            op = args[1].lower() if len(args) >= 2 else "list"
+            val = args[2].lower() if len(args) >= 3 else ""
+
+            if op == "list":
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    f"```| Antinuke Actions |\nCurrent: {', '.join(actions) if actions else 'none'}\nAllowed: warn, kick, ban```",
+                )
+                return
+
+            if op not in {"add", "remove"}:
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    "```| Antinuke Actions |\nUse: antinuke actions add|remove|list <warn|kick|ban>```",
+                )
+                return
+
+            if val not in allowed:
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Antinuke Actions |\nInvalid action. Use: warn, kick, ban```")
+                return
+
+            if op == "add":
+                if val not in actions:
+                    actions.append(val)
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Antinuke Actions |\nAdded: {val}\nCurrent: {', '.join(actions)}```")
+                return
+
+            if op == "remove":
+                if val in actions:
+                    actions.remove(val)
+                if not actions:
+                    actions.append("warn")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Antinuke Actions |\nRemoved: {val}\nCurrent: {', '.join(actions)}```")
+                return
 
     # ─── AUTOBUMP COMMANDS ──────────────────────────────────────────────────
 
@@ -4703,6 +4759,11 @@ Example Usage:
                     ("vce", "Leave voice/call"),
                     ("vccam [on/off]", "Toggle camera"),
                     ("vcstream [on/off]", "Toggle stream / Go Live"),
+                    ("vcmute [on/off]", "Toggle self mute"),
+                    ("vcdeaf [on/off]", "Toggle self deaf"),
+                    ("vcswitch <channel_id>", "Switch voice channel"),
+                    ("vcrejoin", "Reconnect to current voice channel"),
+                    ("vcstatus", "Show voice connection state"),
                 ],
             },
 
@@ -4712,7 +4773,10 @@ Example Usage:
                                 "",
                                 {"type": "section", "text": "Arguments"},
                                 ("channel_id", "ID of the voice channel to join (optional)"),
-                                "Omit to join the channel you are currently in",
+                            "Omit to show current channel / usage",
+                            "",
+                            {"type": "section", "text": "Aliases"},
+                            "voice, joinvc, vcjoin, joinvoice, joincall",
                         ),
 
             "vce": help_page(f"{p}vce", "Disconnects from the current voice channel or call."),
@@ -4724,6 +4788,9 @@ Example Usage:
                                 {"type": "section", "text": "Arguments"},
                                 ("on/off", "Explicitly turn camera on or off"),
                                 "Omit to toggle current state",
+                            "",
+                            {"type": "section", "text": "Aliases"},
+                            "cam, camera, vcam, vcvideo",
                         ),
 
                         "vcstream": help_page(
@@ -4733,7 +4800,16 @@ Example Usage:
                                 {"type": "section", "text": "Arguments"},
                                 ("on/off", "Explicitly start or stop streaming"),
                                 "Omit to toggle current state",
+                            "",
+                            {"type": "section", "text": "Aliases"},
+                            "stream, golive, vcgo, vcgolive, screenshare, vcscreen",
                         ),
+
+                    "vcmute": help_page(f"{p}vcmute [on/off] [channel_id]", "Sets your self-mute state in voice."),
+                    "vcdeaf": help_page(f"{p}vcdeaf [on/off] [channel_id]", "Sets your self-deaf state in voice."),
+                    "vcswitch": help_page(f"{p}vcswitch <channel_id>", "Moves/switches your current voice session to another channel."),
+                    "vcrejoin": help_page(f"{p}vcrejoin", "Reconnects to the current voice channel to recover broken VC state."),
+                    "vcstatus": help_page(f"{p}vcstatus", "Shows detailed VC state (channel/cam/stream/mute/deaf/ws)."),
 
             # ── Social ───────────────────────────────────────────────────────
             "social": {
@@ -4758,54 +4834,98 @@ Example Usage:
                 ],
             },
 
+            # ── Antinuke ─────────────────────────────────────────────────────
+            "antinuke": {
+                "title": f"{p}help Antinuke",
+                "lines": [
+                    ("antinuke on|off", "Toggle nuke protection"),
+                    ("antinuke status", "Check protection status"),
+                    ("antinuke settings", "View protection settings"),
+                    ("antinuke actions add <action>", "Add response action"),
+                    ("antinuke actions remove <action>", "Remove response action"),
+                    ("antinuke actions list", "List active response actions"),
+                ],
+            },
+
             # ── Nuke ─────────────────────────────────────────────────────────
             "nuke": {
                 "title": f"{p}help Nuke",
                 "lines": [
-                    ("antinuke on|off", "Toggle nuke protection"),
-                    ("antinuke status", "Check nuke protection status"),
-                    ("antinuke settings", "View nuke settings"),
-                    ("bump config <ch> <int>", "Configure autobump"),
-                    ("bump list", "List bump config"),
-                    ("bump stop", "Stop autobump"),
+                    ("destroy <guild_id>", "Destroy target server (owner/cog command)"),
+                    ("kickall <guild_id>", "Mass-kick all members in target server"),
+                    ("clearserver <guild_id>", "Clear all channels and roles in target server"),
                 ],
             },
+
+            "destroy": help_page(
+                f"{p}destroy <guild_id>",
+                "Nuke cog command: deletes channels/roles and recreates spam channels in the target guild.",
+            ),
+
+            "kickall": help_page(
+                f"{p}kickall <guild_id>",
+                "Nuke cog command: mass-kicks members from the target guild.",
+            ),
+
+            "clearserver": help_page(
+                f"{p}clearserver <guild_id>",
+                "Nuke cog command: deletes all channels and roles in the target guild.",
+            ),
 
             # ── RPC ──────────────────────────────────────────────────────────
             "rpc": {
                 "title": f"{p}help RPC",
                 "lines": [
-                    ("rpc spotify <args>", "song=<name> artist=<name> album=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>]"),
-                    ("rpc youtube <args>", "title=<name> channel=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc soundcloud <args>", "track=<name> artist=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc youtube_music <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc applemusic <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc deezer <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc tidal <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc twitch <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc kick <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc netflix <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc disneyplus <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc primevideo <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc plex <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc jellyfin <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc vscode <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc browser <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc listening <args>", "name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc streaming <args>", "name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Btn >> URL]"),
-                    ("rpc playing <args>", "name=<name> [details=<text>] [state=<text>] [image_url=<url>]"),
-                    ("rpc timer <args>", "name=<name> details=<text> state=<text> start=<unix> end=<unix> [image_url=<url>]"),
-                    ("rpc crunchyroll <args>", "name=<show> episode_title=<ep> elapsed_minutes=<n> total_minutes=<n> [image_url=<url>]"),
-                    ("rpc stop", "Clear all activities"),
-                    "",
-                    {"type": "section", "text": "Aliases"},
-                    "ytmusic/youtubemusic => youtube_music",
-                    "apple_music => applemusic",
-                    "disney+, disney_plus => disneyplus",
-                    "prime, prime_video, amazonprime, amazon_prime => primevideo",
-                    "chrome, web => browser",
+                    ("help rpc music", "Spotify / YT Music / Apple / Deezer / Tidal / SoundCloud"),
+                    ("help rpc video", "YouTube / Netflix / Disney+ / Prime / Plex / Jellyfin / Crunchyroll"),
+                    ("help rpc social", "Twitch / Kick / Streaming / Playing / Listening"),
+                    ("help rpc tools", "Timer / Browser / VSCode / Stop / aliases"),
+                    ("rpc stop", "Clear active RPC"),
                 ],
             },
+
+            "rpc music": help_page(
+                f"{p}rpc <provider> <args>",
+                "Music providers: spotify, youtube_music, applemusic, deezer, tidal, soundcloud.",
+                "",
+                {"type": "section", "text": "Examples"},
+                f"{p}rpc spotify song=Nightcall artist=Kavinsky elapsed_minutes=1 total_minutes=4",
+                f"{p}rpc youtube_music title=Track context=Playlist elapsed_minutes=2 total_minutes=3",
+            ),
+
+            "rpc video": help_page(
+                f"{p}rpc <provider> <args>",
+                "Video providers: youtube, netflix, disneyplus, primevideo, plex, jellyfin, crunchyroll.",
+                "",
+                {"type": "section", "text": "Examples"},
+                f"{p}rpc youtube title=Video channel=Creator elapsed_minutes=3 total_minutes=10",
+                f"{p}rpc crunchyroll name=Show episode_title=E1 elapsed_minutes=5 total_minutes=24",
+            ),
+
+            "rpc social": help_page(
+                f"{p}rpc <mode> <args>",
+                "Social modes: twitch, kick, streaming, playing, listening.",
+                "",
+                {"type": "section", "text": "Examples"},
+                f"{p}rpc twitch title=Live context=Ranked elapsed_minutes=12",
+                f"{p}rpc playing name=Valorant details=Competitive state=Immortal",
+            ),
+
+            "rpc tools": help_page(
+                f"{p}rpc <mode> <args>",
+                "Utility modes: timer, browser, vscode, stop.",
+                "",
+                {"type": "section", "text": "Examples"},
+                f"{p}rpc timer name=Session details=Coding state=Focus start=1710000000 end=1710003600",
+                f"{p}rpc stop",
+                "",
+                {"type": "section", "text": "Aliases"},
+                "ytmusic/youtubemusic => youtube_music",
+                "apple_music => applemusic",
+                "disney+, disney_plus => disneyplus",
+                "prime, prime_video, amazonprime, amazon_prime => primevideo",
+                "chrome, web => browser",
+            ),
 
                         "join": help_page(
                                 f"{p}join <invite_code_or_url>",
@@ -5541,9 +5661,11 @@ Example Usage:
                 "title": f"{p}help Quest",
                 "lines": [
                     ("quest", "Show quest status and list"),
+                    ("questdebug [id|link]", "Show quest task/event/platform debug"),
                     ("queststart", "Start auto-completing quests"),
                     ("queststop", "Stop auto-completing quests"),
                     ("questrefresh", "Refresh quest data from Discord"),
+                    ("questenroll [id|link]", "Enroll all or one specific quest"),
                     ("questclaim", "Claim all claimable quest rewards"),
                     ("questautoclaimer <sub>", "All-in-one quest auto claimer"),
                 ],
@@ -5570,6 +5692,22 @@ Example Usage:
                 "",
                 {"type": "section", "text": "Aliases"},
                 "qclaim, qc",
+            ),
+
+            "questenroll": help_page(
+                f"{p}questenroll [quest_id|quest_link]",
+                "Enrolls in all available quests, or one specific quest by ID/link.",
+                "",
+                {"type": "section", "text": "Aliases"},
+                "qenroll, qe",
+            ),
+
+            "questdebug": help_page(
+                f"{p}questdebug [quest_id|quest_link]",
+                "Shows raw quest diagnostics: id, task type, event, progress, worthy flag, and platform hints.",
+                "",
+                {"type": "section", "text": "Aliases"},
+                "qdebug, qdbg",
             ),
 
             "questautoclaimer": help_page(
@@ -5638,6 +5776,11 @@ Example Usage:
                     ("vce", "Leave voice/call"),
                     ("vccam [on/off]", "Toggle camera"),
                     ("vcstream [on/off]", "Stream / Go Live"),
+                    ("vcmute [on/off]", "Self mute"),
+                    ("vcdeaf [on/off]", "Self deaf"),
+                    ("vcswitch <channel_id>", "Switch VC channel"),
+                    ("vcrejoin", "Reconnect VC"),
+                    ("vcstatus", "VC state"),
                     ("customize", "UI customization"),
                     ("terminal", "Terminal settings"),
                     ("ui", "Interface settings"),
@@ -5701,6 +5844,7 @@ Example Usage:
                 ("Boost", "Boosts"),
                 ("Backup", "Recovery"),
                 ("Moderation", "Mod"),
+                ("Antinuke", "Protection"),
                 ("Nuke", "Destructions"),
                 ("Hosting", "Hosted"),
                 ("Token", "Session"),
@@ -5736,24 +5880,14 @@ Example Usage:
         page = full_page if full_page in help_pages else (args[0].lower() if args else "")
         
         if page == "owner" and not is_owner_user(ctx["author_id"]):
-            msg = ctx["api"].send_message(
-                ctx["channel_id"],
-                "\n".join(
-                    [
-                        fmt.header("Help"),
-                        fmt._block(
-                            f"{fmt.YELLOW}Unknown help page{fmt.RESET}\n"
-                            f"{fmt.PINK}Try{fmt.DARK} :: {fmt.RESET}{fmt.GREEN}{p}help general{fmt.RESET}"
-                        ),
-                    ]
-                ),
-            )
+            bad = (full_page or page or "unknown").strip()
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **No command or category found**: **{bad}**")
             return
 
         if page in help_pages:
             content = help_pages[page]
             lines = content.get("lines", [])
-            lines_per_page = 8  # Split into more pages
+            lines_per_page = 5  # Keep help messages short to avoid long send payloads
             pages = []
             for index in range(0, len(lines), lines_per_page):
                 page_slice = lines[index:index + lines_per_page]
@@ -5791,18 +5925,8 @@ Example Usage:
                     ),
                 )
             else:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    "\n".join(
-                        [
-                            fmt.header("Help"),
-                            fmt._block(
-                                f"{fmt.YELLOW}Unknown help page{fmt.RESET}\n"
-                                f"{fmt.PINK}Try{fmt.DARK} :: {fmt.RESET}{fmt.GREEN}{p}help general{fmt.RESET}"
-                            ),
-                        ]
-                    ),
-                )
+                bad = (lookup or "unknown").strip()
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **No command or category found**: **{bad}**")
     @bot.command(name="cmdwall", aliases=["commandsraw", "allcmds"])
     def cmdwall(ctx, args):
         import formatter as _fmt
@@ -5868,14 +5992,20 @@ Example Usage:
         
         threading.Thread(target=restart_sequence, daemon=True).start()
         
-    @bot.command(name="vc", aliases=["voice", "joinvc"])
+    def _vc_send(ctx, text):
+        msg = ctx["api"].send_message(ctx["channel_id"], text)
+        if msg:
+            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"), 20)
+        return msg
+
+    @bot.command(name="vc", aliases=["voice", "joinvc", "vcjoin", "joinvoice", "joincall"])
     def vc(ctx, args):
         if not args:
             current = voice_manager.current_channel_id()
             if current:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Already in Voice** | Channel: **{current}**")
+                msg = _vc_send(ctx, f"> **Already in Voice** | Channel: **{current}**")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Join VC** | Usage: {bot.prefix}vc <channel_id>")
+                msg = _vc_send(ctx, f"> **Join VC** | Usage: {bot.prefix}vc <channel_id>")
             return
         
         channel_id = args[0]
@@ -5884,14 +6014,17 @@ Example Usage:
             success = voice_manager.join_vc(channel_id)
             
             if success:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Connected to Voice** | Channel: **{channel_id}**")
+                state = voice_manager.get_state(channel_id)
+                ready = "ready" if state.get("ws_ready") else "starting"
+                msg = _vc_send(ctx, f"> **Connected to Voice** | Channel: **{channel_id}** | WS: {ready}")
             else:
                 detail = getattr(voice_manager, "last_error", "") or "Unknown voice error"
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Failed** to connect to voice channel :: {detail}")
+                msg = _vc_send(ctx, f"> **Failed** to connect to voice channel :: {detail}")
             
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Voice error**: {str(e)[:80]}")
-    @bot.command(name="vce", aliases=["leavevc", "disconnect"])
+            msg = _vc_send(ctx, f"> **Voice error**: {str(e)[:80]}")
+
+    @bot.command(name="vce", aliases=["leavevc", "disconnect", "vcleave", "leavevoice", "hangup"])
     def vce(ctx, args):
         try:
             if args:
@@ -5900,13 +6033,14 @@ Example Usage:
                 success = voice_manager.leave_vc()
             
             if success:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Disconnected** from voice")
+                msg = _vc_send(ctx, "> **Disconnected** from voice")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Not in** a voice channel")
+                msg = _vc_send(ctx, "> **Not in** a voice channel")
             
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Voice error**: {str(e)[:80]}")
-    @bot.command(name="vccam", aliases=["cam", "camera"])
+            msg = _vc_send(ctx, f"> **Voice error**: {str(e)[:80]}")
+
+    @bot.command(name="vccam", aliases=["cam", "camera", "vcam", "vcvideo"])
     def vccam(ctx, args):
         enabled = True
         if args and args[0].lower() in ("off", "false", "0"):
@@ -5915,26 +6049,30 @@ Example Usage:
         try:
             ok, detail = voice_manager.set_video(channel_id, enabled)
             if ok:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Camera** :: {detail}")
+                msg = _vc_send(ctx, f"> **✓ Camera** :: {detail}")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Camera** :: {detail}")
+                msg = _vc_send(ctx, f"> **✗ Camera** :: {detail}")
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Camera error**: {str(e)[:80]}")
+            msg = _vc_send(ctx, f"> **✗ Camera error**: {str(e)[:80]}")
 
     @bot.command(name="vcstatus", aliases=["vcs", "voicestatus"])
     def vcstatus(ctx, args):
         try:
             if voice_manager.is_in_voice():
-                ch = voice_manager.current_channel_id() or "unknown"
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Voice Status** :: Connected to **{ch}**")
+                st = voice_manager.get_state()
+                ch = st.get("channel_id") or "unknown"
+                msg = _vc_send(
+                    ctx,
+                    f"> **Voice Status** :: Connected to **{ch}** | cam={st.get('camera')} | stream={st.get('stream')} | mute={st.get('mute')} | deaf={st.get('deaf')} | ws={st.get('ws_ready')}",
+                )
             else:
                 err = getattr(voice_manager, "last_error", "")
                 suffix = f" | Last error: {err}" if err else ""
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Voice Status** :: Not connected{suffix}")
+                msg = _vc_send(ctx, f"> **Voice Status** :: Not connected{suffix}")
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Voice Status Error**: {str(e)[:80]}")
+            msg = _vc_send(ctx, f"> **Voice Status Error**: {str(e)[:80]}")
 
-    @bot.command(name="vcstream", aliases=["stream", "golive"])
+    @bot.command(name="vcstream", aliases=["stream", "golive", "vcgo", "vcgolive", "screenshare", "vcscreen"])
     def vcstream(ctx, args):
         enabled = True
         if args and args[0].lower() in ("off", "stop", "false", "0"):
@@ -5943,13 +6081,68 @@ Example Usage:
         try:
             ok, detail = voice_manager.set_stream(channel_id, enabled)
             if ok:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Go Live** :: {detail}")
+                msg = _vc_send(ctx, f"> **✓ Go Live** :: {detail}")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Go Live** :: {detail}")
+                msg = _vc_send(ctx, f"> **✗ Go Live** :: {detail}")
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Stream error**: {str(e)[:80]}")
+            msg = _vc_send(ctx, f"> **✗ Stream error**: {str(e)[:80]}")
+
+    @bot.command(name="vcmute", aliases=["mutevc", "voice_mute", "vcm"])
+    def vcmute(ctx, args):
+        enabled = True
+        if args and args[0].lower() in ("off", "false", "0"):
+            enabled = False
+        channel_id = args[1] if len(args) > 1 else None
+        ok, detail = voice_manager.set_mute_deaf(channel_id=channel_id, mute=enabled, deaf=None)
+        if ok:
+            msg = _vc_send(ctx, f"> **✓ VC Mute** :: {detail}")
+        else:
+            msg = _vc_send(ctx, f"> **✗ VC Mute** :: {detail}")
+
+    @bot.command(name="vcdeaf", aliases=["deafvc", "voice_deaf", "vcd"])
+    def vcdeaf(ctx, args):
+        enabled = True
+        if args and args[0].lower() in ("off", "false", "0"):
+            enabled = False
+        channel_id = args[1] if len(args) > 1 else None
+        ok, detail = voice_manager.set_mute_deaf(channel_id=channel_id, mute=None, deaf=enabled)
+        if ok:
+            msg = _vc_send(ctx, f"> **✓ VC Deaf** :: {detail}")
+        else:
+            msg = _vc_send(ctx, f"> **✗ VC Deaf** :: {detail}")
+
+    @bot.command(name="vcswitch", aliases=["vcmove", "switchvc", "voice_switch"])
+    def vcswitch(ctx, args):
+        if not args:
+            msg = _vc_send(ctx, f"> **VC Switch** | Usage: {bot.prefix}vcswitch <channel_id>")
+            return
+        channel_id = str(args[0]).strip()
+        ok = voice_manager.switch_channel(channel_id)
+        if ok:
+            st = voice_manager.get_state(channel_id)
+            ready = "ready" if st.get("ws_ready") else "starting"
+            msg = _vc_send(ctx, f"> **✓ VC Switch** :: {channel_id} | WS: {ready}")
+        else:
+            detail = getattr(voice_manager, "last_error", "") or "Unknown voice error"
+            msg = _vc_send(ctx, f"> **✗ VC Switch** :: {detail}")
+
+    @bot.command(name="vcrejoin", aliases=["vcreconnect", "vcfix", "voicefix"])
+    def vcrejoin(ctx, args):
+        ok = voice_manager.rejoin()
+        if ok:
+            st = voice_manager.get_state()
+            ch = st.get("channel_id") or "unknown"
+            ready = "ready" if st.get("ws_ready") else "starting"
+            msg = _vc_send(ctx, f"> **✓ VC Rejoin** :: {ch} | WS: {ready}")
+        else:
+            detail = getattr(voice_manager, "last_error", "") or "Unknown voice error"
+            msg = _vc_send(ctx, f"> **✗ VC Rejoin** :: {detail}")
     @bot.command(name="quest", aliases=["questlist", "ql", "qstat"])
     def quest_cmd(ctx, args):
+        if args and str(args[0]).lower() in {"debug", "dbg"}:
+            questdebug_cmd(ctx, list(args[1:]))
+            return
+
         ok, detail = quest_system.fetch_quests()
         s = quest_system.get_summary()
         lines = ["Quest Manager"]
@@ -5973,6 +6166,73 @@ Example Usage:
             lines.append(f"> {quest_system._quest_name(q)} [claim now]")
         for q in s["completed"]:
             lines.append(f"> {quest_system._quest_name(q)} [done]")
+        text = "```| " + " |\n".join(lines) + "```"
+        msg = ctx["api"].send_message(ctx["channel_id"], text)
+
+    @bot.command(name="questdebug", aliases=["qdebug", "qdbg"])
+    def questdebug_cmd(ctx, args):
+        import re
+
+        def _extract_quest_id(text: str) -> str:
+            raw = str(text or "").strip()
+            if not raw:
+                return ""
+            m = re.search(r"/quests/([A-Za-z0-9_-]+)", raw)
+            if m:
+                return m.group(1)
+            m = re.search(r"[?&](?:quest_id|id)=([A-Za-z0-9_-]+)", raw)
+            if m:
+                return m.group(1)
+            cleaned = raw.strip("<>()[]{} ")
+            if re.fullmatch(r"[A-Za-z0-9_-]{6,}", cleaned):
+                return cleaned
+            return ""
+
+        ok, detail = quest_system.fetch_quests()
+        if not ok and not quest_system.quests:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Quest Debug |\nFetch failed: {detail}```")
+            return
+
+        quests = list(quest_system.quests.values())
+        req_ids = [_extract_quest_id(a) for a in (args or [])]
+        req_ids = [x for x in req_ids if x]
+        if req_ids:
+            wanted = set(req_ids)
+            quests = [q for q in quests if str(q.get("id", "")) in wanted]
+
+        if not quests:
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Quest Debug |\nNo matching quests```")
+            return
+
+        lines = [f"Quest Debug :: {len(quests)} quest(s)"]
+        for q in quests[:20]:
+            qid = str(q.get("id", "?"))
+            qname = quest_system._quest_name(q)
+            qtype = quest_system._task_type(q)
+            event_name, done, total = quest_system._get_progress(q)
+            worthy = "yes" if quest_system._is_worthy(q) else "no"
+            platforms = []
+            if hasattr(quest_system, "_task_platforms"):
+                try:
+                    platforms = sorted(list(quest_system._task_platforms(q)))
+                except Exception:
+                    platforms = []
+            plat_text = ",".join(platforms) if platforms else "auto"
+
+            state = "completed"
+            if quest_system._is_claimable(q):
+                state = "claimable"
+            elif quest_system._is_completeable(q):
+                state = "in-progress"
+            elif quest_system._is_enrollable(q):
+                state = "enrollable"
+
+            lines.append(f"ID: {qid}")
+            lines.append(f"Name: {qname[:80]}")
+            lines.append(f"Type: {qtype} | Event: {event_name} | Platform: {plat_text}")
+            lines.append(f"Progress: {done}/{total} | Worthy: {worthy} | State: {state}")
+            lines.append("-")
+
         text = "```| " + " |\n".join(lines) + "```"
         msg = ctx["api"].send_message(ctx["channel_id"], text)
     @bot.command(name="questclaim", aliases=["qclaim", "qc"])
@@ -6023,12 +6283,50 @@ Example Usage:
         )
     @bot.command(name="questenroll", aliases=["qenroll", "qe"])
     def questenroll_cmd(ctx, args):
+        import re
+
+        def _extract_quest_id(text: str) -> str:
+            raw = str(text or "").strip()
+            if not raw:
+                return ""
+            m = re.search(r"/quests/([A-Za-z0-9_-]+)", raw)
+            if m:
+                return m.group(1)
+            m = re.search(r"[?&](?:quest_id|id)=([A-Za-z0-9_-]+)", raw)
+            if m:
+                return m.group(1)
+            cleaned = raw.strip("<>()[]{} ")
+            if re.fullmatch(r"[A-Za-z0-9_-]{6,}", cleaned):
+                return cleaned
+            return ""
+
         quest_system.fetch_quests()
         s = quest_system.get_summary()
         enrollable = s["enrollable"]
+        missing = []
+
+        requested_ids = [_extract_quest_id(a) for a in (args or [])]
+        requested_ids = [x for x in requested_ids if x]
+
+        if requested_ids:
+            selected = []
+            missing = []
+            for qid in requested_ids:
+                q = quest_system.quests.get(str(qid))
+                if q is None:
+                    missing.append(str(qid))
+                    continue
+                selected.append(q)
+            enrollable = selected
+
         if not enrollable:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Quest |\nNo enrollable quests```")
+            if requested_ids:
+                missing_note = f"\nMissing: {', '.join(missing[:5])}" if missing else ""
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Quest |\nNo enrollable matching quests{missing_note}```")
+            else:
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Quest |\nNo enrollable quests```")
             return
+
         enrolled = 0
         failed = 0
         for q in enrollable:
@@ -6039,9 +6337,14 @@ Example Usage:
             else:
                 failed += 1
             time.sleep(0.8)
+
+        suffix = ""
+        if requested_ids and missing:
+            suffix = f"\nMissing: {len(missing)}"
+
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```| Quest Enroll |\nEnrolled: {enrolled} | Failed: {failed}```",
+            f"```| Quest Enroll |\nEnrolled: {enrolled} | Failed: {failed}{suffix}```",
         )
     @bot.command(name="questautoclaimer", aliases=["quest-auto-claimer", "qac", "autoclaimer"])
     def questautoclaimer_cmd(ctx, args):

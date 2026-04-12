@@ -50,6 +50,14 @@ class VoiceClient:
         # Threading events so connect() can block until gateway data arrives
         self._session_event = threading.Event()
         self._server_event = threading.Event()
+        self._connected_event = threading.Event()
+        self._ws_error: str = ""
+
+        # Local state toggles reflected via gateway op4 / voice ws operations.
+        self.self_mute = False
+        self.self_deaf = False
+        self.self_video = False
+        self.self_stream = False
     
     # ── called by bot.on_message to deliver gateway voice events ────────────
 
@@ -83,6 +91,8 @@ class VoiceClient:
 
         self._session_event.clear()
         self._server_event.clear()
+        self._connected_event.clear()
+        self._ws_error = ""
 
         # Send Voice State Update (op 4) through the existing bot gateway
         payload = json.dumps({
@@ -110,9 +120,13 @@ class VoiceClient:
             return False
 
         # Spawn voice WS thread
+        self.running = True
         self.voice_thread = threading.Thread(target=self._run_voice_ws, daemon=True, name="VoiceWS")
         self.voice_thread.start()
-        time.sleep(2)
+
+        # Give the WS a chance to reach session description (op4), but don't fail
+        # plain channel join if the voice WS is delayed.
+        self._connected_event.wait(timeout=8)
         return True
 
     def disconnect(self) -> bool:
@@ -145,6 +159,9 @@ class VoiceClient:
         print("[Voice] Disconnected")
         return True
 
+    def ws_ready(self) -> bool:
+        return bool(self._connected_event.is_set() and self.voice_ws is not None)
+
     async def _close_ws(self):
         if self.voice_ws:
             try:
@@ -164,6 +181,7 @@ class VoiceClient:
                 self.voice_loop.run_until_complete(self._voice_ws_connect())
             except Exception as e:
                 print(f"[Voice] ws thread error: {e}")
+                self._ws_error = str(e)
             if not self.running:
                 break
             print(f"[Voice] Reconnecting in {backoff}s…")
@@ -183,7 +201,7 @@ class VoiceClient:
         try:
             async with websockets.connect(url, max_size=None) as ws:
                 self.voice_ws = ws
-                self.running = True
+                self._ws_error = ""
 
                 # Send Identify (op 0)
                 await ws.send(json.dumps({
@@ -206,8 +224,10 @@ class VoiceClient:
                     await self._handle_voice_op(ws, msg)
         except Exception as e:
             print(f"[Voice] WS error: {e}")
+            self._ws_error = str(e)
         finally:
-            self.running = False
+            self.voice_ws = None
+            self._connected_event.clear()
 
     async def _handle_voice_op(self, ws, msg: dict):
         op = msg.get("op")
@@ -243,6 +263,7 @@ class VoiceClient:
             # Session Description — we're fully connected
             self.secret_key = msg["d"].get("secret_key")
             print("[Voice] CONNECTED — session description received")
+            self._connected_event.set()
             # Mark as not-speaking (silent join)
             await ws.send(json.dumps({
                 "op": 5,
@@ -336,6 +357,24 @@ class SimpleVoice:
         if self.active_connections:
             return next(iter(self.active_connections.values()))
         return None
+
+    def _send_voice_state_update(self, client: VoiceClient) -> bool:
+        try:
+            payload = json.dumps({
+                "op": 4,
+                "d": {
+                    "guild_id": client.guild_id,
+                    "channel_id": client.channel_id,
+                    "self_mute": bool(client.self_mute),
+                    "self_deaf": bool(client.self_deaf),
+                    "self_video": bool(client.self_video),
+                },
+            })
+            client.bot_ws.send(payload)
+            return True
+        except Exception as e:
+            self.last_error = str(e)
+            return False
 
     def join_vc(self, *args, **kwargs) -> bool:
         self.last_error = ""
@@ -446,30 +485,30 @@ class SimpleVoice:
         """Toggle camera via gateway op4."""
         client = self._get_client(channel_id)
         if not client:
+            self.last_error = "Not in a voice channel"
             return False, "Not in a voice channel"
         try:
-            payload = json.dumps({
-                "op": 4,
-                "d": {
-                    "guild_id": client.guild_id,
-                    "channel_id": client.channel_id,
-                    "self_mute": False,
-                    "self_deaf": False,
-                    "self_video": enabled,
-                },
-            })
-            client.bot_ws.send(payload)
+            client.self_video = bool(enabled)
+            if not self._send_voice_state_update(client):
+                return False, self.last_error or "Failed to send voice state update"
             return True, "Camera " + ("enabled" if enabled else "disabled")
         except Exception as e:
+            self.last_error = str(e)
             return False, str(e)
 
     def set_stream(self, channel_id=None, enabled=True):
         """Toggle Go Live / screen share via voice WS."""
         client = self._get_client(channel_id)
         if not client:
+            self.last_error = "Not in a voice channel"
             return False, "Not in a voice channel"
+        if not client.ws_ready():
+            # Voice WS may come online shortly after join.
+            client._connected_event.wait(timeout=6)
         if not client.voice_loop or client.voice_loop.is_closed() or not client.voice_ws:
-            return False, "Voice WS not connected"
+            detail = client._ws_error or "Voice WS not connected"
+            self.last_error = detail
+            return False, detail
         try:
             if enabled:
                 op_payload = json.dumps({
@@ -492,9 +531,66 @@ class SimpleVoice:
             asyncio.run_coroutine_threadsafe(
                 client.voice_ws.send(op_payload), client.voice_loop
             ).result(timeout=5)
+            client.self_stream = bool(enabled)
             return True, "Stream " + ("started" if enabled else "stopped")
         except Exception as e:
+            self.last_error = str(e)
             return False, str(e)
+
+    def set_mute_deaf(self, channel_id=None, mute=None, deaf=None):
+        client = self._get_client(channel_id)
+        if not client:
+            self.last_error = "Not in a voice channel"
+            return False, "Not in a voice channel"
+        if mute is not None:
+            client.self_mute = bool(mute)
+        if deaf is not None:
+            client.self_deaf = bool(deaf)
+        if not self._send_voice_state_update(client):
+            return False, self.last_error or "Failed to update voice state"
+
+        parts = []
+        if mute is not None:
+            parts.append("mute " + ("on" if client.self_mute else "off"))
+        if deaf is not None:
+            parts.append("deaf " + ("on" if client.self_deaf else "off"))
+        return True, ", ".join(parts) if parts else "updated"
+
+    def switch_channel(self, channel_id: str):
+        return self.join_vc(channel_id)
+
+    def rejoin(self):
+        ch = self.current_channel_id()
+        if not ch:
+            self.last_error = "Not in a voice channel"
+            return False
+        self.leave_vc()
+        time.sleep(0.6)
+        return self.join_vc(ch)
+
+    def get_state(self, channel_id=None) -> dict:
+        client = self._get_client(channel_id)
+        if not client:
+            return {
+                "connected": False,
+                "channel_id": None,
+                "camera": False,
+                "stream": False,
+                "mute": False,
+                "deaf": False,
+                "ws_ready": False,
+                "last_error": self.last_error,
+            }
+        return {
+            "connected": True,
+            "channel_id": str(client.channel_id or ""),
+            "camera": bool(client.self_video),
+            "stream": bool(client.self_stream),
+            "mute": bool(client.self_mute),
+            "deaf": bool(client.self_deaf),
+            "ws_ready": bool(client.ws_ready()),
+            "last_error": self.last_error,
+        }
 
     def current_channel_id(self) -> Optional[str]:
         client = self._get_client()

@@ -59,17 +59,40 @@ class QuestSystem:
                 return tc
         return {}
 
-    def _task_type(self, q: dict) -> str:
+    def _task_names(self, q: dict) -> list:
+        """Collect all task/event identifiers in normalized lowercase form."""
         tasks = self._tasks_map(q)
         names = [str(k).lower() for k in tasks.keys()]
         for _, tv in tasks.items():
-            if isinstance(tv, dict):
-                ev = str(tv.get("event_name") or tv.get("eventName") or "").lower()
-                if ev:
-                    names.append(ev)
-        if any("watch" in n for n in names):
+            if not isinstance(tv, dict):
+                continue
+            ev = str(tv.get("event_name") or tv.get("eventName") or "").lower().strip()
+            if ev:
+                names.append(ev)
+        return names
+
+    def _task_platforms(self, q: dict) -> set:
+        """Infer target platforms from task names/events."""
+        names = self._task_names(q)
+        platforms = set()
+        for n in names:
+            if any(x in n for x in ("desktop", "pc", "windows", "mac", "linux")):
+                platforms.add("desktop")
+            if "mobile" in n:
+                platforms.add("mobile")
+            if "xbox" in n:
+                platforms.add("xbox")
+            if "playstation" in n or "ps5" in n or "ps4" in n:
+                platforms.add("playstation")
+            if "switch" in n or "nintendo" in n:
+                platforms.add("switch")
+        return platforms
+
+    def _task_type(self, q: dict) -> str:
+        names = self._task_names(q)
+        if any(("watch" in n) or ("video" in n) for n in names):
             return "watch"
-        if any("play" in n for n in names):
+        if any(("play" in n) or ("gaming" in n) for n in names):
             return "play"
         if any("stream" in n for n in names):
             return "stream"
@@ -277,6 +300,7 @@ class QuestSystem:
         """Send one progress tick. Returns (success, completed, done, total)."""
         qid = str(q.get("id", ""))
         qtype = self._task_type(q)
+        platforms = self._task_platforms(q)
         _, done, total = self._get_progress(q)
 
         try:
@@ -295,21 +319,58 @@ class QuestSystem:
                     return True, False, done, total
 
                 new_val = min(done + speed + random.random(), max_allowed)
-                resp = self.api.request(
-                    "POST",
+                resp = None
+                watch_endpoints = (
                     f"/quests/{qid}/video-progress",
-                    data={"timestamp": new_val},
+                    f"/quests/{qid}/video_progress",
                 )
+                watch_payloads = (
+                    {"timestamp": new_val},
+                    {"value": new_val},
+                    {"seconds": new_val},
+                )
+                for ep in watch_endpoints:
+                    for payload in watch_payloads:
+                        resp = self.api.request("POST", ep, data=payload)
+                        if resp and resp.status_code in (200, 204):
+                            break
+                    if resp and resp.status_code in (200, 204):
+                        break
             elif qtype in ("play", "stream"):
                 app_id = str(((q.get("config") or {}).get("application") or {}).get("id") or "")
-                hb_payload = {"terminal": False}
-                if app_id:
-                    hb_payload["application_id"] = app_id
-                resp = self.api.request(
-                    "POST",
+                resp = None
+                hb_endpoints = (
                     f"/quests/{qid}/heartbeat",
-                    data=hb_payload,
+                    f"/quests/{qid}/heartbeats",
                 )
+
+                base_payload = {}
+                if app_id:
+                    base_payload["application_id"] = app_id
+
+                # Try desktop-first for PC quests, then broad fallbacks for other platforms.
+                terminal_candidates = [False, True]
+                if "desktop" in platforms:
+                    terminal_candidates = [True, False]
+
+                platform_candidates = [None]
+                if platforms:
+                    platform_candidates = list(platforms) + [None]
+
+                for ep in hb_endpoints:
+                    for term in terminal_candidates:
+                        for plat in platform_candidates:
+                            hb_payload = dict(base_payload)
+                            hb_payload["terminal"] = term
+                            if plat:
+                                hb_payload["platform"] = plat
+                            resp = self.api.request("POST", ep, data=hb_payload)
+                            if resp and resp.status_code in (200, 204):
+                                break
+                        if resp and resp.status_code in (200, 204):
+                            break
+                    if resp and resp.status_code in (200, 204):
+                        break
             else:
                 return False, False, done, total
 
