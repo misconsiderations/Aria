@@ -7,7 +7,7 @@ import time
 import hashlib
 import secrets
 import base64
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional
 
 from flask import Flask, jsonify, redirect, request, session, url_for
@@ -186,6 +186,7 @@ class WebPanel:
         self.app.secret_key = os.getenv("ARIA_WEBPANEL_SECRET", "aria-webpanel-auth-secret")
         self.app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
         self._thread = None
+        self._last_start_error = ""
 
         self.dashboard_auth_path = "dashboard_authed_users.json"
         self.dashboard_block_path = "dashboard_blocked_users.json"
@@ -1364,6 +1365,47 @@ class WebPanel:
 
         @self.app.get("/api/command_history")
         def get_command_history() -> Any:
+            def _normalize_timestamp(value: Any) -> str:
+                """Return a stable UTC string for mixed timestamp formats."""
+                if isinstance(value, (int, float)):
+                    return time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(float(value)))
+
+                if isinstance(value, str):
+                    raw = value.strip()
+                    if not raw:
+                        return "Unknown"
+
+                    # Numeric timestamps sometimes arrive as strings.
+                    try:
+                        numeric = float(raw)
+                        return time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(numeric))
+                    except Exception:
+                        pass
+
+                    # ISO timestamps may be naive or timezone-aware.
+                    try:
+                        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        else:
+                            dt = dt.astimezone(timezone.utc)
+                        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+                    except Exception:
+                        return raw
+
+                if hasattr(value, "isoformat"):
+                    try:
+                        dt = value
+                        if getattr(dt, "tzinfo", None) is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        else:
+                            dt = dt.astimezone(timezone.utc)
+                        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+                    except Exception:
+                        pass
+
+                return str(value) if value is not None else "Unknown"
+
             try:
                 history = []
                 if os.path.exists("history_data.json"):
@@ -1373,7 +1415,7 @@ class WebPanel:
                         # Get last 20 commands with timestamps
                         for cmd_id, cmd_data in list(commands.items())[-20:]:
                             history.append({
-                                "timestamp": cmd_data.get("timestamp", "Unknown"),
+                                "timestamp": _normalize_timestamp(cmd_data.get("timestamp", "Unknown")),
                                 "command": cmd_data.get("command", "Unknown"),
                                 "result": cmd_data.get("result", "Unknown")
                             })
@@ -3331,11 +3373,24 @@ a{color:#93c5fd;text-decoration:none}
         )
 
     def run(self) -> None:
-        self.app.run(host=self.host, port=self.port, debug=False, use_reloader=False)
+        try:
+            self.app.run(host=self.host, port=self.port, debug=False, use_reloader=False)
+        except Exception as e:
+            self._last_start_error = str(e)
 
     def start(self) -> bool:
         if self._thread and self._thread.is_alive():
             return False
+        self._last_start_error = ""
         self._thread = threading.Thread(target=self.run, daemon=True)
         self._thread.start()
+        # Give Flask a brief window to fail fast (e.g., port in use).
+        time.sleep(0.35)
+        if not self._thread.is_alive():
+            if not self._last_start_error:
+                self._last_start_error = "webpanel startup thread exited"
+            return False
         return True
+
+    def get_last_start_error(self) -> str:
+        return str(self._last_start_error or "")

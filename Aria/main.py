@@ -1477,12 +1477,16 @@ def main():
             elif arg.isdigit():
                 amount = min(500, max(1, int(arg)))
 
+        target_deletes = amount
+
         status = ctx["api"].send_message(
             ctx["channel_id"],
-            f"> **Purge** :: Scanning {amount} messages{' for ' + target_user if target_user else ''}...",
+            f"> **Purge** :: Scanning for up to {target_deletes} deletions{' for ' + target_user if target_user else ''}...",
         )
         status_id = status.get("id") if status else None
-        scan_limit = min(1000, max(amount, 1))
+        # Scan deeper than the target count so sparse matches (e.g., own messages in busy chats)
+        # can still reach the requested delete amount.
+        scan_limit = min(5000, max(target_deletes * 10, 200))
         messages = []
         before = None
         try:
@@ -1526,6 +1530,8 @@ def main():
                 r = ctx["api"].request("DELETE", f"/channels/{ctx['channel_id']}/messages/{m['id']}")
                 if r and r.status_code in (200, 202, 204):
                     deleted += 1
+                    if deleted >= target_deletes:
+                        break
                 else:
                     # Already deleted / not found shouldn't hard-fail purge loops.
                     if r and r.status_code == 404:
@@ -1540,7 +1546,7 @@ def main():
 
         if status:
             suffix = f" | Failed {failed}" if failed else ""
-            result = f"Deleted **{deleted}** — Scanned {scanned}{suffix}"
+            result = f"Deleted **{deleted}/{target_deletes}** — Scanned {scanned}{suffix}"
             ctx["api"].edit_message(
                 ctx["channel_id"], status.get("id"),
                 f"> **✓ Purge** :: {result}",
@@ -4146,9 +4152,9 @@ Example Usage:
                     fmt.header(f"Help {page_name.title()}"),
                     fmt._block(
                         f"{fmt.PINK}{title}{fmt.RESET}\n"
-                        f"\n{body}\n"
-                        f"\n{footer_line}"
+                        f"\n{body}"
                     ),
+                    fmt._block(footer_line),
                 ]
             )
 
@@ -6824,7 +6830,18 @@ Example Usage:
                 return
 
         started = web_panel.start()
-        if force_reload:
+        panel_thread = getattr(web_panel, "_thread", None)
+        running = bool(panel_thread and panel_thread.is_alive())
+        start_error = ""
+        if hasattr(web_panel, "get_last_start_error"):
+            try:
+                start_error = str(web_panel.get_last_start_error() or "")
+            except Exception:
+                start_error = ""
+
+        if not started and not running:
+            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
+        elif force_reload:
             status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
         else:
             status_line = "Started web interface" if started else "Web interface already running"
@@ -8924,7 +8941,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
             if not r or r.status_code not in (200, 201):
                 r = api.request("GET", f"/users/{uid}")
             if not r or r.status_code not in (200, 201):
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Avatar** :: User not found: {uid}")
+                msg = api.send_message(ctx["channel_id"], f"User not found: {uid}")
                 return
 
             d = r.json()

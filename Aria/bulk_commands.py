@@ -908,9 +908,10 @@ def setup_bulk_commands(bot, delete_after_delay):
         uid = args[0] if args else ctx.get("author_id", "")
         user = ctx["api"].get_user(uid) if uid else None
         if user and user.get("avatar"):
-            _send(ctx, f"> **Avatar**: https://cdn.discordapp.com/avatars/{uid}/{user['avatar']}.png?size=1024")
+            ext = "gif" if str(user.get("avatar", "")).startswith("a_") else "png"
+            _send(ctx, f"https://cdn.discordapp.com/avatars/{uid}/{user['avatar']}.{ext}?size=4096")
         else:
-            _send(ctx, _box("PFP", "No avatar found"))
+            _send(ctx, "No avatar found")
 
     @bot.command(name="email")
     def email_cmd(ctx, args):
