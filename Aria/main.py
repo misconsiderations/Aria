@@ -5212,6 +5212,7 @@ Example Usage:
                     ("queststop", "Stop auto-completing quests"),
                     ("questrefresh", "Refresh quest data from Discord"),
                     ("questclaim", "Claim all claimable quest rewards"),
+                    ("questautoclaimer <sub>", "All-in-one quest auto claimer"),
                 ],
             },
 
@@ -5236,6 +5237,14 @@ Example Usage:
                 "",
                 {"type": "section", "text": "Aliases"},
                 "qclaim, qc",
+            ),
+
+            "questautoclaimer": help_page(
+                f"{p}questautoclaimer <start|stop|status|refresh|enroll|claim>",
+                "Unified quest automation command.",
+                "",
+                {"type": "section", "text": "Aliases"},
+                "quest-auto-claimer, qac, autoclaimer",
             ),
 
             "all": {
@@ -5675,6 +5684,41 @@ Example Usage:
         msg = ctx["api"].send_message(
             ctx["channel_id"],
             f"```| Quest Enroll |\nEnrolled: {enrolled} | Failed: {failed}```",
+        )
+        if msg:
+            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+
+    @bot.command(name="questautoclaimer", aliases=["quest-auto-claimer", "qac", "autoclaimer"])
+    def questautoclaimer_cmd(ctx, args):
+        sub = (args[0].lower() if args else "status")
+
+        if sub == "status":
+            quest_cmd(ctx, [])
+            return
+
+        if sub == "start":
+            queststart_cmd(ctx, [])
+            return
+
+        if sub == "stop":
+            queststop_cmd(ctx, [])
+            return
+
+        if sub == "refresh":
+            questrefresh_cmd(ctx, [])
+            return
+
+        if sub == "enroll":
+            questenroll_cmd(ctx, [])
+            return
+
+        if sub == "claim":
+            questclaim_cmd(ctx, [])
+            return
+
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            f"```| Quest Auto Claimer |\nUsage: {bot.prefix}questautoclaimer <start|stop|status|refresh|enroll|claim>```",
         )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
