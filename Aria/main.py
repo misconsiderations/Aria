@@ -891,6 +891,8 @@ def main():
     _ADMIN_FILE = os.path.join(os.path.dirname(__file__), "admin_users.json")
     _DASH_AUTH_FILE = os.path.join(os.path.dirname(__file__), "dashboard_authed_users.json")
     _DASH_BLOCK_FILE = os.path.join(os.path.dirname(__file__), "dashboard_blocked_users.json")
+    _ANTINUKE_FILE = os.path.join(os.path.dirname(__file__), "antinuke_state.json")
+    _AUTOBUMP_FILE = os.path.join(os.path.dirname(__file__), "autobump_state.json")
 
     def _load_authed():
         try:
@@ -920,10 +922,136 @@ def main():
         except Exception:
             pass
 
+    def _load_antinuke_configs():
+        try:
+            with open(_ANTINUKE_FILE) as f:
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _save_antinuke_configs(data):
+        try:
+            with open(_ANTINUKE_FILE, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+
+    def _load_autobump_state():
+        try:
+            with open(_AUTOBUMP_FILE) as f:
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _save_autobump_state(data):
+        try:
+            with open(_AUTOBUMP_FILE, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+
+    def _default_antinuke_config():
+        return {
+            "enabled": False,
+            "whitelist": [],
+            "limits": {
+                "channel_delete": 3,
+                "role_delete": 3,
+                "ban": 5,
+                "kick": 8,
+            },
+        }
+
     _authed_users = _load_authed()
     _admin_users = _load_id_set(_ADMIN_FILE)
     _dashboard_authed_users = _load_id_set(_DASH_AUTH_FILE)
     _dashboard_blocked_users = _load_id_set(_DASH_BLOCK_FILE)
+    _antinuke_configs = _load_antinuke_configs()
+    _autobump_state = _load_autobump_state()
+    _autobump_lock = threading.Lock()
+
+    def _get_antinuke_cfg(guild_id):
+        gid = str(guild_id)
+        cfg = _antinuke_configs.get(gid)
+        if not isinstance(cfg, dict):
+            cfg = _default_antinuke_config()
+            _antinuke_configs[gid] = cfg
+        cfg.setdefault("enabled", False)
+        cfg.setdefault("whitelist", [])
+        cfg.setdefault("limits", {})
+        for k, v in _default_antinuke_config()["limits"].items():
+            cfg["limits"].setdefault(k, v)
+        return cfg
+
+    def _persist_antinuke_cfg(guild_id, cfg):
+        _antinuke_configs[str(guild_id)] = cfg
+        _save_antinuke_configs(_antinuke_configs)
+
+    def _normalize_autobump_entry(channel_id, entry):
+        base = {
+            "channel_id": str(channel_id),
+            "guild_id": None,
+            "enabled": False,
+            "message": "bump",
+            "interval_minutes": 120.0,
+            "last_run_at": 0.0,
+            "next_run_at": 0.0,
+        }
+        if isinstance(entry, dict):
+            for key in base:
+                if key in entry:
+                    base[key] = entry[key]
+        try:
+            base["interval_minutes"] = max(30.0, float(base.get("interval_minutes", 120.0) or 120.0))
+        except Exception:
+            base["interval_minutes"] = 120.0
+        try:
+            base["last_run_at"] = float(base.get("last_run_at", 0.0) or 0.0)
+        except Exception:
+            base["last_run_at"] = 0.0
+        try:
+            base["next_run_at"] = float(base.get("next_run_at", 0.0) or 0.0)
+        except Exception:
+            base["next_run_at"] = 0.0
+        base["enabled"] = bool(base.get("enabled"))
+        base["message"] = str(base.get("message") or "bump")[:2000]
+        base["guild_id"] = str(base["guild_id"]) if base.get("guild_id") else None
+        return base
+
+    def _get_autobump_entry(channel_id, guild_id=None):
+        cid = str(channel_id)
+        with _autobump_lock:
+            entry = _normalize_autobump_entry(cid, _autobump_state.get(cid))
+            if guild_id and not entry.get("guild_id"):
+                entry["guild_id"] = str(guild_id)
+            _autobump_state[cid] = entry
+        return entry
+
+    def _persist_autobump_entry(channel_id, entry):
+        cid = str(channel_id)
+        normalized = _normalize_autobump_entry(cid, entry)
+        with _autobump_lock:
+            _autobump_state[cid] = normalized
+            snapshot = dict(_autobump_state)
+        _save_autobump_state(snapshot)
+
+    def _disable_autobump_entry(channel_id):
+        cid = str(channel_id)
+        with _autobump_lock:
+            if cid in _autobump_state:
+                _autobump_state[cid]["enabled"] = False
+                snapshot = dict(_autobump_state)
+            else:
+                snapshot = dict(_autobump_state)
+        _save_autobump_state(snapshot)
+
+    def _resolve_ctx_guild_id(ctx):
+        return str(ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id") or "")
+
+    def _clean_target_id(raw_value):
+        return re.sub(r"\D", "", str(raw_value or ""))
 
     if _authed_users and not _dashboard_authed_users:
         _dashboard_authed_users = set(_authed_users)
@@ -1012,6 +1140,75 @@ def main():
             host_manager.restore_hosted_users()
         except Exception:
             pass
+
+    def _autobump_worker():
+        while bot.running:
+            now = time.time()
+            dirty = False
+            with _autobump_lock:
+                items = [(channel_id, dict(entry)) for channel_id, entry in _autobump_state.items()]
+
+            for channel_id, entry in items:
+                current = _normalize_autobump_entry(channel_id, entry)
+                if not current.get("enabled"):
+                    continue
+                if float(current.get("next_run_at", 0.0) or 0.0) > now:
+                    continue
+
+                try:
+                    bot.api.send_message(channel_id, current.get("message") or "bump")
+                    sent_at = time.time()
+                    current["last_run_at"] = sent_at
+                    current["next_run_at"] = sent_at + (float(current["interval_minutes"]) * 60.0)
+                except Exception:
+                    current["next_run_at"] = time.time() + 300.0
+
+                with _autobump_lock:
+                    if channel_id in _autobump_state:
+                        _autobump_state[channel_id] = current
+                        dirty = True
+
+            if dirty:
+                with _autobump_lock:
+                    snapshot = dict(_autobump_state)
+                _save_autobump_state(snapshot)
+
+            time.sleep(20)
+
+    threading.Thread(target=_autobump_worker, daemon=True, name="autobump-worker").start()
+
+    compliment_templates = [
+        "{target} carries the whole room without trying.",
+        "{target} has unusually good taste.",
+        "{target} makes the timeline better just by showing up.",
+        "{target} is the kind of reliable people notice.",
+        "{target} has main-character confidence today.",
+        "{target} is operating at a higher build than the rest of us.",
+    ]
+    roast_templates = [
+        "{target} loads slower than airport Wi-Fi.",
+        "{target} brings tutorial energy to ranked mode.",
+        "{target} is proof that autocorrect can only do so much.",
+        "{target} would lose a race against a loading spinner.",
+        "{target} somehow turns low latency into a personality trait.",
+        "{target} has the confidence of a typo in production.",
+    ]
+    joke_templates = [
+        "Why did the bot get promoted? It had outstanding cache flow.",
+        "I told the API to relax. It returned 429 and said later.",
+        "Why do developers like dark mode? Because the light attracts bugs.",
+        "I asked Discord for stable latency. It sent me a typing indicator.",
+        "Why was the command calm under pressure? It already handled exceptions.",
+        "The database and I are close. It keeps all my secrets indexed.",
+    ]
+    trivia_cards = [
+        {"question": "What HTTP status code means rate limited?", "answer": "429"},
+        {"question": "What Discord snowflake field makes every ID unique at creation time?", "answer": "The timestamp-based snowflake value"},
+        {"question": "Which Python keyword defines an asynchronous function?", "answer": "async"},
+        {"question": "What does JSON stand for?", "answer": "JavaScript Object Notation"},
+        {"question": "Which protocol secures normal HTTPS traffic?", "answer": "TLS"},
+        {"question": "What command usually shows git working tree changes?", "answer": "git status"},
+    ]
     
 
     @bot.command(name="nitro")
@@ -1360,7 +1557,17 @@ def main():
 
         try:
             option = int(args[0])
-            message = " ".join(args[1:])
+            raw_message = " ".join(args[1:])
+            # Force plain text for outbound DMs: remove ANSI escapes and codeblock wrappers.
+            message = re.sub(r"\x1b\[[0-9;]*m", "", raw_message)
+            message = message.replace("```ansi", "").replace("```", "")
+            message = message.strip()
+            if not message:
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    f"```| Mass DM |\nMessage is empty after plain-text cleanup```",
+                )
+                return
             
             option_names = {1: "DM History", 2: "Friends", 3: "Both"}
             if option not in [1, 2, 3]:
@@ -2366,26 +2573,26 @@ Example Usage:
             import formatter as fmt
             p = bot.prefix
             cmds = [
-                (f"{p}rpc spotify", '"Song | Artist | Album | Elapsed [| Total] [| img]"'),
-                (f"{p}rpc youtube", '"Title | Channel | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc soundcloud", '"Track | Artist | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc youtube_music", '"Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc applemusic", '"Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc deezer", '"Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc tidal", '"Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc twitch", '"Stream Title | Channel | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc kick", '"Stream Title | Channel | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc netflix", '"Title | Show/Movie | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc disneyplus", '"Title | Show/Movie | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc primevideo", '"Title | Show/Movie | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc plex", '"Title | Library/User | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc jellyfin", '"Title | Library/User | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc vscode", '"Workspace/Task | File/Project | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc browser", '"Tab/Task | Site | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc listening", '"Details | State | Name [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc streaming", '"Details | State | Name [| img] [>> Btn >> URL]"'),
-                (f"{p}rpc playing", '"Details | State | Name [| img]"'),
-                (f"{p}rpc timer", '"Details | State | Name | Start | End [| img]"'),
+                (f"{p}rpc spotify", 'song=<name> artist=<name> album=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>]'),
+                (f"{p}rpc youtube", 'title=<name> channel=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc soundcloud", 'track=<name> artist=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc youtube_music", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc applemusic", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc deezer", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc tidal", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc twitch", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc kick", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc netflix", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc disneyplus", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc primevideo", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc plex", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc jellyfin", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc vscode", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc browser", 'title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc listening", 'name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc streaming", 'name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Button >> URL]'),
+                (f"{p}rpc playing", 'name=<name> [details=<text>] [state=<text>] [image_url=<url>]'),
+                (f"{p}rpc timer", 'name=<name> details=<text> state=<text> start=<unix> end=<unix> [image_url=<url>]'),
                 (f"{p}rpc crunchyroll", 'name=<show> episode_title=<ep> elapsed_minutes=<n> total_minutes=<n> [image_url=<url>]'),
                 (f"{p}rpc stop", "Clear all activities"),
             ]
@@ -2419,6 +2626,21 @@ Example Usage:
         msg_text = "```| RPC |\nInvalid input```"
         
         main_text = remaining
+
+        def _parse_kv_pairs(text):
+            import shlex
+
+            kv_pairs = {}
+            try:
+                tokens = shlex.split(text)
+            except Exception:
+                tokens = text.split()
+            for token in tokens:
+                if "=" not in token:
+                    continue
+                key, value = token.split("=", 1)
+                kv_pairs[key.strip().lower()] = value.strip()
+            return kv_pairs
         
         if ' >> ' in main_text:
             btn_split = main_text.split(' >> ')
@@ -2430,20 +2652,10 @@ Example Usage:
                 main_text = btn_split[0].strip()
                 button_label = btn_split[1].strip()
                 button_url = "https://discord.com"
+
+        kv = _parse_kv_pairs(main_text)
         
         if parts == "crunchyroll":
-            import shlex
-            kv = {}
-            try:
-                tokens = shlex.split(main_text)
-            except Exception:
-                tokens = main_text.split()
-            for token in tokens:
-                if "=" not in token:
-                    continue
-                k, v = token.split("=", 1)
-                kv[k.strip().lower()] = v.strip()
-
             try:
                 show_name = kv.get("name")
                 episode_title = kv.get("episode_title")
@@ -2477,15 +2689,55 @@ Example Usage:
                     configure_rpc_keepalive(bot, "crunchyroll", _refresh_crunchyroll)
                     msg_text = (
                         "```| Crunchyroll RPC |\n"
-                        f"Show: {show_name}\n"
-                        f"Episode: {episode_title}\n"
-                        f"Progress: {elapsed_val} / {total_val} min"
+                        f"show={show_name}\n"
+                        f"episode_title={episode_title}\n"
+                        f"elapsed_minutes={elapsed_val}\n"
+                        f"total_minutes={total_val}"
                         "```"
                     )
                     if image_url:
-                        msg_text = msg_text.replace("```", "\nImage: Yes```")
+                        msg_text = msg_text.replace("```", "\nimage_url=yes```")
             except Exception as e:
                 msg_text = f"```| Crunchyroll RPC |\nError: {str(e)}```"
+
+        elif kv:
+            if parts == "spotify":
+                details = kv.get("song")
+                state = kv.get("artist")
+                name = kv.get("album")
+                duration = kv.get("elapsed_minutes", "")
+                current_pos = kv.get("total_minutes", "")
+                image_url = kv.get("image_url") or image_url
+            elif parts == "youtube":
+                details = kv.get("title")
+                state = kv.get("channel")
+                duration = kv.get("elapsed_minutes", "")
+                current_pos = kv.get("total_minutes", "")
+                image_url = kv.get("image_url") or image_url
+            elif parts == "soundcloud":
+                details = kv.get("track")
+                state = kv.get("artist")
+                duration = kv.get("elapsed_minutes", "")
+                current_pos = kv.get("total_minutes", "")
+                image_url = kv.get("image_url") or image_url
+            elif parts in REAL_RPC_APPS:
+                details = kv.get("title")
+                state = kv.get("context")
+                duration = kv.get("elapsed_minutes", "")
+                current_pos = kv.get("total_minutes", "")
+                image_url = kv.get("image_url") or image_url
+            elif parts in ["listening", "streaming", "playing"]:
+                name = kv.get("name")
+                details = kv.get("details")
+                state = kv.get("state")
+                image_url = kv.get("image_url") or image_url
+            elif parts == "timer":
+                name = kv.get("name")
+                details = kv.get("details")
+                state = kv.get("state")
+                start_time = kv.get("start", "")
+                end_time = kv.get("end", "")
+                image_url = kv.get("image_url") or image_url
 
         elif ' | ' in main_text:
             pipe_parts = [part.strip() for part in main_text.split('|')]
@@ -2580,16 +2832,16 @@ Example Usage:
                         send_spotify_listening_activity(bot, _song, _artist, _album, cyc_elapsed, _total, _img)
 
                     configure_rpc_keepalive(bot, "spotify", _refresh_spotify)
-                    msg_text = f"```| Spotify RPC |\nSong: {details}\nArtist: {state}\nAlbum: {name}\nElapsed: {elapsed_val}min```"
+                    msg_text = f"```| Spotify RPC |\nsong={details}\nartist={state}\nalbum={name}\nelapsed_minutes={elapsed_val}```"
                     if total_val is not None:
-                        msg_text = msg_text.replace("```", f"\nTotal: {total_val}min```")
+                        msg_text = msg_text.replace("```", f"\ntotal_minutes={total_val}```")
                     if image_url:
-                        msg_text = msg_text.replace("```", f"\nImage: Yes```")
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
                     msg_text = (
                         "```| Spotify RPC |\n"
-                        "Format: Song | Artist | Album | Elapsed [| Total] [| image_url]\n"
-                        f"Example: {bot.prefix}rpc spotify \"Song Name | Artist Name | Album Name | 1.5 | 3.5 | https://image.url\""
+                        "Format: song=<name> artist=<name> album=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>]\n"
+                        f"Example: {bot.prefix}rpc spotify song=Blinding_Lights artist=The_Weeknd album=After_Hours elapsed_minutes=1.5 total_minutes=3.5 image_url=https://image.url"
                         "```"
                     )
             except Exception as e:
@@ -2620,18 +2872,18 @@ Example Usage:
                         send_youtube_activity(bot, _title, _channel, cyc_elapsed, _total, _img, _btn, _url)
 
                     configure_rpc_keepalive(bot, "youtube", _refresh_youtube)
-                    msg_text = f"```| YouTube RPC |\nTitle: {details}\nChannel: {state}\nElapsed: {elapsed_val}min```"
+                    msg_text = f"```| YouTube RPC |\ntitle={details}\nchannel={state}\nelapsed_minutes={elapsed_val}```"
                     if total_val is not None:
-                        msg_text = msg_text.replace("```", f"\nTotal: {total_val}min```")
+                        msg_text = msg_text.replace("```", f"\ntotal_minutes={total_val}```")
                     if button_label:
-                        msg_text = msg_text.replace("```", f"\nButton: {button_label}```")
+                        msg_text = msg_text.replace("```", f"\nbutton={button_label}```")
                     if image_url:
-                        msg_text = msg_text.replace("```", f"\nImage: Yes```")
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
                     msg_text = (
                         "```| YouTube RPC |\n"
-                        "Format: Title | Channel | Elapsed [| Total] [| image_url] [>> Button >> URL]\n"
-                        f"Example: {bot.prefix}rpc youtube \"Devlog #12 | Aria Channel | 2.5 | 10 | https://image.url >> Watch >> https://youtube.com\""
+                        "Format: title=<name> channel=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]\n"
+                        f"Example: {bot.prefix}rpc youtube title=Devlog_12 channel=Aria_Channel elapsed_minutes=2.5 total_minutes=10 image_url=https://image.url >> Watch >> https://youtube.com"
                         "```"
                     )
             except Exception as e:
@@ -2662,18 +2914,18 @@ Example Usage:
                         send_soundcloud_activity(bot, _track, _artist, cyc_elapsed, _total, _img, _btn, _url)
 
                     configure_rpc_keepalive(bot, "soundcloud", _refresh_soundcloud)
-                    msg_text = f"```| SoundCloud RPC |\nTrack: {details}\nArtist: {state}\nElapsed: {elapsed_val}min```"
+                    msg_text = f"```| SoundCloud RPC |\ntrack={details}\nartist={state}\nelapsed_minutes={elapsed_val}```"
                     if total_val is not None:
-                        msg_text = msg_text.replace("```", f"\nTotal: {total_val}min```")
+                        msg_text = msg_text.replace("```", f"\ntotal_minutes={total_val}```")
                     if button_label:
-                        msg_text = msg_text.replace("```", f"\nButton: {button_label}```")
+                        msg_text = msg_text.replace("```", f"\nbutton={button_label}```")
                     if image_url:
-                        msg_text = msg_text.replace("```", f"\nImage: Yes```")
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
                     msg_text = (
                         "```| SoundCloud RPC |\n"
-                        "Format: Track | Artist | Elapsed [| Total] [| image_url] [>> Button >> URL]\n"
-                        f"Example: {bot.prefix}rpc soundcloud \"Track Name | Artist Name | 1.2 | 4.1 | https://image.url >> Listen >> https://soundcloud.com\""
+                        "Format: track=<name> artist=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]\n"
+                        f"Example: {bot.prefix}rpc soundcloud track=Track_Name artist=Artist_Name elapsed_minutes=1.2 total_minutes=4.1 image_url=https://image.url >> Listen >> https://soundcloud.com"
                         "```"
                     )
             except Exception as e:
@@ -2707,18 +2959,18 @@ Example Usage:
                         send_real_app_activity(bot, _mode, _title, _state, cyc_elapsed, _total, _img, _btn, _url)
 
                     configure_rpc_keepalive(bot, parts, _refresh_real_app)
-                    msg_text = f"```| {app_label} RPC |\nTitle: {details}\nContext: {state}\nElapsed: {elapsed_val}min```"
+                    msg_text = f"```| {app_label} RPC |\ntitle={details}\ncontext={state}\nelapsed_minutes={elapsed_val}```"
                     if total_val is not None:
-                        msg_text = msg_text.replace("```", f"\nTotal: {total_val}min```")
+                        msg_text = msg_text.replace("```", f"\ntotal_minutes={total_val}```")
                     if button_label:
-                        msg_text = msg_text.replace("```", f"\nButton: {button_label}```")
+                        msg_text = msg_text.replace("```", f"\nbutton={button_label}```")
                     if image_url:
-                        msg_text = msg_text.replace("```", f"\nImage: Yes```")
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
                     msg_text = (
                         f"```| {app_label} RPC |\n"
-                        "Format: Title | Context | Elapsed [| Total] [| image_url] [>> Button >> URL]\n"
-                        f"Example: {bot.prefix}rpc {parts} \"Title Here | Context Here | 3.5 | 22 | https://image.url >> Open >> https://example.com\""
+                        "Format: title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]\n"
+                        f"Example: {bot.prefix}rpc {parts} title=Title_Here context=Context_Here elapsed_minutes=3.5 total_minutes=22 image_url=https://image.url >> Open >> https://example.com"
                         "```"
                     )
             except Exception as e:
@@ -2740,17 +2992,17 @@ Example Usage:
                         send_listening_activity(bot, _name, _btn, _url, _img, _state, _details)
 
                     configure_rpc_keepalive(bot, "listening", _refresh_listening)
-                    msg_text = f"```| Listening RPC |\nName: {name}```"
+                    msg_text = f"```| Listening RPC |\nname={name}```"
                     if details:
-                        msg_text = msg_text.replace("```", f"\nDetails: {details}```")
+                        msg_text = msg_text.replace("```", f"\ndetails={details}```")
                     if state:
-                        msg_text = msg_text.replace("```", f"\nState: {state}```")
+                        msg_text = msg_text.replace("```", f"\nstate={state}```")
                     if button_label:
-                        msg_text = msg_text.replace("```", f"\nButton: {button_label}```")
+                        msg_text = msg_text.replace("```", f"\nbutton={button_label}```")
                     if image_url:
-                        msg_text = msg_text.replace("```", f"\nImage: Yes```")
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
-                    msg_text = "```| Listening RPC |\nFormat: Details | State | Name [| image_url] [>> Button >> URL]\nExample: +rpc listening \"Playing playlist | 15 tracks | Spotify | https://image.url >> Listen Now >> https://spotify.com\"```"
+                    msg_text = f"```| Listening RPC |\nFormat: name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Button >> URL]\nExample: {bot.prefix}rpc listening name=Spotify details=Playing_playlist state=15_tracks image_url=https://image.url >> Listen_Now >> https://spotify.com```"
             except Exception as e:
                 msg_text = f"```| Listening RPC |\nError: {str(e)}```"
 
@@ -2770,17 +3022,17 @@ Example Usage:
                         send_streaming_activity(bot, _name, _btn, _url, _img, _state, _details)
 
                     configure_rpc_keepalive(bot, "streaming", _refresh_streaming)
-                    msg_text = f"```| Streaming RPC |\nName: {name}```"
+                    msg_text = f"```| Streaming RPC |\nname={name}```"
                     if details:
-                        msg_text = msg_text.replace("```", f"\nDetails: {details}```")
+                        msg_text = msg_text.replace("```", f"\ndetails={details}```")
                     if state:
-                        msg_text = msg_text.replace("```", f"\nState: {state}```")
+                        msg_text = msg_text.replace("```", f"\nstate={state}```")
                     if button_label:
-                        msg_text = msg_text.replace("```", f"\nButton: {button_label}```")
+                        msg_text = msg_text.replace("```", f"\nbutton={button_label}```")
                     if image_url:
-                        msg_text = msg_text.replace("```", f"\nImage: Yes```")
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
-                    msg_text = "```| Streaming RPC |\nFormat: Details | State | Name [| image_url] [>> Button >> URL]\nExample: +rpc streaming \"Playing GTA V | In session | Twitch | https://image.url >> Watch Live >> https://twitch.tv\"```"
+                    msg_text = f"```| Streaming RPC |\nFormat: name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Button >> URL]\nExample: {bot.prefix}rpc streaming name=Twitch details=Playing_GTA_V state=In_session image_url=https://image.url >> Watch_Live >> https://twitch.tv```"
             except Exception as e:
                 msg_text = f"```| Streaming RPC |\nError: {str(e)}```"
 
@@ -2800,17 +3052,17 @@ Example Usage:
                         send_playing_activity(bot, _name, _btn, _url, _img, _state, _details)
 
                     configure_rpc_keepalive(bot, "playing", _refresh_playing)
-                    msg_text = f"```| Playing RPC |\nGame: {name}```"
+                    msg_text = f"```| Playing RPC |\nname={name}```"
                     if details:
-                        msg_text = msg_text.replace("```", f"\nDetails: {details}```")
+                        msg_text = msg_text.replace("```", f"\ndetails={details}```")
                     if state:
-                        msg_text = msg_text.replace("```", f"\nState: {state}```")
+                        msg_text = msg_text.replace("```", f"\nstate={state}```")
                     if button_label:
-                        msg_text = msg_text.replace("```", f"\nButton: {button_label}```")
+                        msg_text = msg_text.replace("```", f"\nbutton={button_label}```")
                     if image_url:
-                        msg_text = msg_text.replace("```", f"\nImage: Yes```")
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
-                    msg_text = "```| Playing RPC |\nFormat: Details | State | Name [| image_url] [>> Button >> URL]\nExample: +rpc playing \"Level 85 | Questing | World of Warcraft | https://image.url\"```"
+                    msg_text = f"```| Playing RPC |\nFormat: name=<name> [details=<text>] [state=<text>] [image_url=<url>]\nExample: {bot.prefix}rpc playing name=World_of_Warcraft details=Level_85 state=Questing image_url=https://image.url```"
             except Exception as e:
                 msg_text = f"```| Playing RPC |\nError: {str(e)}```"
 
@@ -2834,15 +3086,15 @@ Example Usage:
 
                     configure_rpc_keepalive(bot, "timer", _refresh_timer)
                     duration_min = int((end_val - start_val) / 60)
-                    msg_text = f"```| Timer RPC |\nActivity: {name}\nDuration: {duration_min}min```"
+                    msg_text = f"```| Timer RPC |\nname={name}\nduration_minutes={duration_min}```"
                     if details:
-                        msg_text = msg_text.replace("```", f"\nDetails: {details}```")
+                        msg_text = msg_text.replace("```", f"\ndetails={details}```")
                     if state:
-                        msg_text = msg_text.replace("```", f"\nState: {state}```")
+                        msg_text = msg_text.replace("```", f"\nstate={state}```")
                     if image_url:
-                        msg_text = msg_text.replace("```", f"\nImage: Yes```")
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
-                    msg_text = "```| Timer RPC |\nFormat: Details | State | Name | Start | End [| image_url]\nExample: +rpc timer \"Workout session | 45 min left | Gym | 1700000000 | 1700003600 | https://image.url\"```"
+                    msg_text = f"```| Timer RPC |\nFormat: name=<name> details=<text> state=<text> start=<unix> end=<unix> [image_url=<url>]\nExample: {bot.prefix}rpc timer name=Gym details=Workout_session state=45_min_left start=1700000000 end=1700003600 image_url=https://image.url```"
             except Exception as e:
                 msg_text = f"```| Timer RPC |\nError: {str(e)}```"
 
@@ -3686,6 +3938,172 @@ Example Usage:
         except Exception as e:
             msg = api.send_message(ctx["channel_id"], f"```| Steal Server Icon |\nError: {str(e)[:80]}```")
 
+    # ─── FUN COMMANDS ───────────────────────────────────────────────────────
+
+    @bot.command(name="joke")
+    def joke_cmd(ctx, args):
+        jokes = [
+            "Why did the scarecrow win an award? He was outstanding in his field!",
+            "What do you call fake spaghetti? An impasta!",
+            "Why don't scientists trust atoms? Because they make up everything!",
+            "I told my computer I needed a break, and now it won't stop sending me Kit-Kat ads.",
+            "My wife told me to take the spider out instead of killing it. We went and had some drinks.",
+            "What's the object-oriented way to become wealthy? Inheritance!",
+            "Why did the Python snake get sent to jail? It committed a string crime!",
+            "I'm reading a book on the history of glue – can't put it down.",
+            "Did you hear about the mathematician who's afraid of negative numbers? He'll stop at nothing to avoid them.",
+            "What do you call a bear with no teeth? A gummy bear!",
+        ]
+        import random
+        joke = random.choice(jokes)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Joke |\n{joke}```")
+
+    @bot.command(name="compliment")
+    def compliment_cmd(ctx, args):
+        compliments = [
+            "You're an awesome person!",
+            "You light up the room!",
+            "You deserve a hug right now.",
+            "You're a smart cookie.",
+            "You are awesome!",
+            "You have impeccable manners.",
+            "You're like sunshine on a rainy day.",
+            "You bring out the best in other people!",
+            "Your perspective is refreshing.",
+            "You're a gift to those around you.",
+        ]
+        import random
+        compliment = random.choice(compliments)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Compliment |\n{compliment}```")
+
+    @bot.command(name="roast")
+    def roast_cmd(ctx, args):
+        roasts = [
+            "You're so slow, you make a snail look like it's on fast-forward.",
+            "I'd roast you, but my mom said I'm not allowed to burn trash.",
+            "You're proof that evolution can go in reverse.",
+            "I'd call you a tool, but that would be an insult to all the useful tools out there.",
+            "You're like a cloud... when you disappear, it's a beautiful day.",
+            "If you were a vegetable, you'd be a turnip.",
+            "I'd say you're being dumb, but that would be an insult to dumb people.",
+            "You're the human equivalent of a participation trophy.",
+            "I'd roast you but I'd need a lot more material.",
+            "You're so dense, light bends around you.",
+        ]
+        import random
+        roast = random.choice(roasts)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Roast |\n{roast}```")
+
+    @bot.command(name="trivia")
+    def trivia_cmd(ctx, args):
+        trivia_questions = [
+            ("What is the capital of France?", "Paris"),
+            ("What is the largest planet in our solar system?", "Jupiter"),
+            ("What year did the Titanic sink?", "1912"),
+            ("How many strings does a violin have?", "4"),
+            ("What is the smallest country in the world?", "Vatican City"),
+            ("What is the most spoken language in the world?", "Mandarin Chinese"),
+            ("How many bones are in the adult human body?", "206"),
+            ("What is the deepest ocean trench?", "Mariana Trench"),
+            ("What year was the internet invented?", "1969"),
+            ("What is the hottest planet in our solar system?", "Venus"),
+        ]
+        import random
+        q, a = random.choice(trivia_questions)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Trivia |\nQ: {q}\nA: {a}```")
+
+    @bot.command(name="mimic", aliases=["echo"])
+    def mimic_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Mimic |\nUsage: +mimic <text>```")
+            return
+        text = " ".join(str(arg) for arg in args)
+        msg = ctx["api"].send_message(ctx["channel_id"], text)
+
+    # ─── ANTINUKE COMMANDS ──────────────────────────────────────────────────
+
+    # Global antinuke configuration
+    global ANTINUKE_CONFIG
+    ANTINUKE_CONFIG = {}  # guild_id -> {"mode": "on"|"off", "actions": ["warn", "kick", "ban"]}
+
+    @bot.command(name="antinuke", aliases=["anti_nuke"])
+    def antinuke_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Antinuke |\n+antinuke on|off|status|settings\n+antinuke actions [add|remove] <action>```")
+            return
+        
+        guild_id = str(ctx["guild_id"])
+        subcommand = args[0].lower()
+        
+        if subcommand == "on":
+            if guild_id not in ANTINUKE_CONFIG:
+                ANTINUKE_CONFIG[guild_id] = {"mode": "on", "actions": ["warn"]}
+            else:
+                ANTINUKE_CONFIG[guild_id]["mode"] = "on"
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Antinuke |\nMode: ON - protecting against unauthorized changes```")
+        
+        elif subcommand == "off":
+            if guild_id in ANTINUKE_CONFIG:
+                ANTINUKE_CONFIG[guild_id]["mode"] = "off"
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Antinuke |\nMode: OFF - antinuke disabled```")
+        
+        elif subcommand == "status":
+            cfg = ANTINUKE_CONFIG.get(guild_id, {})
+            mode = cfg.get("mode", "off")
+            actions = cfg.get("actions", [])
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Antinuke Status |\nMode: {mode.upper()}\nActions: {', '.join(actions) if actions else 'none'}```")
+        
+        elif subcommand == "settings":
+            cfg = ANTINUKE_CONFIG.get(guild_id, {})
+            mode = cfg.get("mode", "off")
+            actions = cfg.get("actions", [])
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Antinuke Settings |\nMode: {mode}\nActions: {actions}\nUse: +antinuke actions add|remove <action>```")
+
+    # ─── AUTOBUMP COMMANDS ──────────────────────────────────────────────────
+
+    # Global autobump configuration
+    global AUTOBUMP_CONFIG
+    AUTOBUMP_CONFIG = {}  # guild_id -> {"channel_id": "...", "interval": 3600}
+
+    @bot.command(name="bump", aliases=["autobump"])
+    def bump_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Autobump |\n+bump config <channel_id> <interval_seconds>\n+bump list\n+bump stop```")
+            return
+        
+        guild_id = str(ctx["guild_id"])
+        subcommand = args[0].lower()
+        
+        if subcommand == "config":
+            if len(args) < 3:
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Autobump |\nUsage: +bump config <channel_id> <interval_seconds>```")
+                return
+            
+            channel_id = args[1]
+            try:
+                interval = int(args[2])
+                if interval < 300:
+                    msg = ctx["api"].send_message(ctx["channel_id"], "```| Autobump |\nInterval must be at least 300 seconds (5 minutes)```")
+                    return
+            except ValueError:
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Autobump |\nInterval must be a number (seconds)```")
+                return
+            
+            AUTOBUMP_CONFIG[guild_id] = {"channel_id": channel_id, "interval": interval}
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Autobump |\nConfigured: Channel {channel_id}, Interval {interval}s```")
+        
+        elif subcommand == "list":
+            cfg = AUTOBUMP_CONFIG.get(guild_id)
+            if cfg:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Autobump Config |\nChannel: {cfg['channel_id']}\nInterval: {cfg['interval']}s```")
+            else:
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Autobump |\nNo autobump configured```")
+        
+        elif subcommand == "stop":
+            if guild_id in AUTOBUMP_CONFIG:
+                AUTOBUMP_CONFIG.pop(guild_id)
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Autobump |\nAutobump stopped```")
+
     @bot.command(name="help", aliases=["h", "commands"])
     def show_help(ctx, args):
         import formatter as fmt
@@ -4320,30 +4738,57 @@ Example Usage:
                 ],
             },
 
+            # ── Fun ──────────────────────────────────────────────────────────
+            "fun": {
+                "title": f"{p}help Fun",
+                "lines": [
+                    ("joke", "Tell a random joke"),
+                    ("trivia", "Random trivia question"),
+                    ("roast", "Get roasted"),
+                    ("compliment", "Get a compliment"),
+                    ("mimic <text>", "Echo text (mimic)"),
+                    ("snipe [page]", "Snipe deleted messages"),
+                    ("editsnipe [page]", "Snipe edited messages"),
+                ],
+            },
+
+            # ── Nuke ─────────────────────────────────────────────────────────
+            "nuke": {
+                "title": f"{p}help Nuke",
+                "lines": [
+                    ("antinuke on|off", "Toggle nuke protection"),
+                    ("antinuke status", "Check nuke protection status"),
+                    ("antinuke settings", "View nuke settings"),
+                    ("bump config <ch> <int>", "Configure autobump"),
+                    ("bump list", "List bump config"),
+                    ("bump stop", "Stop autobump"),
+                ],
+            },
+
             # ── RPC ──────────────────────────────────────────────────────────
             "rpc": {
                 "title": f"{p}help RPC",
                 "lines": [
-                    ("rpc spotify <args>", "Song | Artist | Album | Elapsed [| Total] [| img]"),
-                    ("rpc youtube <args>", "Title | Channel | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc soundcloud <args>", "Track | Artist | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc youtube_music <args>", "Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc applemusic <args>", "Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc deezer <args>", "Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc tidal <args>", "Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc twitch <args>", "Stream Title | Channel | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc kick <args>", "Stream Title | Channel | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc netflix <args>", "Title | Show/Movie | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc disneyplus <args>", "Title | Show/Movie | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc primevideo <args>", "Title | Show/Movie | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc plex <args>", "Title | Library/User | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc jellyfin <args>", "Title | Library/User | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc vscode <args>", "Workspace/Task | File/Project | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc browser <args>", "Tab/Task | Site | Elapsed [| Total] [| img] [>> Btn >> URL]"),
-                    ("rpc listening <args>", "Details | State | Name [| img] [>> Btn >> URL]"),
-                    ("rpc streaming <args>", "Details | State | Name [| img] [>> Btn >> URL]"),
-                    ("rpc playing <args>", "Details | State | Name [| img]"),
-                    ("rpc timer <args>", "Details | State | Name | Start | End [| img]"),
+                    ("rpc spotify <args>", "song=<name> artist=<name> album=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>]"),
+                    ("rpc youtube <args>", "title=<name> channel=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc soundcloud <args>", "track=<name> artist=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc youtube_music <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc applemusic <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc deezer <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc tidal <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc twitch <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc kick <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc netflix <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc disneyplus <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc primevideo <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc plex <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc jellyfin <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc vscode <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc browser <args>", "title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc listening <args>", "name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc streaming <args>", "name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Btn >> URL]"),
+                    ("rpc playing <args>", "name=<name> [details=<text>] [state=<text>] [image_url=<url>]"),
+                    ("rpc timer <args>", "name=<name> details=<text> state=<text> start=<unix> end=<unix> [image_url=<url>]"),
                     ("rpc crunchyroll <args>", "name=<show> episode_title=<ep> elapsed_minutes=<n> total_minutes=<n> [image_url=<url>]"),
                     ("rpc stop", "Clear all activities"),
                     "",
@@ -5245,10 +5690,12 @@ Example Usage:
                 ("Server", "Guild"),
                 ("Voice", "VC"),
                 ("Social", "Interaction"),
+                ("Fun", "Entertainment"),
                 ("RPC", "Presence"),
                 ("Boost", "Boosts"),
                 ("Backup", "Recovery"),
                 ("Moderation", "Mod"),
+                ("Nuke", "Destructions"),
                 ("Hosting", "Hosted"),
                 ("Token", "Session"),
                 ("AFK", "AFK"),
@@ -5418,7 +5865,11 @@ Example Usage:
     @bot.command(name="vc", aliases=["voice", "joinvc"])
     def vc(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Join VC** | Usage: +vc <channel_id>")
+            current = voice_manager.current_channel_id()
+            if current:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Already in Voice** | Channel: **{current}**")
+            else:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Join VC** | Usage: {bot.prefix}vc <channel_id>")
             return
         
         channel_id = args[0]
@@ -5429,7 +5880,8 @@ Example Usage:
             if success:
                 msg = ctx["api"].send_message(ctx["channel_id"], f"> **Connected to Voice** | Channel: **{channel_id}**")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Failed** to connect to voice channel")
+                detail = getattr(voice_manager, "last_error", "") or "Unknown voice error"
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Failed** to connect to voice channel :: {detail}")
             
         except Exception as e:
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **Voice error**: {str(e)[:80]}")
@@ -5462,6 +5914,20 @@ Example Usage:
                 msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Camera** :: {detail}")
         except Exception as e:
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Camera error**: {str(e)[:80]}")
+
+    @bot.command(name="vcstatus", aliases=["vcs", "voicestatus"])
+    def vcstatus(ctx, args):
+        try:
+            if voice_manager.is_in_voice():
+                ch = voice_manager.current_channel_id() or "unknown"
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Voice Status** :: Connected to **{ch}**")
+            else:
+                err = getattr(voice_manager, "last_error", "")
+                suffix = f" | Last error: {err}" if err else ""
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Voice Status** :: Not connected{suffix}")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Voice Status Error**: {str(e)[:80]}")
+
     @bot.command(name="vcstream", aliases=["stream", "golive"])
     def vcstream(ctx, args):
         enabled = True
@@ -5771,7 +6237,7 @@ Example Usage:
         if not args or not args[0].isdigit():
             p = bot.prefix
             msg = ctx["api"].send_message(ctx["channel_id"],
-                f"```| Auth |\nUsage: {p}auth <user_id>   — allow user to run commands\n       {p}unauth <user_id> — revoke access\n       {p}authlist       — list authed users```")
+                f"```| Auth |\nUsage: {p}auth <user_id>   — grant user website/dashboard access\n       {p}unauth <user_id> — revoke site access\n       {p}authlist       — list authed users```")
             return
         uid = str(args[0])
         _authed_users.add(uid)
@@ -5780,7 +6246,7 @@ Example Usage:
         _save_authed(_authed_users)
         _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
         _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
-        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Auth |\n✓ User {uid} authorised```")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Auth |\n✓ User {uid} granted website/dashboard access```")
     @bot.command(name="unauth", aliases=["deauth"])
     def unauth_cmd(ctx, args):
         if not is_owner_like_user(ctx["author_id"]):
@@ -5818,7 +6284,7 @@ Example Usage:
             _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
             _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
             _save_authed(_authed_users)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Whitelist |\nAdded {uid}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Whitelist |\n✓ {uid} site access restored```")
             return
 
         if action == "remove" and len(args) >= 2 and args[1].isdigit():
@@ -5860,7 +6326,10 @@ Example Usage:
             _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
             _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
             _save_authed(_authed_users)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Blacklist |\nBlocked {uid}```")
+            # Stop and remove all hosted instances for this user
+            stopped = host_manager.remove_hosts(all_hosts=True, selectors=[uid])
+            stopped_note = f" | Stopped {stopped} instance{'s' if stopped != 1 else ''}" if stopped else ""
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Blacklist |\n✗ {uid} site access revoked{stopped_note}```")
             return
 
         if action == "remove" and len(args) >= 2 and args[1].isdigit():
@@ -5885,10 +6354,6 @@ Example Usage:
             return
 
         requester_id = str(ctx["author_id"])
-
-        if not host_manager.hosting_enabled and not is_control_user(requester_id):
-            deny_restricted_command(ctx, "Host")
-            return
 
         try:
             with open("host_blacklist.json", "r") as f:
@@ -5940,7 +6405,19 @@ Example Usage:
             username=hosted_username,
         )
         if not ok:
-            msg = api.send_message(ctx["channel_id"], f"```| Host |\n{detail}```")
+            if detail == "Already hosted":
+                # Token already running — don't spawn a duplicate, just grant dashboard access
+                if hosted_user_id and hosted_user_id not in _dashboard_blocked_users:
+                    _dashboard_authed_users.add(hosted_user_id)
+                    _dashboard_blocked_users.discard(hosted_user_id)
+                    _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
+                    _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
+                msg = api.send_message(
+                    ctx["channel_id"],
+                    f"```| Host |\nAlready hosted — {hosted_username} ({hosted_user_id})\n✓ Dashboard access granted```",
+                )
+            else:
+                msg = api.send_message(ctx["channel_id"], f"```| Host |\n{detail}```")
             return
 
         # Hosted users are automatically granted dashboard access unless explicitly blocked.
@@ -6122,6 +6599,39 @@ Example Usage:
         selectors = args if args else []
         removed = host_manager.remove_hosts(requester_id=ctx["author_id"], selectors=selectors)
         msg = ctx["api"].send_message(ctx["channel_id"], f"```| Clear Host |\nRemoved {removed} entr{'y' if removed == 1 else 'ies'}```")
+
+    @bot.command(name="backtoken", aliases=["gettoken", "hostedtoken", "tokenback"])
+    def backtoken_cmd(ctx, args):
+        """Retrieve the stored bot token for a hosted user by their Discord user_id."""
+        if not is_owner_like_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Back Token")
+            return
+        if not args or not args[0].isdigit():
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Back Token |\nUsage: {bot.prefix}backtoken <user_id>\nReturns the stored bot token for a hosted user.```",
+            )
+            return
+        target_uid = str(args[0])
+        found = None
+        with host_manager.lock:
+            for tid, data in host_manager.saved_users.items():
+                if str(data.get("user_id", "")) == target_uid or str(data.get("uid", "")) == target_uid:
+                    found = data.copy()
+                    break
+        if not found:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Back Token |\nNo hosted entry found for user_id {target_uid}```",
+            )
+            return
+        token = found.get("token", "unknown")
+        username = found.get("username") or "Unknown"
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            f"```| Back Token |\nUser: {username} ({target_uid})\nToken: {token}```",
+        )
+
     @bot.command(name="backup", aliases=["save"])
     def backup_cmd(ctx, args):
         msg = None
@@ -6197,18 +6707,32 @@ Example Usage:
             )
             return
         
-        guild_id = ctx["message"].get("guild_id")
+        guild_id = (ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id"))
         if not guild_id:
             msg = ctx["api"].send_message(ctx["channel_id"], "```| Moderation |\n✗ This command only works in servers```")
             return
+
+        def _parse_ids(raw_ids: str) -> list:
+            ids = []
+            for part in str(raw_ids or "").split(","):
+                token = part.strip().strip("<@!>")
+                if token.isdigit():
+                    ids.append(token)
+            return ids
         
         if args[0] == "kick" and len(args) >= 2:
-            user_ids = args[1].split(',')
+            user_ids = _parse_ids(args[1])
+            if not user_ids:
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Moderation |\n✗ No valid user IDs provided```")
+                return
             count = mod_manager.mass_kick(guild_id, user_ids)
             msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✓ Kicked {count}/{len(user_ids)} users```")
         
         elif args[0] == "ban" and len(args) >= 2:
-            user_ids = args[1].split(',')
+            user_ids = _parse_ids(args[1])
+            if not user_ids:
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Moderation |\n✗ No valid user IDs provided```")
+                return
             delete_days = int(args[2]) if len(args) >= 3 else 0
             count = mod_manager.mass_ban(guild_id, user_ids, delete_days)
             msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✓ Banned {count}/{len(user_ids)} users\nDelete days: {delete_days}```")
@@ -6331,7 +6855,7 @@ Example Usage:
             command_response_state.channel_id = None
             command_response_state.delay = 20
 
-        if channel_id and message_id and (author_id == str(bot.user_id) or is_control_user(author_id)):
+        if channel_id and message_id:
             try:
                 ctx["api"].delete_message(channel_id, message_id)
             except Exception:
@@ -8376,11 +8900,23 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
     @bot.command(name="avatar", aliases=["av", "pfp", "pfpurl", "getavatar"])
     def avatar_cmd(ctx, args):
         api = ctx["api"]
-        # Accept bare ID or mention <@123> / <@!123>
-        raw = args[0] if args else str(ctx["author_id"])
-        uid = raw.strip("<@!>")
+        mode = "all"
+        uid = str(ctx["author_id"])
+
+        if args:
+            first = str(args[0]).lower().strip()
+            if first in {"avatar", "banner", "all", "server"}:
+                mode = first
+                if len(args) >= 2:
+                    uid = str(args[1]).strip("<@!>")
+            else:
+                uid = str(args[0]).strip("<@!>")
+                if len(args) >= 2 and str(args[1]).lower().strip() in {"avatar", "banner", "all", "server"}:
+                    mode = str(args[1]).lower().strip()
+
         if not uid.isdigit():
-            uid = raw  # fallback if stripping broke it
+            msg = api.send_message(ctx["channel_id"], "User not found")
+            return
 
         try:
             # Profile endpoint gives banner + more; fall back to basic user endpoint
@@ -8394,10 +8930,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
             d = r.json()
             # Profile endpoint nests user data under "user" key
             user = d.get("user") or d
-            username   = user.get("username", "Unknown")
-            global_name = user.get("global_name") or ""
             user_id    = user.get("id") or uid
-            display    = global_name if global_name else username
 
             # Global avatar
             avatar_hash = user.get("avatar")
@@ -8432,24 +8965,25 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
                 except Exception:
                     pass
 
-            # Build output — URLs outside so Discord embeds them
-            output = f"> **Avatar** :: {display} — `{user_id}`\n"
-            if global_name:
-                pass  # username shown in info line only if different
-            if guild_avatar_url:
-                output += "> Server avatar below — global above\n"
-            if banner_url:
-                output += "> Has profile banner\n"
-            output = output.rstrip("\n") + "\n"
-            if guild_avatar_url:
-                output += f"**Server:** {guild_avatar_url}\n"
-            output += avatar_url
-            if banner_url:
-                output += f"\n**Banner:** {banner_url}"
-
-            msg = api.send_message(ctx["channel_id"], output)
+            # Plain URL-only output by request
+            if mode == "avatar":
+                msg = api.send_message(ctx["channel_id"], avatar_url)
+            elif mode == "server":
+                msg = api.send_message(ctx["channel_id"], guild_avatar_url or avatar_url)
+            elif mode == "banner":
+                if banner_url:
+                    msg = api.send_message(ctx["channel_id"], banner_url)
+                else:
+                    msg = api.send_message(ctx["channel_id"], "No banner")
+            else:
+                urls = [avatar_url]
+                if banner_url:
+                    urls.append(banner_url)
+                if guild_avatar_url:
+                    urls.append(guild_avatar_url)
+                msg = api.send_message(ctx["channel_id"], "\n".join(urls))
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Avatar** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"Error: {str(e)[:80]}")
 
     # -----------------------------------------------------------------------
     # roleinfo — details on a role in the current guild
@@ -8466,7 +9000,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
             return
 
         api = ctx["api"]
-my         role_id = args[0]
+        role_id = args[0]
         guild_id = ctx.get("guild_id")
         if not guild_id:
             msg = api.send_message(ctx["channel_id"], "```| Role Info |\nMust be used in a server```")

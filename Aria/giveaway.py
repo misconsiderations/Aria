@@ -150,7 +150,6 @@ class GiveawaySniper:
             self.stats["failed"] += 1
 
     def _click_button(self, message_data: dict, button: dict) -> bool:
-        headers = self.api.header_spoofer.get_protected_headers(self.api.token)
         payload = {
             "type": 3,
             "nonce": str(int.from_bytes(os.urandom(8), "big") % (10**19 - 10**18) + 10**18),
@@ -166,29 +165,26 @@ class GiveawaySniper:
             },
         }
         try:
-            resp = self.api.session.post(
-                "https://discord.com/api/v10/interactions",
-                headers=headers,
-                json=payload,
-                timeout=10,
+            resp = self.api.request(
+                "POST",
+                "/interactions",
+                data=payload
             )
-            return resp.status_code in (200, 204)
+            return resp is not None and resp.status_code in (200, 204)
         except Exception:
             return False
 
     def _add_reactions(self, message_data: dict, identifiers: list) -> bool:
-        headers = self.api.header_spoofer.get_protected_headers(self.api.token)
         channel_id = message_data.get("channel_id")
         msg_id = message_data.get("id")
         success = False
         for enc in identifiers:
             try:
-                resp = self.api.session.put(
-                    f"https://discord.com/api/v9/channels/{channel_id}/messages/{msg_id}/reactions/{enc}/@me",
-                    headers=headers,
-                    timeout=10,
+                resp = self.api.request(
+                    "PUT",
+                    f"/channels/{channel_id}/messages/{msg_id}/reactions/{enc}/@me"
                 )
-                if resp.status_code in (200, 204):
+                if resp is not None and resp.status_code in (200, 204):
                     success = True
             except Exception:
                 pass

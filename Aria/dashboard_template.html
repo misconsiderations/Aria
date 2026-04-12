@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aria — Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --pink:   #ec4899;
+      --violet: #8b5cf6;
+      --teal:   #06b6d4;
+      --green:  #10b981;
+      --red:    #ef4444;
+      --amber:  #f59e0b;
+      --bg0:    #030712;
+      --bg1:    #0f172a;
+      --bg2:    #1e1b4b;
+      --glass:  rgba(15,23,42,0.72);
+      --glass2: rgba(30,27,75,0.5);
+      --border: rgba(148,163,184,0.12);
+      --border-hi: rgba(236,72,153,0.5);
+      --text:   #f1f5f9;
+      --muted:  #94a3b8;
+      --sw: 230px;
+    }
+    html, body { min-height: 100vh; }
+    body {
+      background: var(--bg0);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 10% 0%,   rgba(139,92,246,.18) 0%, transparent 55%),
+        radial-gradient(ellipse 60% 50% at 90% 100%, rgba(236,72,153,.14) 0%, transparent 50%),
+        radial-gradient(ellipse 50% 40% at 50% 50%,  rgba(6,182,212,.05)  0%, transparent 55%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: var(--sw);
+      min-height: 100vh;
+      background: rgba(3,7,18,.94);
+      border-right: 1px solid var(--border);
+      backdrop-filter: blur(20px);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      z-index: 50;
+    }
+    .sidebar-logo {
+      padding: 22px 18px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .wordmark {
+      font-size: 1.55rem;
+      font-weight: 900;
+      letter-spacing: -.5px;
+      background: linear-gradient(135deg, var(--pink), var(--violet));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .tagline {
+      font-size: .68rem;
+      color: var(--muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-top: 1px;
+    }
+    .sidebar-nav {
+      flex: 1;
+      padding: 14px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .nav-sec {
+      font-size: .62rem;
+      font-weight: 800;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 10px 8px 5px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 9px 11px;
+      border-radius: 10px;
+      cursor: pointer;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: .86rem;
+      transition: all .2s;
+      border: 1px solid transparent;
+      user-select: none;
+    }
+    .nav-item:hover { color: var(--text); background: var(--glass2); }
+    .nav-item.active {
+      color: var(--text);
+      background: linear-gradient(135deg, rgba(236,72,153,.14), rgba(139,92,246,.14));
+      border-color: var(--border-hi);
+      box-shadow: 0 0 14px rgba(236,72,153,.09);
+    }
+    .nav-icon { width: 18px; text-align: center; font-size: .95rem; flex-shrink: 0; }
+    .nav-dot {
+      width: 6px; height: 6px;
+      background: var(--green);
+      border-radius: 50%;
+      margin-left: auto;
+      box-shadow: 0 0 6px var(--green);
+      animation: blink 2s infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+    .sidebar-footer {
+      padding: 14px 10px;
+      border-top: 1px solid var(--border);
+    }
+    .s-user {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 8px;
+      border-radius: 10px;
+      background: var(--glass2);
+    }
+    .u-avatar {
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--pink), var(--violet));
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 900; font-size: .78rem; flex-shrink: 0;
+    }
+    .u-info { flex: 1; min-width: 0; }
+    .u-name { font-weight: 700; font-size: .83rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .u-role { font-size: .68rem; color: var(--muted); }
+    .u-logout { color: var(--muted); text-decoration: none; padding: 3px; border-radius: 5px; transition: color .2s; }
+    .u-logout:hover { color: var(--red); }
+
+    /* ── Main ── */
+    .main {
+      margin-left: var(--sw);
+      flex: 1;
+      min-height: 100vh;
+      padding: 26px 28px;
+      position: relative;
+      z-index: 1;
+    }
+    .ph {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+    .ph-title { font-size: 1.45rem; font-weight: 800; }
+    .ph-sub  { color: var(--muted); font-size: .86rem; margin-top: 2px; }
+    .live-badge {
+      display: flex; align-items: center; gap: 7px;
+      padding: 5px 13px;
+      background: rgba(16,185,129,.09);
+      border: 1px solid rgba(16,185,129,.3);
+      border-radius: 20px;
+      font-size: .78rem; font-weight: 700; color: var(--green);
+    }
+    .live-badge::before {
+      content: ''; width: 7px; height: 7px;
+      border-radius: 50%; background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      animation: blink 2s infinite;
+    }
+
+    /* ── Tab pages ── */
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ── Glass panel ── */
+    .glass {
+      background: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 22px;
+      backdrop-filter: blur(20px);
+      margin-bottom: 18px;
+    }
+    .glass:last-child { margin-bottom: 0; }
+    .sec-title {
+      font-size: .7rem; font-weight: 800; letter-spacing: 2px;
+      text-transform: uppercase; color: var(--muted);
+      margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .sec-title::after { content:''; flex:1; height:1px; background: var(--border); }
+
+    /* ── Stat grid ── */
+    .sg { display: grid; grid-template-columns: repeat(auto-fit,minmax(170px,1fr)); gap: 14px; margin-bottom: 18px; }
+    .sc {
+      background: var(--glass2);
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 18px;
+      transition: all .22s;
+      position: relative; overflow: hidden;
+    }
+    .sc::before {
+      content: ''; position: absolute;
+      top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg,var(--pink),var(--violet));
+      opacity: 0; transition: opacity .22s;
+    }
+    .sc:hover::before { opacity: 1; }
+    .sc:hover { border-color: var(--border-hi); transform: translateY(-2px); }
+    .sc-icon { font-size: 1.3rem; margin-bottom: 8px; }
+    .sc-lbl { font-size: .7rem; color: var(--muted); font-weight: 600; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+    .sc-val {
+      font-size: 1.55rem; font-weight: 800;
+      background: linear-gradient(135deg,var(--pink),var(--violet));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 8px 16px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      font-weight: 700; font-size: .85rem;
+      cursor: pointer; transition: all .2s;
+    }
+    .btn-p {
+      background: linear-gradient(135deg,var(--pink),var(--violet));
+      color: #fff; border: none;
+    }
+    .btn-p:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(236,72,153,.32); }
+    .btn-g { background: transparent; color: var(--muted); border-color: var(--border); }
+    .btn-g:hover { color: var(--text); border-color: rgba(148,163,184,.3); background: var(--glass2); }
+    .btn-d { background: rgba(239,68,68,.09); color: var(--red); border-color: rgba(239,68,68,.3); }
+    .btn-d:hover { background: rgba(239,68,68,.18); }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* ── Forms ── */
+    .frow { display: grid; grid-template-columns: repeat(auto-fit,minmax(210px,1fr)); gap: 12px; margin-bottom: 13px; }
+    .fg { display: flex; flex-direction: column; gap: 5px; margin-bottom: 13px; }
+    label { font-size: .73rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+    input, select, textarea {
+      width: 100%; padding: 9px 13px;
+      background: rgba(3,7,18,.72);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      color: var(--text); font-size: .86rem; font-family: inherit;
+      transition: all .2s;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: rgba(139,92,246,.6);
+      box-shadow: 0 0 0 3px rgba(139,92,246,.1);
+      background: rgba(3,7,18,.9);
+    }
+    textarea { resize: vertical; }
+
+    /* ── Mode buttons (RPC) ── */
+    .mg { display: grid; grid-template-columns: repeat(auto-fill,minmax(100px,1fr)); gap: 7px; }
+    .mb {
+      padding: 11px 7px;
+      background: rgba(139,92,246,.07);
+      border: 1px solid rgba(139,92,246,.2);
+      border-radius: 9px;
+      color: var(--muted); font-weight: 700; font-size: .76rem;
+      cursor: pointer; text-align: center; transition: all .2s;
+    }
+    .mb:hover { background: rgba(139,92,246,.18); color: var(--text); border-color: var(--violet); }
+    .mb.sel  { background: rgba(236,72,153,.14); color: var(--text); border-color: var(--pink); box-shadow: 0 0 10px rgba(236,72,153,.14); }
+
+    /* ── Preview rows ── */
+    .pr {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 9px 0; border-bottom: 1px solid var(--border); font-size: .87rem;
+    }
+    .pr:last-child { border: none; }
+    .pr .k { color: var(--muted); font-weight: 600; }
+    .pr .v { color: var(--text); font-weight: 700; font-family: 'SF Mono','Fira Code',monospace; font-size: .8rem; max-width: 55%; text-align: right; word-break: break-all; }
+
+    /* ── Toasts ── */
+    .toast {
+      position: fixed; top: 22px; right: 22px; z-index: 9999;
+      padding: 11px 18px; border-radius: 11px;
+      font-weight: 700; font-size: .88rem;
+      backdrop-filter: blur(20px);
+      border: 1px solid;
+      animation: tIn .22s ease; max-width: 320px;
+    }
+    .ts { background: rgba(16,185,129,.14); border-color: rgba(16,185,129,.4); color: #6ee7b7; }
+    .te { background: rgba(239,68,68,.14); border-color: rgba(239,68,68,.4); color: #fca5a5; }
+    @keyframes tIn { from{transform:translateX(120%);opacity:0} to{transform:translateX(0);opacity:1} }
+    .ia { padding: 9px 13px; border-radius: 9px; font-size: .83rem; font-weight: 600; margin-top: 9px; }
+    .ia-s { background: rgba(16,185,129,.09); border: 1px solid rgba(16,185,129,.28); color: #6ee7b7; }
+    .ia-e { background: rgba(239,68,68,.09); border: 1px solid rgba(239,68,68,.28); color: #fca5a5; }
+
+    /* ── User/log cards ── */
+    .uc {
+      background: var(--glass2); border: 1px solid var(--border);
+      border-radius: 11px; padding: 14px 16px;
+      display: flex; align-items: center; gap: 13px;
+      transition: border-color .2s;
+    }
+    .uc:hover { border-color: var(--border-hi); }
+    .uc-info { flex: 1; min-width: 0; }
+    .uc-name { font-weight: 800; font-size: .92rem; }
+    .uc-meta { color: var(--muted); font-size: .75rem; margin-top: 1px; }
+    .lc { background: var(--glass2); border: 1px solid var(--border); border-radius: 9px; padding: 10px 13px; }
+    .le { font-weight: 800; font-size: .83rem; color: var(--pink); }
+    .ld { color: var(--muted); font-size: .75rem; margin-top: 2px; }
+    .mc {
+      background: var(--glass2); border: 1px solid var(--border);
+      border-radius: 11px; padding: 13px 15px;
+      transition: border-color .2s;
+    }
+    .mc:hover { border-color: var(--border-hi); }
+    .mh { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+    .ma { font-weight: 800; color: var(--pink); }
+    .mt { font-size: .73rem; color: var(--muted); }
+    .mm { font-size: .73rem; color: var(--muted); margin-bottom: 5px; }
+    .mb2 { font-size: .86rem; word-break: break-word; }
+
+    /* ── Grid layouts ── */
+    .grid2 { display: grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap: 14px; }
+
+    @media (max-width: 768px) {
+      .sidebar { width: 56px; }
+      .tagline,.nav-item span:not(.nav-icon),.u-info,.u-logout { display: none; }
+      .nav-item { justify-content: center; padding: 11px; }
+      .wordmark { font-size: .95rem; }
+      .main { margin-left: 56px; padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="wordmark">ARIA</div>
+    <div class="tagline">Premium Panel</div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-sec">Main</div>
+    <div class="nav-item active" onclick="sw('dashboard',this)" data-tab="dashboard">
+      <span class="nav-icon">⚡</span><span>Dashboard</span><span class="nav-dot"></span>
+    </div>
+    <div class="nav-item" onclick="sw('rpc',this)" data-tab="rpc">
+      <span class="nav-icon">🎮</span><span>RPC Control</span>
+    </div>
+    <div class="nav-item" onclick="sw('commands',this)" data-tab="commands">
+      <span class="nav-icon">💬</span><span>Commands</span>
+    </div>
+    <div class="nav-item" onclick="sw('messages',this)" data-tab="messages">
+      <span class="nav-icon">📨</span><span>Messages</span>
+    </div>
+    <div class="nav-sec">Account</div>
+    <div class="nav-item" onclick="sw('settings',this)" data-tab="settings">
+      <span class="nav-icon">⚙️</span><span>Settings</span>
+    </div>
+    <div class="nav-item" onclick="sw('profile',this)" data-tab="profile">
+      <span class="nav-icon">👤</span><span>Profile</span>
+    </div>
+    <div class="nav-item" id="admin-nav-item" onclick="sw('admin',this)" data-tab="admin" style="display:none;">
+      <span class="nav-icon">🛡️</span><span>Admin</span>
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="s-user">
+      <div class="u-avatar" id="user-avatar-initials">A</div>
+      <div class="u-info">
+        <div class="u-name" id="user-display">Loading...</div>
+        <div class="u-role" id="user-role">Member</div>
+      </div>
+      <a href="/logout" class="u-logout" title="Logout">⏻</a>
+    </div>
+  </div>
+</aside>
+
+<!-- ── Main content ── -->
+<main class="main">
+
+  <!-- DASHBOARD -->
+  <div id="dashboard" class="tab-content active">
+    <div class="ph">
+      <div><div class="ph-title">Overview</div><div class="ph-sub">Bot status &amp; live activity</div></div>
+      <div class="live-badge">Bot Online</div>
+    </div>
+    <div class="sg">
+      <div class="sc"><div class="sc-icon">⚡</div><div class="sc-lbl">Status</div><div class="sc-val" style="font-size:1rem;color:#6ee7b7;-webkit-text-fill-color:#6ee7b7;">🟢 Online</div></div>
+      <div class="sc"><div class="sc-icon">⏱️</div><div class="sc-lbl">Uptime</div><div class="sc-val" id="uptime-display">—</div></div>
+      <div class="sc"><div class="sc-icon">📤</div><div class="sc-lbl">Messages Sent</div><div class="sc-val" id="commands-count">0</div></div>
+      <div class="sc"><div class="sc-icon">🎯</div><div class="sc-lbl">Current Activity</div><div class="sc-val" id="current-activity" style="font-size:.88rem;">None</div></div>
+    </div>
+    <div class="glass">
+      <div class="sec-title">Quick Actions</div>
+      <div class="btn-row">
+        <button class="btn btn-p" onclick="clearActivity()">✕ Clear Activity</button>
+        <button class="btn btn-g" onclick="refreshDashboard()">↻ Refresh Stats</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RPC CONTROL -->
+  <div id="rpc" class="tab-content">
+    <div class="ph">
+      <div><div class="ph-title">RPC Control</div><div class="ph-sub">Set your Discord activity status</div></div>
+    </div>
+    <div class="glass">
+      <div class="sec-title">🎵 Music Platforms</div>
+      <div class="mg">
+        <button class="mb" onclick="setRpcMode('spotify')">Spotify</button>
+        <button class="mb" onclick="setRpcMode('youtube_music')">YT Music</button>
+        <button class="mb" onclick="setRpcMode('applemusic')">Apple Music</button>
+        <button class="mb" onclick="setRpcMode('soundcloud')">SoundCloud</button>
+        <button class="mb" onclick="setRpcMode('deezer')">Deezer</button>
+        <button class="mb" onclick="setRpcMode('tidal')">TIDAL</button>
+      </div>
+      <div class="frow" style="margin-top:14px;">
+        <div class="fg"><label>Track Name</label><input type="text" id="music-track" placeholder="e.g. Blinding Lights"></div>
+        <div class="fg"><label>Artist</label><input type="text" id="music-artist" placeholder="e.g. The Weeknd"></div>
+        <div class="fg"><label>Album</label><input type="text" id="music-album" placeholder="e.g. After Hours"></div>
+      </div>
+      <button class="btn btn-p" onclick="applyMusicRpc()">Apply Music RPC</button>
+    </div>
+    <div class="glass">
+      <div class="sec-title">🎮 Streaming &amp; Gaming</div>
+      <div class="mg">
+        <button class="mb" onclick="setRpcMode('twitch')">Twitch</button>
+        <button class="mb" onclick="setRpcMode('kick')">Kick</button>
+        <button class="mb" onclick="setRpcMode('youtube')">YouTube</button>
+        <button class="mb" onclick="setRpcMode('playing')">Playing</button>
+        <button class="mb" onclick="setRpcMode('streaming')">Streaming</button>
+        <button class="mb" onclick="setRpcMode('competing')">Competing</button>
+      </div>
+      <div class="frow" style="margin-top:14px;">
+        <div class="fg"><label>Game / Stream Title</label><input type="text" id="stream-title" placeholder="e.g. Valorant Ranked"></div>
+        <div class="fg"><label>Channel</label><input type="text" id="stream-channel" placeholder="e.g. mychannel"></div>
+      </div>
+      <button class="btn btn-p" onclick="applyStreamRpc()">Apply Stream RPC</button>
+    </div>
+    <div class="glass">
+      <div class="sec-title">🎬 Video Platforms</div>
+      <div class="mg">
+        <button class="mb" onclick="setRpcMode('netflix')">Netflix</button>
+        <button class="mb" onclick="setRpcMode('disneyplus')">Disney+</button>
+        <button class="mb" onclick="setRpcMode('primevideo')">Prime Video</button>
+        <button class="mb" onclick="setRpcMode('plex')">Plex</button>
+        <button class="mb" onclick="setRpcMode('jellyfin')">Jellyfin</button>
+        <button class="mb" onclick="setRpcMode('crunchyroll')">Crunchyroll</button>
+      </div>
+      <div class="frow" style="margin-top:14px;">
+        <div class="fg"><label>Show / Movie</label><input type="text" id="video-title" placeholder="e.g. Breaking Bad"></div>
+        <div class="fg"><label>Episode</label><input type="text" id="video-episode" placeholder="e.g. S01E01"></div>
+      </div>
+      <button class="btn btn-p" onclick="applyVideoRpc()">Apply Video RPC</button>
+    </div>
+    <div class="glass">
+      <div class="sec-title">💻 Coding &amp; Custom</div>
+      <div class="mg" style="margin-bottom:14px;">
+        <button class="mb" onclick="setRpcMode('vscode')">VS Code</button>
+        <button class="mb" onclick="setRpcMode('browser')">Browser</button>
+        <button class="mb" onclick="setRpcMode('listening')">Listening</button>
+        <button class="mb" onclick="setRpcMode('watching')">Watching</button>
+      </div>
+      <div class="fg"><label>Custom Activity Text</label><input type="text" id="custom-text" placeholder="What are you doing..."></div>
+      <button class="btn btn-p" onclick="applyCustomRpc()">Apply Custom</button>
+    </div>
+    <div class="glass">
+      <div class="sec-title">🥽 VR Mode</div>
+      <div class="frow">
+        <div class="fg"><label>VR App Name</label><input type="text" id="vr-name" value="VR"></div>
+        <div class="fg"><label>Details</label><input type="text" id="vr-details" value="In VR"></div>
+        <div class="fg"><label>State</label><input type="text" id="vr-state" value="Meta Quest"></div>
+      </div>
+      <button class="btn btn-p" onclick="applyVrRpc()" style="width:100%;">Apply VR RPC</button>
+    </div>
+    <div class="glass">
+      <div class="sec-title">📡 Live Preview</div>
+      <div>
+        <div class="pr"><span class="k">Activity</span><span class="v" id="preview-activity">—</span></div>
+        <div class="pr"><span class="k">Type</span><span class="v" id="preview-type">—</span></div>
+        <div class="pr"><span class="k">Result</span><span class="v" id="preview-status">—</span></div>
+        <div class="pr"><span class="k">Session User ID</span><span class="v" id="preview-user-id">—</span></div>
+        <div class="pr"><span class="k">Mode ID</span><span class="v" id="preview-mode-id">—</span></div>
+        <div class="pr"><span class="k">Transport ID</span><span class="v" id="preview-transport-id">—</span></div>
+        <div class="pr"><span class="k">Command Timestamp</span><span class="v" id="preview-command-ts">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COMMANDS -->
+  <div id="commands" class="tab-content">
+    <div class="ph"><div><div class="ph-title">Commands</div><div class="ph-sub">Send bot commands directly</div></div></div>
+    <div class="glass">
+      <div class="sec-title">Send Command</div>
+      <div class="fg"><label>Command Type</label>
+        <select id="cmd-type" onchange="updateCommandFields()">
+          <option value="message">Send Message</option>
+          <option value="reaction">Add Reaction</option>
+          <option value="typing">Start Typing</option>
+          <option value="presence">Update Presence</option>
+        </select>
+      </div>
+      <div class="fg"><label>Channel ID</label><input type="text" id="cmd-channel" placeholder="Channel ID"></div>
+      <div id="cmd-message-field" class="fg"><label>Message Content</label><textarea id="cmd-content" placeholder="Enter message..." rows="3"></textarea></div>
+      <div id="cmd-reaction-field" class="fg" style="display:none;"><label>Emoji</label><input type="text" id="cmd-emoji" placeholder="emoji name or unicode"></div>
+      <div class="fg"><label>Delay (seconds)</label><input type="number" id="cmd-delay" placeholder="0" min="0" step="0.1"></div>
+      <button class="btn btn-p" onclick="sendCommand()" style="width:100%;">Send Command</button>
+      <div id="cmd-result"></div>
+    </div>
+    <div class="glass">
+      <div class="sec-title">Command History</div>
+      <div id="cmd-history" style="display:grid;gap:8px;max-height:300px;overflow-y:auto;color:var(--muted);font-size:.86rem;">No commands yet</div>
+    </div>
+  </div>
+
+  <!-- MESSAGES -->
+  <div id="messages" class="tab-content">
+    <div class="ph"><div><div class="ph-title">Message Lookup</div><div class="ph-sub">Search tracked channel messages</div></div></div>
+    <div class="glass">
+      <div class="sec-title">Search Filters</div>
+      <div class="frow">
+        <div class="fg"><label>Channel ID <span style="color:var(--pink)">*</span></label><input type="text" id="msg-channel-id" placeholder="Required"></div>
+        <div class="fg"><label>User ID (optional)</label><input type="text" id="msg-user-id" placeholder="Filter by user"></div>
+        <div class="fg"><label>Limit (max 50)</label><input type="number" id="msg-limit" value="20" min="1" max="50"></div>
+      </div>
+      <button class="btn btn-p" onclick="loadMessages()" style="width:100%;">🔍 Fetch Messages</button>
+      <div id="msg-result"></div>
+    </div>
+    <div class="glass">
+      <div class="sec-title">Results</div>
+      <div id="msg-list" style="display:grid;gap:9px;max-height:500px;overflow-y:auto;">
+        <span style="color:var(--muted);font-size:.86rem;">Enter a Channel ID above and click Fetch Messages.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="settings" class="tab-content">
+    <div class="ph"><div><div class="ph-title">Settings</div><div class="ph-sub">Bot configuration &amp; credentials</div></div></div>
+    <div class="glass">
+      <div class="sec-title">Bot Configuration</div>
+      <div class="frow">
+        <div class="fg"><label>Bot Token</label><input type="password" id="bot-token" placeholder="Your bot token"></div>
+        <div class="fg"><label>Command Prefix</label><input type="text" id="prefix" placeholder="!" value="!"></div>
+      </div>
+      <div class="frow">
+        <div class="fg"><label>Rate Limit Delay</label><input type="number" id="rate-limit" placeholder="0.1" step="0.1" min="0.1" value="0.1"></div>
+        <div class="fg"><label>RPC Name</label><input type="text" id="rpc-name" placeholder="Display name"></div>
+      </div>
+      <div class="fg"><label>User Agent</label><input type="text" id="user-agent" placeholder="User agent string"></div>
+    </div>
+    <div class="glass">
+      <div class="sec-title">Captcha Solving</div>
+      <div class="fg" style="flex-direction:row;align-items:center;gap:9px;margin-bottom:11px;">
+        <input type="checkbox" id="captcha-enabled" style="width:auto;accent-color:var(--pink);">
+        <label style="text-transform:none;letter-spacing:0;font-size:.86rem;color:var(--text);">Enable Captcha Solving</label>
+      </div>
+      <div class="frow">
+        <div class="fg"><label>Captcha API Key</label><input type="password" id="captcha-key" placeholder="2Captcha / AntiCaptcha key"></div>
+        <div class="fg"><label>Captcha Service</label>
+          <select id="captcha-service">
+            <option value="2captcha">2Captcha</option>
+            <option value="anticaptcha">AntiCaptcha</option>
+            <option value="capmonster">CapMonster</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-p" onclick="saveSettings()" style="width:100%;">Save All Settings</button>
+      <div id="settings-result"></div>
+    </div>
+  </div>
+
+  <!-- PROFILE -->
+  <div id="profile" class="tab-content">
+    <div class="ph"><div><div class="ph-title">Profile</div><div class="ph-sub">Your account details</div></div></div>
+    <div class="glass">
+      <div class="sec-title">Account Info</div>
+      <div class="pr"><span class="k">Username</span><span class="v" id="profile-username">—</span></div>
+      <div class="pr"><span class="k">User ID</span><span class="v" id="profile-userid">—</span></div>
+      <div class="pr"><span class="k">Member Since</span><span class="v" id="profile-created">—</span></div>
+      <div class="pr"><span class="k">Last Login</span><span class="v" id="profile-lastlogin">—</span></div>
+      <div class="pr"><span class="k">Status</span><span class="v" style="color:#6ee7b7;">🟢 Active</span></div>
+    </div>
+    <div class="glass">
+      <div class="sec-title">Discord Profile Editor</div>
+      <div class="frow">
+        <div class="fg"><label>Global Display Name</label><input type="text" id="profile-global-name" placeholder="Display name"></div>
+        <div class="fg"><label>Pronouns</label><input type="text" id="profile-pronouns" placeholder="e.g. she/her"></div>
+      </div>
+      <div class="fg"><label>Bio</label><textarea id="profile-bio" placeholder="Profile bio..." rows="3"></textarea></div>
+      <div class="frow">
+        <div class="fg"><label>Avatar URL</label><input type="text" id="profile-avatar-url" placeholder="https://..."></div>
+        <div class="fg"><label>Banner URL</label><input type="text" id="profile-banner-url" placeholder="https://..."></div>
+      </div>
+      <div class="frow">
+        <div class="fg"><label>Avatar Decoration ID</label><input type="text" id="profile-decoration-id" placeholder="Decoration ID"></div>
+        <div class="fg"><label>Profile Effect ID</label><input type="text" id="profile-effect-id" placeholder="Effect ID"></div>
+      </div>
+      <button class="btn btn-p" onclick="saveDiscordProfile()" style="width:100%;">Apply Profile Changes</button>
+      <div id="profile-edit-result"></div>
+    </div>
+    <div class="glass">
+      <div class="sec-title">Actions</div>
+      <div class="btn-row">
+        <button class="btn btn-g" onclick="changePassword()">🔑 Change Password</button>
+        <button class="btn btn-g" onclick="downloadData()">⬇ Download Data</button>
+        <button class="btn btn-d" onclick="logout()">⏻ Logout</button>
+      </div>
+    </div>
+    <div class="glass">
+      <div class="sec-title">My Instance Logs</div>
+      <div class="btn-row" style="margin-bottom:13px;">
+        <button class="btn btn-g" onclick="loadUserInstanceLogs()">↻ Refresh Logs</button>
+      </div>
+      <div id="user-instance-logs" style="display:grid;gap:8px;max-height:340px;overflow-y:auto;">
+        <span style="color:var(--muted);">Loading...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADMIN -->
+  <div id="admin" class="tab-content">
+    <div class="ph">
+      <div><div class="ph-title">Admin Panel</div><div class="ph-sub">Owner tools &amp; user management</div></div>
+      <button class="btn btn-g" onclick="refreshAdminPanel()">↻ Refresh</button>
+    </div>
+    <div class="sg" id="admin-overview"></div>
+    <div class="glass" style="margin-top:0;">
+      <div class="sec-title">Hosted UIDs</div>
+      <div id="admin-uids" style="display:grid;gap:5px;font-size:.84rem;"></div>
+    </div>
+    <div class="glass">
+      <div class="sec-title">User Management</div>
+      <div id="admin-users" style="display:grid;gap:9px;"></div>
+    </div>
+    <div class="glass">
+      <div class="sec-title">All Instance Logs</div>
+      <div id="admin-instance-logs" style="display:grid;gap:8px;max-height:400px;overflow-y:auto;"></div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  let selMode = 'spotify';
+  let isAdmin = false;
+
+  async function aj(url, opts={}) {
+    const r = await fetch(url, opts);
+    const d = await r.json();
+    if (!r.ok || d.ok === false) throw new Error(d.error || 'Request failed');
+    return d;
+  }
+
+  function sw(tab, el) {
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const t = document.getElementById(tab);
+    if (t) t.classList.add('active');
+    const n = el || document.querySelector(`.nav-item[data-tab="${tab}"]`);
+    if (n) n.classList.add('active');
+    if (tab === 'admin' && isAdmin) refreshAdminPanel();
+  }
+
+  // Keep old switchTab alias for any calls inside the existing dead-code zone
+  function switchTab(tab) { sw(tab); }
+
+  function markSel(mode) {
+    selMode = mode;
+    document.querySelectorAll('.mb').forEach(b => b.classList.remove('sel'));
+    const a = Array.from(document.querySelectorAll('.mb'))
+      .find(b => (b.getAttribute('onclick') || '').includes(`'${mode}'`));
+    if (a) a.classList.add('sel');
+  }
+
+  function setRpcMode(mode) { markSel(mode); toast('RPC mode: ' + mode, 's'); }
+
+  async function applyRpcMode(payload) {
+    try {
+      const d = await aj('/api/rpc/mode', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      toast(d.ok ? 'Applied: '+payload.mode : 'Failed', d.ok ? 's' : 'e');
+      refreshRpcPreview();
+    } catch(e) { toast(e.message||'Error','e'); }
+  }
+
+  function applyMusicRpc() {
+    applyRpcMode({mode:selMode,track:$('music-track').value,artist:$('music-artist').value,album:$('music-album').value});
+  }
+  function applyStreamRpc() {
+    applyRpcMode({mode:selMode,title:$('stream-title').value,channel:$('stream-channel').value});
+  }
+  function applyVideoRpc() {
+    applyRpcMode({mode:selMode,title:$('video-title').value,episode:$('video-episode').value});
+  }
+  async function applyCustomRpc() {
+    const text = $('custom-text').value.trim();
+    if (!text) { toast('Activity text is required','e'); return; }
+    try {
+      await aj('/api/rpc/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,activity_type:selMode})});
+      toast('Custom RPC applied','s'); refreshRpcPreview();
+    } catch(e) { toast(e.message||'Error','e'); }
+  }
+  function applyVrRpc() {
+    applyRpcMode({mode:'vrchat',title:$('vr-name').value,details:$('vr-details').value,state:$('vr-state').value});
+  }
+
+  function updateCommandFields() {
+    const t = $('cmd-type').value;
+    $('cmd-message-field').style.display = t==='message'?'block':'none';
+    $('cmd-reaction-field').style.display = t==='reaction'?'block':'none';
+  }
+
+  async function sendCommand() {
+    const payload = {type:$('cmd-type').value,channel_id:$('cmd-channel').value,content:$('cmd-content').value,emoji:$('cmd-emoji').value,delay:parseFloat($('cmd-delay').value||'0')||0};
+    try {
+      const d = await aj('/api/send_message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      $('cmd-result').innerHTML = ia('s',d.message||'Command executed');
+      toast('Command sent','s'); loadCommandHistory();
+    } catch(e) { $('cmd-result').innerHTML = ia('e',e.message||'Failed'); toast(e.message||'Failed','e'); }
+  }
+
+  async function clearActivity() {
+    try { await aj('/api/rpc/clear',{method:'POST'}); toast('Activity cleared','s'); refreshRpcPreview(); }
+    catch(e) { toast(e.message||'Error','e'); }
+  }
+
+  async function refreshRpcPreview() {
+    try {
+      const d = await aj('/api/rpc/preview');
+      const a=d.activity||{}, c=d.last_command||{}, ids=d.preview_ids||{};
+      set('preview-activity', a.text||'—');
+      set('preview-type', a.activity_type||'—');
+      set('preview-status', c.result||'—');
+      set('preview-user-id', ids.session_user_id||'—');
+      set('preview-mode-id', ids.mode_id||'—');
+      set('preview-transport-id', ids.transport_id||'—');
+      set('preview-command-ts', ids.command_ts ? new Date(ids.command_ts*1000).toLocaleString() : '—');
+      set('current-activity', a.text||'None');
+    } catch(_) {}
+  }
+
+  async function refreshDashboard() {
+    try { const s=await aj('/status'); set('current-activity',(s.current_activity||{}).text||'None'); } catch(_) {}
+    try { const an=await aj('/api/analytics'); const st=an.system_stats||{}; set('uptime-display',`${st.uptime||0}h`); set('commands-count',String(st.messages_sent||0)); } catch(_) {}
+    refreshRpcPreview();
+  }
+
+  async function saveSettings() {
+    const settings = {prefix:$('prefix').value,rate_limit_delay:parseFloat($('rate-limit').value),user_agent:$('user-agent').value,rpc_name:$('rpc-name').value,captcha_enabled:$('captcha-enabled').checked,captcha_api_key:$('captcha-key').value,captcha_service:$('captcha-service').value};
+    const token = $('bot-token').value.trim();
+    try {
+      if (token) await aj('/api/user/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bot_token:token})});
+      const d = await aj('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings)});
+      $('settings-result').innerHTML = ia('s',d.message||'Saved');
+      toast('Settings saved','s');
+    } catch(e) { $('settings-result').innerHTML = ia('e',e.message||'Failed'); toast(e.message||'Error','e'); }
+  }
+
+  function changePassword() { toast('Password reset coming soon','s'); }
+  function downloadData()   { toast('Data export coming soon','s');   }
+  function logout() { if (confirm('Logout?')) window.location.href='/logout'; }
+
+  function toast(msg, type='s') {
+    const el = document.createElement('div');
+    el.className = `toast t${type}`; el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3200);
+  }
+
+  async function loadUserProfile() {
+    try {
+      const u = await aj('/api/user/profile');
+      isAdmin = !!u.is_admin;
+      const name = u.username || u.user_id || 'User';
+      set('user-display', name);
+      set('user-role', isAdmin ? 'Admin' : 'Member');
+      const av = document.getElementById('user-avatar-initials');
+      if (av) av.textContent = name[0].toUpperCase();
+      set('profile-username', u.username||'—');
+      set('profile-userid',   u.user_id||'—');
+      set('profile-created',  u.created ? new Date(u.created*1000).toLocaleDateString() : '—');
+      set('profile-lastlogin',u.last_login ? new Date(u.last_login*1000).toLocaleString() : 'Now');
+      if (isAdmin) { const an = document.getElementById('admin-nav-item'); if (an) an.style.display=''; refreshAdminPanel(); }
+    } catch(_) { set('user-display','User'); }
+  }
+
+  async function loadCommandHistory() {
+    try {
+      const d = await aj('/api/command_history');
+      const rows = (d.history||[]).slice().reverse();
+      const el = $('cmd-history');
+      el.innerHTML = rows.length ? rows.map(r=>`<div class="lc"><div class="le">${r.command||'?'}</div><div class="ld">${r.timestamp||''} — ${r.result||''}</div></div>`).join('') : '<span style="color:var(--muted)">No commands yet</span>';
+    } catch(_) {}
+  }
+
+  async function loadMessages() {
+    const ch = $('msg-channel-id').value.trim();
+    const uid = $('msg-user-id').value.trim();
+    const lim = parseInt($('msg-limit').value||'20')||20;
+    const re = $('msg-result'), li = $('msg-list');
+    if (!ch) { re.innerHTML = ia('e','Channel ID is required'); return; }
+    re.innerHTML = ''; li.innerHTML = '<span style="color:var(--muted)">Loading...</span>';
+    try {
+      let url = `/api/messages?channel_id=${encodeURIComponent(ch)}&limit=${lim}`;
+      if (uid) url += `&user_id=${encodeURIComponent(uid)}`;
+      const d = await aj(url);
+      const msgs = d.messages||[];
+      if (!msgs.length) { li.innerHTML = '<span style="color:var(--muted)">No tracked messages found.</span>'; return; }
+      const e = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      li.innerHTML = msgs.map(m => {
+        const ts = m.created_at ? new Date(m.created_at).toLocaleString() : '—';
+        return `<div class="mc"><div class="mh"><span class="ma">${e(m.username||m.user_id)}</span><span class="mt">${ts}</span></div><div class="mm">ch:${e(m.channel_id)}${m.guild_id?' · guild:'+e(m.guild_id):''}</div><div class="mb2">${e(m.content)}</div></div>`;
+      }).join('');
+      re.innerHTML = ia('s',`Fetched ${msgs.length} message(s)`);
+    } catch(e) { li.innerHTML=''; re.innerHTML = ia('e',e.message||'Failed'); }
+  }
+
+  async function loadUserInstanceLogs() {
+    try {
+      const d = await aj('/api/user/instance_logs');
+      const logs = d.logs||[];
+      const box = $('user-instance-logs');
+      box.innerHTML = logs.length ? logs.slice(0,120).map(x=>`<div class="lc"><div class="le">${x.event||'—'}</div><div class="ld">${x.ts?new Date(x.ts*1000).toLocaleString():'—'} · ${x.detail||''}</div></div>`).join('') : '<span style="color:var(--muted)">No logs yet</span>';
+    } catch(_) {}
+  }
+
+  async function loadAdminUsers() {
+    if (!isAdmin) return;
+    const c = $('admin-users');
+    c.innerHTML = '<span style="color:var(--muted)">Loading...</span>';
+    try {
+      const d = await aj('/api/admin/users');
+      const users = d.users||[];
+      c.innerHTML = users.length ? users.map(u=>`<div class="uc"><div class="u-avatar" style="width:34px;height:34px;">${(u.username||u.user_id)[0].toUpperCase()}</div><div class="uc-info"><div class="uc-name">${u.username||u.user_id}</div><div class="uc-meta">ID: ${u.user_id} · Joined: ${u.created?new Date(u.created*1000).toLocaleDateString():'—'} · Last: ${u.last_login?new Date(u.last_login*1000).toLocaleString():'—'} · Token: ${u.has_token?'✓':'✗'}</div></div><button class="btn btn-d" onclick="deleteUser('${u.user_id}')">Delete</button></div>`).join('') : '<span style="color:var(--muted)">No users</span>';
+    } catch(e) { c.innerHTML = ia('e',e.message||'Failed'); }
+  }
+
+  async function loadAdminOverview() {
+    if (!isAdmin) return;
+    try {
+      const d = await aj('/api/admin/overview');
+      const o = d.overview||{};
+      $('admin-overview').innerHTML = [{l:'Registered',v:o.total_registered||0},{l:'Hosted',v:o.total_hosted||0},{l:'Connected',v:o.connected_count||0},{l:'Authed UIDs',v:o.total_authed||0}]
+        .map(c=>`<div class="sc"><div class="sc-lbl">${c.l}</div><div class="sc-val">${c.v}</div></div>`).join('');
+      const uids = o.hosted_uids||[], conn = o.connected_users||[];
+      $('admin-uids').innerHTML = [
+        `<div class="pr"><span class="k">Hosted UIDs</span><span class="v">${uids.length}</span></div>`,
+        `<div class="pr"><span class="k">UID List</span><span class="v" style="font-size:.75rem;">${uids.join(', ')||'—'}</span></div>`,
+        `<div class="pr"><span class="k">Connected IDs</span><span class="v" style="font-size:.75rem;">${conn.map(u=>u.user_id).join(', ')||'—'}</span></div>`,
+      ].join('');
+    } catch(e) { $('admin-overview').innerHTML = ia('e',e.message||'Failed'); }
+  }
+
+  async function loadAdminInstanceLogs() {
+    if (!isAdmin) return;
+    try {
+      const d = await aj('/api/admin/instance_logs');
+      const logs = d.logs||[];
+      const box = $('admin-instance-logs');
+      box.innerHTML = logs.length ? logs.slice(0,200).map(x=>`<div class="lc"><div class="le">${x.user_id||'?'} · ${x.event||'—'}</div><div class="ld">${x.ts?new Date(x.ts*1000).toLocaleString():'—'} · ${x.detail||''}</div></div>`).join('') : '<span style="color:var(--muted)">No logs yet</span>';
+    } catch(_) {}
+  }
+
+  async function refreshAdminPanel() {
+    if (!isAdmin) return;
+    await Promise.all([loadAdminOverview(), loadAdminUsers(), loadAdminInstanceLogs()]);
+  }
+
+  async function saveDiscordProfile() {
+    const payload = {global_name:$('profile-global-name').value,pronouns:$('profile-pronouns').value,bio:$('profile-bio').value,avatar_url:$('profile-avatar-url').value,banner_url:$('profile-banner-url').value,avatar_decoration_id:$('profile-decoration-id').value,profile_effect_id:$('profile-effect-id').value};
+    try {
+      const d = await aj('/api/profile/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      $('profile-edit-result').innerHTML = ia('s',d.message||'Profile update sent');
+      toast('Profile update sent','s'); loadUserInstanceLogs();
+    } catch(e) { $('profile-edit-result').innerHTML = ia('e',e.message||'Failed'); toast(e.message||'Failed','e'); }
+  }
+
+  async function deleteUser(userId) {
+    if (!confirm(`Delete user ${userId}?`)) return;
+    try {
+      await aj('/api/admin/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:userId})});
+      toast(`Deleted ${userId}`,'s'); loadAdminUsers();
+    } catch(e) { toast(e.message||'Delete failed','e'); }
+  }
+
+  // ── Helpers ──
+  function $(id) { return document.getElementById(id); }
+  function set(id, v) { const el=$(id); if(el) el.textContent=v; }
+  function ia(type, msg) { return `<div class="ia ia-${type}">${msg}</div>`; }
+
+  // ── Init ──
+  updateCommandFields();
+  markSel(selMode);
+  loadUserProfile();
+  refreshDashboard();
+  loadCommandHistory();
+  loadUserInstanceLogs();
+  setInterval(refreshRpcPreview, 5000);
+</script>
+</body>
+</html>

@@ -213,14 +213,12 @@ class BoostManager:
             return False, "No boosts available"
         
         try:
-            headers = self.api.header_spoofer.get_headers()
             data = {"user_premium_guild_subscription_slot_ids": ["1"]}
             
-            response = self.api.session.put(
-                f"https://discord.com/api/v9/guilds/{server_id}/premium/subscriptions",
-                headers=headers,
-                json=data,
-                timeout=10
+            response = self.api.request(
+                "PUT",
+                f"/guilds/{server_id}/premium/subscriptions",
+                data=data
             )
             
             if response and response.status_code == 200:
@@ -239,11 +237,9 @@ class BoostManager:
     
     def transfer_boost(self, from_server_id, to_server_id):
         try:
-            headers = self.api.header_spoofer.get_headers()
-            response = self.api.session.delete(
-                f"https://discord.com/api/v9/guilds/{from_server_id}/premium/subscriptions",
-                headers=headers,
-                timeout=10
+            response = self.api.request(
+                "DELETE",
+                f"/guilds/{from_server_id}/premium/subscriptions"
             )
             
             if response and response.status_code in [200, 204]:
@@ -362,11 +358,9 @@ class BoostManager:
                         break
                     
                     if server_id in self.boosted_servers:
-                        headers = self.api.header_spoofer.get_headers()
-                        self.api.session.delete(
-                            f"https://discord.com/api/v9/guilds/{server_id}/premium/subscriptions",
-                            headers=headers,
-                            timeout=10
+                        self.api.request(
+                            "DELETE",
+                            f"/guilds/{server_id}/premium/subscriptions"
                         )
                         if server_id in self.boosted_servers:
                             del self.boosted_servers[server_id]

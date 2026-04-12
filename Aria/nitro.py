@@ -51,17 +51,15 @@ class NitroSniper:
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         
         try:
-            headers = self.api.header_spoofer.get_headers()
-            
-            response = self.api.session.post(
-                f"https://discord.com/api/v9/entitlements/gift-codes/{code}/redeem",
-                headers=headers,
-                json={}
+            response = self.api.request(
+                "POST",
+                f"/entitlements/gift-codes/{code}/redeem",
+                data={}
             )
             
             elapsed = (time.time() - start_time) * 1000
             
-            if response.status_code == 200:
+            if response and response.status_code == 200:
                 response_data = response.json()
                 if "subscription_plan" in str(response_data):
                     with self.lock:
@@ -83,9 +81,9 @@ class NitroSniper:
                     print(f"\033[1;33m[NITRO]\033[0m [{timestamp}] Already redeemed: {code} | {elapsed:.1f}ms")
                 elif "Unknown Gift Code" in str(response_data):
                     print(f"\033[0;90m[NITRO]\033[0m [{timestamp}] Invalid code: {code} | {elapsed:.1f}ms")
-            elif response.status_code == 429:
+            elif response and response.status_code == 429:
                 print(f"\033[1;31m[NITRO]\033[0m [{timestamp}] Rate limited on: {code} | {elapsed:.1f}ms")
-            else:
+            elif response:
                 print(f"\033[1;31m[NITRO]\033[0m [{timestamp}] Failed: {code} | status={response.status_code} | {elapsed:.1f}ms")
                 
         except Exception as e:

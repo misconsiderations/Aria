@@ -236,7 +236,7 @@ Flags: {user.get('flags', 0)}"""
             r = api.request("GET", f"/users/{user_id}")
 
         if not r or r.status_code not in (200, 201):
-            msg = api.send_message(ctx["channel_id"], f"```| Banner |\nUser not found: {user_id}```")
+            msg = api.send_message(ctx["channel_id"], "User not found")
             if msg:
                 delete_after_delay_func(api, ctx["channel_id"], msg.get("id"))
             return
@@ -247,16 +247,14 @@ Flags: {user.get('flags', 0)}"""
         banner_hash = user.get("banner") or (d.get("user_profile") or {}).get("banner")
 
         if not banner_hash:
-            msg = api.send_message(ctx["channel_id"], f"```| Banner |\n{user.get('username', user_id)} has no banner```")
+            msg = api.send_message(ctx["channel_id"], "No banner")
             if msg:
                 delete_after_delay_func(api, ctx["channel_id"], msg.get("id"))
             return
 
         ext = "gif" if banner_hash.startswith("a_") else "png"
         url = f"https://cdn.discordapp.com/banners/{user_id}/{banner_hash}.{ext}?size=4096"
-        username = user.get("username", user_id)
-        # Send header + bare URL so Discord embeds the image
-        msg = api.send_message(ctx["channel_id"], f"```| Banner — {username} |\n> ID :: {user_id}```\n{url}")
+        msg = api.send_message(ctx["channel_id"], url)
         if msg:
             delete_after_delay_func(api, ctx["channel_id"], msg.get("id"))
     

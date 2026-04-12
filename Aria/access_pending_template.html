@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aria — Access Pending</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: grid; place-items: center;
+      background: #030712;
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 24px;
+    }
+    body::before {
+      content: '';
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background:
+        radial-gradient(ellipse 70% 55% at 10% 0%, rgba(139,92,246,.18) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 40% at 90% 100%, rgba(236,72,153,.12) 0%, transparent 50%);
+    }
+    .card {
+      width: min(640px, 100%);
+      background: rgba(15,23,42,.94);
+      border: 1px solid rgba(236,72,153,.3);
+      border-radius: 20px; padding: 36px 32px;
+      box-shadow: 0 32px 90px rgba(0,0,0,.55);
+      backdrop-filter: blur(20px);
+      position: relative; z-index: 1;
+    }
+    .icon {
+      width: 54px; height: 54px; border-radius: 14px;
+      background: linear-gradient(135deg, rgba(236,72,153,.18), rgba(139,92,246,.18));
+      border: 1px solid rgba(236,72,153,.3);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.6rem; margin-bottom: 18px;
+    }
+    h1 { font-size: 1.75rem; font-weight: 900; margin-bottom: 8px; color: #ec4899; }
+    .desc { color: #cbd5e1; line-height: 1.62; font-size: .92rem; margin-bottom: 14px; }
+    .note {
+      background: rgba(139,92,246,.1);
+      border: 1px solid rgba(139,92,246,.28);
+      border-left: 3px solid #8b5cf6;
+      border-radius: 10px; padding: 13px 15px;
+      margin-bottom: 22px;
+      color: #e2e8f0; font-size: .87rem; line-height: 1.55;
+    }
+    .note strong { color: #a78bfa; }
+    .steps {
+      background: rgba(3,7,18,.5);
+      border: 1px solid rgba(148,163,184,.1);
+      border-radius: 11px; padding: 16px;
+      margin-bottom: 22px;
+    }
+    .step {
+      display: flex; gap: 11px; align-items: flex-start;
+      padding: 7px 0;
+      border-bottom: 1px solid rgba(148,163,184,.08);
+      font-size: .85rem; color: #cbd5e1;
+    }
+    .step:last-child { border: none; }
+    .step-n {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: linear-gradient(135deg, #ec4899, #8b5cf6);
+      display: flex; align-items: center; justify-content: center;
+      font-size: .7rem; font-weight: 900; color: #fff; flex-shrink: 0;
+    }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .actions a {
+      text-decoration: none; padding: 10px 18px;
+      border-radius: 10px; font-weight: 800; font-size: .87rem;
+      transition: all .22s;
+    }
+    .a-p {
+      background: linear-gradient(135deg, #ec4899, #8b5cf6);
+      color: #fff;
+    }
+    .a-p:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(236,72,153,.32); }
+    .a-g { background: rgba(15,23,42,.8); border: 1px solid rgba(148,163,184,.14); color: #94a3b8; }
+    .a-g:hover { color: #f1f5f9; border-color: rgba(148,163,184,.3); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">⏳</div>
+    <h1>Access Pending</h1>
+    <p class="desc">Your account is logged in but has not yet been authorised to access the full dashboard.</p>
+
+    <div class="note">
+      <strong>How to get access:</strong> Contact <strong>@misconsiderations</strong> and provide your Discord user ID to be whitelisted.
+    </div>
+
+    <div class="steps">
+      <div class="step"><div class="step-n">1</div><span>Register or log in with your Discord user ID</span></div>
+      <div class="step"><div class="step-n">2</div><span>Contact @misconsiderations on Discord</span></div>
+      <div class="step"><div class="step-n">3</div><span>Provide your user ID — owner will run the auth command</span></div>
+      <div class="step"><div class="step-n">4</div><span>Log back in to access the full dashboard</span></div>
+    </div>
+
+    <div class="actions">
+      <a class="a-p" href="/logout">Log Out</a>
+      <a class="a-g" href="/home">Back to Home</a>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aria — Premium Discord Hosting</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --pink:   #ec4899;
+      --violet: #8b5cf6;
+      --green:  #10b981;
+      --bg0:    #030712;
+      --bg1:    #0f172a;
+      --glass:  rgba(15,23,42,0.72);
+      --border: rgba(148,163,184,0.14);
+      --text:   #f1f5f9;
+      --muted:  #94a3b8;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      min-height: 100vh;
+      background: var(--bg0);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    body::before {
+      content: '';
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background:
+        radial-gradient(ellipse 70% 55% at 5% 0%,   rgba(139,92,246,.2)  0%, transparent 55%),
+        radial-gradient(ellipse 55% 45% at 95% 100%, rgba(236,72,153,.15) 0%, transparent 50%),
+        radial-gradient(ellipse 40% 30% at 50% 55%,  rgba(6,182,212,.06)  0%, transparent 55%);
+    }
+
+    /* ── Nav ── */
+    .nav {
+      position: sticky; top: 0; z-index: 50;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 16px 28px;
+      background: rgba(3,7,18,.88);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(18px);
+    }
+    .wordmark {
+      font-size: 1.35rem; font-weight: 900;
+      background: linear-gradient(135deg, var(--pink), var(--violet));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .nav-links { display: flex; gap: 8px; flex-wrap: wrap; }
+    .nav-links a {
+      text-decoration: none; color: var(--muted);
+      padding: 7px 14px; border-radius: 9px;
+      font-weight: 700; font-size: .84rem;
+      border: 1px solid var(--border);
+      transition: all .2s;
+    }
+    .nav-links a:hover { color: var(--text); border-color: rgba(148,163,184,.3); background: rgba(15,23,42,.6); }
+    .nav-links a.primary {
+      background: linear-gradient(135deg, var(--pink), var(--violet));
+      color: #fff; border: none;
+    }
+    .nav-links a.primary:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(236,72,153,.3); }
+
+    /* ── Hero ── */
+    .hero {
+      max-width: 1180px; margin: 0 auto;
+      padding: 72px 28px 52px;
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 40px; align-items: center;
+      position: relative; z-index: 1;
+    }
+    .hero-eyebrow {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 5px 13px; margin-bottom: 20px;
+      background: rgba(139,92,246,.1); border: 1px solid rgba(139,92,246,.3);
+      border-radius: 20px; font-size: .75rem; font-weight: 800;
+      color: #a78bfa; letter-spacing: 1px; text-transform: uppercase;
+    }
+    .hero-eyebrow::before { content:''; width:6px; height:6px; border-radius:50%; background:#a78bfa; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+    .hero-title {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 900; line-height: 1.15; margin-bottom: 16px;
+    }
+    .hero-title span {
+      background: linear-gradient(135deg, var(--pink), var(--violet));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-sub {
+      color: var(--muted); line-height: 1.65;
+      font-size: 1.02rem; margin-bottom: 28px; max-width: 520px;
+    }
+    .hero-cta { display: flex; gap: 10px; flex-wrap: wrap; }
+    .hero-cta a {
+      text-decoration: none; padding: 12px 20px;
+      border-radius: 11px; font-weight: 800; font-size: .92rem; transition: all .22s;
+    }
+    .cta-p {
+      background: linear-gradient(135deg, var(--pink), var(--violet));
+      color: #fff;
+    }
+    .cta-p:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(236,72,153,.34); }
+    .cta-g {
+      background: rgba(15,23,42,.8);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .cta-g:hover { color: var(--text); border-color: rgba(148,163,184,.3); }
+
+    /* ── Stats panel ── */
+    .stats-panel {
+      background: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 24px 80px rgba(0,0,0,.35);
+    }
+    .sp-title { font-size: .72rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; }
+    .sp-grid { display: grid; gap: 11px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+    .sp-card {
+      background: rgba(30,27,75,.55);
+      border: 1px solid rgba(148,163,184,.1);
+      border-radius: 11px; padding: 14px;
+      transition: border-color .2s;
+    }
+    .sp-card:hover { border-color: rgba(236,72,153,.4); }
+    .sp-lbl { color: var(--muted); font-size: .72rem; margin-bottom: 5px; font-weight: 600; }
+    .sp-val {
+      font-size: 1.55rem; font-weight: 900;
+      background: linear-gradient(135deg, var(--pink), var(--violet));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .sp-live {
+      display: flex; align-items: center; gap: 7px;
+      margin-top: 14px; padding-top: 14px;
+      border-top: 1px solid var(--border);
+      font-size: .75rem; color: var(--green); font-weight: 700;
+    }
+    .sp-live::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green); animation:pulse 2s infinite; }
+
+    /* ── Features ── */
+    .features {
+      max-width: 1180px; margin: 0 auto;
+      padding: 0 28px 60px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 14px;
+      position: relative; z-index: 1;
+    }
+    .feat {
+      background: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: 14px; padding: 22px;
+      backdrop-filter: blur(16px);
+      transition: all .22s;
+    }
+    .feat:hover { border-color: rgba(236,72,153,.35); transform: translateY(-3px); box-shadow: 0 12px 40px rgba(0,0,0,.3); }
+    .feat-icon { font-size: 1.6rem; margin-bottom: 12px; }
+    .feat-title { font-weight: 800; font-size: .98rem; margin-bottom: 7px; color: #f9a8d4; }
+    .feat-text { color: var(--muted); line-height: 1.58; font-size: .87rem; }
+
+    /* ── Footer ── */
+    footer {
+      position: relative; z-index: 1;
+      text-align: center;
+      padding: 22px 28px;
+      border-top: 1px solid var(--border);
+      color: var(--muted); font-size: .8rem;
+    }
+    footer a { color: var(--muted); text-decoration: none; margin: 0 6px; }
+    footer a:hover { color: var(--text); }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; padding-top: 44px; }
+      .stats-panel { margin-top: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="wordmark">ARIA</div>
+    <div class="nav-links">
+      <a href="/login" class="primary">Open Dashboard</a>
+      <a href="/tos">TOS</a>
+      <a href="/privacy">Privacy</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div>
+      <div class="hero-eyebrow">Premium Discord Hosting</div>
+      <h1 class="hero-title">Your bot.<br><span>Fully managed.</span></h1>
+      <p class="hero-sub">
+        Multi-user selfbot hosting with per-user dashboard access, RPC automation,
+        owner moderation tools, and managed instance operations. Track connected users,
+        hosted IDs, and live status in one panel.
+      </p>
+      <div class="hero-cta">
+        <a href="/login" class="cta-p">Open Dashboard</a>
+        <a href="/access-pending" class="cta-g">Access Info</a>
+      </div>
+    </div>
+
+    <div class="stats-panel">
+      <div class="sp-title">Live Instance Stats</div>
+      <div class="sp-grid" id="public-stats">
+        <div class="sp-card"><div class="sp-lbl">Hosted Instances</div><div class="sp-val">—</div></div>
+        <div class="sp-card"><div class="sp-lbl">Connected Users</div><div class="sp-val">—</div></div>
+        <div class="sp-card"><div class="sp-lbl">Registered Accounts</div><div class="sp-val">—</div></div>
+      </div>
+      <div class="sp-live">Fetching live data...</div>
+    </div>
+  </section>
+
+  <section class="features">
+    <div class="feat">
+      <div class="feat-icon">🖥️</div>
+      <div class="feat-title">Managed Instances</div>
+      <div class="feat-text">Each hosted user keeps their own token context and settings, with owner visibility over active and hosted UIDs.</div>
+    </div>
+    <div class="feat">
+      <div class="feat-icon">🎮</div>
+      <div class="feat-title">Live RPC Control</div>
+      <div class="feat-text">Premium RPC dashboard includes live preview and mode/transport IDs so you can verify exactly what is applied in real time.</div>
+    </div>
+    <div class="feat">
+      <div class="feat-icon">🛡️</div>
+      <div class="feat-title">Owner Tools</div>
+      <div class="feat-text">Admin panel shows connected users, hosted totals, user management, and cross-instance activity logs for moderation.</div>
+    </div>
+    <div class="feat">
+      <div class="feat-icon">🔒</div>
+      <div class="feat-title">Policy & Privacy</div>
+      <div class="feat-text">Review terms of service and privacy policy before onboarding users. Access controls and authorisation gating enforced.</div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Aria Premium Panel</span>
+    <a href="/tos">Terms of Service</a>
+    <a href="/privacy">Privacy Policy</a>
+    <span>Hosting access managed by owner/admin authorisation.</span>
+  </footer>
+
+  <script>
+    fetch('/api/public/stats').then(r => r.json()).then(d => {
+      if (!d.ok) return;
+      const s = d.stats || {};
+      document.getElementById('public-stats').innerHTML = `
+        <div class="sp-card"><div class="sp-lbl">Hosted Instances</div><div class="sp-val">${s.total_hosted ?? 0}</div></div>
+        <div class="sp-card"><div class="sp-lbl">Connected Users</div><div class="sp-val">${s.connected_count ?? 0}</div></div>
+        <div class="sp-card"><div class="sp-lbl">Registered Accounts</div><div class="sp-val">${s.total_registered ?? 0}</div></div>
+      `;
+      document.querySelector('.sp-live').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    }).catch(() => { document.querySelector('.sp-live').textContent = 'Stats unavailable'; });
+  </script>
+</body>
+</html>

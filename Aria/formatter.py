@@ -51,13 +51,12 @@ def category_list(categories: dict) -> str:
     return _block("\n".join(lines))
 
 def footer_main() -> str:
-    return _block(f"{DARK}Developed by {WHITE}{AUTHOR}{RESET}")
+    return _block(f"{DARK}{NAME} command center{RESET}")
 
 def footer_page(prefix: str, category: str, page: int, total: int) -> str:
-    remaining = max(total - page, 0)
     if total <= 1:
         return f"{prefix}help {category.lower()} | page 1/1"
-    return f"{prefix}help {category.lower()} [1-{total}] | page {page}/{total} | {remaining} left"
+    return f"{prefix}help {category.lower()} | page {page}/{total}"
 
 def layout(header_text: str, body_text: str, footer_text: str) -> str:
     return "\n".join([
@@ -84,7 +83,7 @@ def command_usage(name: str, usage: str, description: str, prefix: str) -> str:
         f"{CYAN}{'Usage':<13}{DARK}:: {RESET}{WHITE}{prefix}{usage}{RESET}\n"
         f"{CYAN}{'Description':<13}{DARK}:: {RESET}{WHITE}{description}{RESET}"
     )
-    return head + body
+    return head + "\n" + body
 
 def success(msg: str) -> str:
     return f"> **{GREEN}✓ {msg}{RESET}**"

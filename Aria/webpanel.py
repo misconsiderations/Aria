@@ -7,6 +7,7 @@ import time
 import hashlib
 import secrets
 import base64
+from datetime import timedelta
 from typing import Any, Callable, Dict, Optional
 
 from flask import Flask, jsonify, redirect, request, session, url_for
@@ -183,6 +184,7 @@ class WebPanel:
         self.port = port
         self.app = Flask(__name__)
         self.app.secret_key = os.getenv("ARIA_WEBPANEL_SECRET", "aria-webpanel-auth-secret")
+        self.app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
         self._thread = None
 
         self.dashboard_auth_path = "dashboard_authed_users.json"
@@ -582,6 +584,25 @@ class WebPanel:
             return False
 
         token = str(user.get("bot_token", "")).strip()
+
+        # If no token saved, check hosted_users.json for a matching Discord user_id entry
+        if not token:
+            try:
+                hosted_path = os.path.join(os.path.dirname(__file__), "hosted_users.json")
+                if os.path.exists(hosted_path):
+                    with open(hosted_path, "r") as _hf:
+                        hosted = json.load(_hf) or {}
+                    for _tid, _entry in hosted.items():
+                        if str(_entry.get("user_id", "")) == str(user_id):
+                            _t = str(_entry.get("token", "")).strip()
+                            if _t:
+                                token = _t
+                                # Persist so we don't look it up every time
+                                self.user_manager.update_bot_token(user_id, token)
+                                break
+            except Exception:
+                pass
+
         if not token:
             return False
 
@@ -753,6 +774,7 @@ class WebPanel:
                 user_input = str(request.form.get("user_id", "")).strip()
                 password = str(request.form.get("password", "")).strip()
                 next_path = str(request.form.get("next", "/dashboard") or "/dashboard")
+                remember_me = str(request.form.get("remember_me", "")).lower() in {"1", "true", "on", "yes"}
                 
                 if mode == "register":
                     # Registration mode
@@ -766,6 +788,7 @@ class WebPanel:
                         if ok:
                             session["user_id"] = user_input
                             session["webpanel_authenticated"] = True
+                            session.permanent = remember_me
                             self._activate_user_context(user_input)
                             self._append_instance_log(user_input, "register", "registered via dashboard")
                             return redirect(next_path if next_path.startswith("/") else "/dashboard")
@@ -778,6 +801,7 @@ class WebPanel:
                         if ok:
                             session["user_id"] = user_input
                             session["webpanel_authenticated"] = True
+                            session.permanent = remember_me
                             self._activate_user_context(user_input)
                             self._append_instance_log(user_input, "login", "logged in via dashboard")
                             return redirect(next_path if next_path.startswith("/") else "/dashboard")
@@ -786,6 +810,7 @@ class WebPanel:
                     if user_input == self._login_username and password == self._login_password:
                         session["user_id"] = "admin"
                         session["webpanel_authenticated"] = True
+                        session.permanent = remember_me
                         self._append_instance_log("admin", "login", "admin login")
                         return redirect(next_path if next_path.startswith("/") else "/dashboard")
                     
@@ -808,6 +833,43 @@ class WebPanel:
         @self.app.get("/access-pending")
         def access_pending() -> str:
             return self._render_access_pending()
+
+        @self.app.route("/add-token", methods=["GET", "POST"])
+        def add_token() -> Any:
+            if not session.get("webpanel_authenticated"):
+                return redirect(url_for("login", next="/add-token"))
+            user_id = str(session.get("user_id") or "")
+            error = ""
+            if request.method == "POST":
+                token_input = str(request.form.get("bot_token", "")).strip().strip("'\" ")
+                if not token_input or "." not in token_input:
+                    error = "Enter a valid bot token (must contain a dot)"
+                else:
+                    # Validate token with Discord
+                    try:
+                        import requests as _req
+                        resp = _req.get(
+                            "https://discord.com/api/v9/users/@me",
+                            headers={"Authorization": token_input},
+                            timeout=10,
+                        )
+                        if resp.status_code != 200:
+                            error = "Invalid token — Discord rejected it"
+                        else:
+                            acct = resp.json() or {}
+                            acct_id = str(acct.get("id", ""))
+                            # Save token to account
+                            user = self.user_manager.get_user(user_id)
+                            if user is None:
+                                # Guest/admin — just store in session for this session
+                                session["_bot_token"] = token_input
+                            else:
+                                self.user_manager.update_bot_token(user_id, token_input)
+                            self._append_instance_log(user_id, "add_token", f"linked token for Discord ID {acct_id}")
+                            return redirect("/dashboard")
+                    except Exception as exc:
+                        error = f"Token check failed: {str(exc)[:80]}"
+            return self._render_add_token(error=error)
 
         @self.app.get("/api/user/profile")
         def user_profile() -> Any:
@@ -1034,6 +1096,13 @@ class WebPanel:
 
         @self.app.get("/dashboard")
         def index() -> str:
+            user_id = str(session.get("user_id") or "")
+            if user_id and user_id != "admin":
+                # Refresh runtime token from saved account/hosted mapping after auth.
+                self._activate_user_context(user_id)
+            user = self.user_manager.get_user(user_id)
+            if user is not None and not str(user.get("bot_token") or "").strip():
+                return redirect("/add-token")
             return self._render_index()
 
         @self.app.get("/status")
@@ -1398,16 +1467,40 @@ class WebPanel:
             except:
                 return jsonify({"ok": False, "error": "Restart failed"})
 
+        @self.app.get("/api/messages")
+        def get_tracked_messages() -> Any:
+            channel_id = str(request.args.get("channel_id", "")).strip()
+            user_id = str(request.args.get("user_id", "")).strip() or None
+            try:
+                limit = max(1, min(int(request.args.get("limit", 20)), 50))
+            except (ValueError, TypeError):
+                limit = 20
+
+            if not channel_id:
+                return jsonify({"ok": False, "error": "channel_id is required"}), 400
+
+            db = getattr(self.bot, "db", None) if self.bot is not None else None
+            if db is None or not getattr(db, "is_active", False):
+                return jsonify({"ok": False, "error": "Message database not available"}), 503
+
+            messages = db.get_recent_messages(channel_id=channel_id, user_id=user_id, limit=limit)
+            return jsonify({"ok": True, "messages": messages, "channel_id": channel_id, "count": len(messages)})
+
     def _render_index(self) -> str:
-        return """<!DOCTYPE html>
+        import os as _os
+        _tpl = _os.path.join(_os.path.dirname(__file__), "dashboard_template.html")
+        try:
+            with open(_tpl, "r", encoding="utf-8") as _f:
+                return _f.read()
+        except Exception:
+            return "<h1>Dashboard template unavailable</h1>"
+        _DEAD_REMOVED = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aria Premium Dashboard</title>
-    <style>
-        * {
-            margin: 0;
+    <title>Aria — Dashboard</title>
+    <style>PLACEHOLDER_STYLE_START
             padding: 0;
             box-sizing: border-box;
         }
@@ -1698,6 +1791,7 @@ class WebPanel:
             <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
             <button class="tab-btn" onclick="switchTab('rpc')">RPC Control</button>
             <button class="tab-btn" onclick="switchTab('commands')">Commands</button>
+            <button class="tab-btn" onclick="switchTab('messages')">Messages</button>
             <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
             <button class="tab-btn" onclick="switchTab('profile')">Profile</button>
             <button class="tab-btn" id="admin-tab-btn" onclick="switchTab('admin')" style="display:none;">Admin</button>
@@ -1920,6 +2014,35 @@ class WebPanel:
                 <div class="section-title">Command History</div>
                 <div id="cmd-history" style="max-height: 300px; overflow-y: auto; font-size: 0.9rem; color: var(--text-muted);">
                     No commands sent yet
+                </div>
+            </div>
+        </div>
+
+        <!-- Messages Tab -->
+        <div id="messages" class="tab-content">
+            <div class="section">
+                <div class="section-title">Message Lookup</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Channel ID</label>
+                        <input type="text" id="msg-channel-id" placeholder="Channel ID (required)">
+                    </div>
+                    <div class="form-group">
+                        <label>User ID (optional)</label>
+                        <input type="text" id="msg-user-id" placeholder="Filter by User ID">
+                    </div>
+                    <div class="form-group">
+                        <label>Limit (max 50)</label>
+                        <input type="number" id="msg-limit" placeholder="20" min="1" max="50" value="20">
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="loadMessages()" style="width: 100%;">Fetch Messages</button>
+                <div id="msg-result" style="margin-top: 1rem;"></div>
+            </div>
+            <div class="section">
+                <div class="section-title">Results</div>
+                <div id="msg-list" style="display: grid; gap: 0.5rem; font-size: 0.9rem; max-height: 500px; overflow-y: auto;">
+                    <span style="color: var(--text-muted);">Enter a channel ID above and click Fetch Messages.</span>
                 </div>
             </div>
         </div>
@@ -2393,6 +2516,42 @@ class WebPanel:
             }
         }
 
+        async function loadMessages() {
+            const channelId = document.getElementById('msg-channel-id').value.trim();
+            const userId = document.getElementById('msg-user-id').value.trim();
+            const limit = parseInt(document.getElementById('msg-limit').value || '20') || 20;
+            const resultEl = document.getElementById('msg-result');
+            const listEl = document.getElementById('msg-list');
+
+            if (!channelId) {
+                resultEl.innerHTML = '<div class="alert alert-error">Channel ID is required</div>';
+                return;
+            }
+
+            resultEl.innerHTML = '';
+            listEl.innerHTML = '<span style="color: var(--text-muted);">Loading...</span>';
+
+            try {
+                let url = `/api/messages?channel_id=${encodeURIComponent(channelId)}&limit=${limit}`;
+                if (userId) url += `&user_id=${encodeURIComponent(userId)}`;
+                const data = await apiJson(url);
+                const msgs = data.messages || [];
+                if (!msgs.length) {
+                    listEl.innerHTML = '<span style="color: var(--text-muted);">No tracked messages found.</span>';
+                    return;
+                }
+                listEl.innerHTML = msgs.map(m => {
+                    const ts = m.created_at ? new Date(m.created_at).toLocaleString() : '-';
+                    const safe = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                    return `<div class="card"><div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-weight:700;color:var(--primary);">${safe(m.username || m.user_id)}</span><span style="color:var(--text-muted);font-size:0.8rem;">${ts}</span></div><div style="color:var(--text-muted);font-size:0.78rem;margin-bottom:4px;">ch:${safe(m.channel_id)} ${m.guild_id ? '· guild:'+safe(m.guild_id) : ''}</div><div>${safe(m.content)}</div></div>`;
+                }).join('');
+                resultEl.innerHTML = `<div class="alert alert-success">Fetched ${msgs.length} message(s)</div>`;
+            } catch (e) {
+                listEl.innerHTML = '';
+                resultEl.innerHTML = `<div class="alert alert-error">${e.message || 'Failed to fetch messages'}</div>`;
+            }
+        }
+
         async function loadAdminUsers() {
             if (!isAdminUser) {
                 return;
@@ -2546,8 +2705,21 @@ class WebPanel:
 </body>
 </html>"""
 
-        def _render_public_home(self) -> str:
-                return """<!DOCTYPE html>
+    def _load_template(self, name: str, **kw) -> str:
+        import os as _o
+        p = _o.path.join(_o.path.dirname(__file__), name)
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                html = f.read()
+            for k, v in kw.items():
+                html = html.replace(f"__{k.upper()}__", str(v))
+            return html
+        except Exception:
+            return f"<h1>Template {name} unavailable</h1>"
+
+    def _render_public_home(self) -> str:
+        return self._load_template("home_template.html")
+        _DEAD = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
@@ -2739,8 +2911,9 @@ class WebPanel:
 </body>
 </html>"""
 
-        def _render_tos_page(self) -> str:
-                return """<!DOCTYPE html>
+    def _render_tos_page(self) -> str:
+        return self._load_template("tos_template.html")
+        _DEAD = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Aria - Terms of Service</title>
 <style>
@@ -2760,8 +2933,9 @@ a{color:#93c5fd;text-decoration:none}
 <p><a href="/home">Back to Home</a></p>
 </div></body></html>"""
 
-        def _render_privacy_page(self) -> str:
-                return """<!DOCTYPE html>
+    def _render_privacy_page(self) -> str:
+        return self._load_template("privacy_template.html")
+        _DEAD = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Aria - Privacy Policy</title>
 <style>
@@ -2782,6 +2956,7 @@ a{color:#93c5fd;text-decoration:none}
 </div></body></html>"""
 
     def _render_access_pending(self) -> str:
+        return self._load_template("access_pending_template.html")
         return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3081,6 +3256,79 @@ a{color:#93c5fd;text-decoration:none}
 </html>
 """
         return html
+
+    def _render_add_token(self, error: str = "") -> str:
+        error_block = f'<div class="error">{error}</div>' if error else '<div style="height:6px;"></div>'
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aria \u2014 Link Bot Token</title>
+  <style>
+    *{{margin:0;padding:0;box-sizing:border-box;}}
+    body{{min-height:100vh;display:grid;place-items:center;background:linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#0f172a 100%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#e5e7eb;}}
+    .card{{width:min(440px,calc(100vw - 32px));background:rgba(15,23,42,0.96);border:1px solid rgba(236,72,153,0.3);border-radius:16px;padding:32px;box-shadow:0 24px 80px rgba(0,0,0,0.45);}}
+    h1{{font-size:24px;font-weight:800;background:linear-gradient(135deg,#ec4899,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:6px;}}
+    p.sub{{color:#94a3b8;font-size:14px;margin-bottom:22px;}}
+    .fg{{margin-bottom:16px;}}
+    label{{display:block;font-size:13px;color:#94a3b8;margin-bottom:6px;}}
+    input{{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e5e7eb;font-size:14px;}}
+    input:focus{{border-color:#8b5cf6;outline:none;box-shadow:0 0 0 3px rgba(139,92,246,0.15);}}
+    button{{width:100%;border:0;border-radius:10px;padding:12px;font-weight:600;cursor:pointer;background:linear-gradient(135deg,#ec4899,#8b5cf6);color:#fff;font-size:15px;margin-top:8px;}}
+    button:hover{{transform:translateY(-1px);box-shadow:0 8px 24px rgba(139,92,246,0.4);}}
+    .error{{color:#fca5a5;font-size:13px;padding:10px 12px;background:rgba(252,165,165,0.1);border-radius:8px;border-left:2px solid #fc8181;margin-bottom:14px;}}
+    .note{{margin-top:18px;font-size:12px;color:#64748b;line-height:1.5;}}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Link Your Bot Token</h1>
+    <p class="sub">Enter your Discord bot token to access your dashboard</p>
+    {error_block}
+    <form method="post" action="/add-token">
+      <div class="fg">
+        <label>Bot Token</label>
+        <input type="password" name="bot_token" placeholder="mfa.xxxxxxxx or Bot token" autocomplete="off" required />
+      </div>
+      <button type="submit">Link Token &amp; Open Dashboard</button>
+    </form>
+    <p class="note">Your token is stored securely and only used to control your bot instance. You can update it here at any time.</p>
+  </div>
+</body>
+</html>"""
+
+    def _render_login(self, error: str = "", next_path: str = "/dashboard", mode: str = "login") -> str:
+        safe_next = next_path if isinstance(next_path, str) and next_path.startswith("/") else "/dashboard"
+        is_register = mode == "register"
+        error_block = (
+            f'<div class="error">{error}</div>' if error else '<div style="height:6px;"></div>'
+        )
+        username_field = (
+            '<div class="fg"><label>Username</label>'
+            '<input type="text" name="username" placeholder="Username" autocomplete="username" required /></div>'
+            if is_register else ""
+        )
+        bot_token_field = (
+            '<div class="fg"><label>Bot Token (optional)</label>'
+            '<input type="password" name="bot_token" placeholder="Token" autocomplete="off" /></div>'
+            if is_register else ""
+        )
+        return self._load_template(
+            "login_template.html",
+            title="Create Account" if is_register else "Sign In",
+            subtitle="Join Aria Dashboard" if is_register else "Access your bot dashboard",
+            mode=mode,
+            button_text="Create Account" if is_register else "Sign In",
+            error_block=error_block,
+            safe_next=safe_next,
+            username_field=username_field,
+            bot_token_field=bot_token_field,
+            remember_checked="checked" if not is_register else "",
+            toggle_prefix="" if is_register else "Don't have an account? ",
+            toggle_link="/login?mode=login" if is_register else "/login?mode=register",
+            toggle_text="Sign In" if is_register else "Create Account",
+        )
 
     def run(self) -> None:
         self.app.run(host=self.host, port=self.port, debug=False, use_reloader=False)

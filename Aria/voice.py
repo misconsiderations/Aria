@@ -310,8 +310,27 @@ class SimpleVoice:
         self.token = token
         self.bot = bot
         self.active_connections: Dict[str, VoiceClient] = {}
+        self.last_error: str = ""
+
+    def _is_client_alive(self, client: Optional[VoiceClient]) -> bool:
+        if client is None:
+            return False
+        if not client.running:
+            return False
+        if not client.voice_thread:
+            return False
+        return client.voice_thread.is_alive()
+
+    def _cleanup_dead_connections(self) -> None:
+        stale = []
+        for key, client in self.active_connections.items():
+            if not self._is_client_alive(client):
+                stale.append(key)
+        for key in stale:
+            self.active_connections.pop(key, None)
 
     def _get_client(self, channel_id=None) -> Optional[VoiceClient]:
+        self._cleanup_dead_connections()
         if channel_id:
             return self.active_connections.get(f"channel_{channel_id}")
         if self.active_connections:
@@ -319,6 +338,7 @@ class SimpleVoice:
         return None
 
     def join_vc(self, *args, **kwargs) -> bool:
+        self.last_error = ""
         channel_id = None
         if args and isinstance(args[0], str) and args[0].isdigit():
             channel_id = args[0]
@@ -326,11 +346,18 @@ class SimpleVoice:
             channel_id = str(kwargs["channel_id"])
 
         if not channel_id:
+            self.last_error = "Missing channel ID"
             return False
 
         if not self.bot or not self.bot.ws:
             print("[Voice] Bot gateway not ready")
+            self.last_error = "Bot gateway not ready"
             return False
+
+        # Already connected to this channel and alive.
+        existing = self.active_connections.get(f"channel_{channel_id}")
+        if self._is_client_alive(existing):
+            return True
 
         # Fetch channel info to determine guild_id / type
         guild_id = None
@@ -346,9 +373,11 @@ class SimpleVoice:
                     is_dm = True
                 else:
                     print(f"[Voice] Channel type {ctype} is not a voice channel")
+                    self.last_error = f"Channel type {ctype} is not voice"
                     return False
         except Exception as e:
             print(f"[Voice] Could not fetch channel info: {e}")
+            self.last_error = f"Could not fetch channel info: {str(e)[:80]}"
             return False
 
         # Leave any current connection first
@@ -370,11 +399,13 @@ class SimpleVoice:
         if success:
             self.active_connections[key] = client
         else:
+            self.last_error = "Voice gateway handshake failed"
             if getattr(self.bot, "_voice_client", None) is client:
                 self.bot._voice_client = None
         return success
 
     def leave_vc(self, *args, **kwargs) -> bool:
+        self.last_error = ""
         channel_id = None
         if args and isinstance(args[0], str) and args[0].isdigit():
             channel_id = args[0]
@@ -401,6 +432,7 @@ class SimpleVoice:
         return True
 
     def is_in_voice(self, *args, **kwargs) -> bool:
+        self._cleanup_dead_connections()
         channel_id = None
         if args and isinstance(args[0], str) and args[0].isdigit():
             channel_id = args[0]
@@ -463,3 +495,7 @@ class SimpleVoice:
             return True, "Stream " + ("started" if enabled else "stopped")
         except Exception as e:
             return False, str(e)
+
+    def current_channel_id(self) -> Optional[str]:
+        client = self._get_client()
+        return str(client.channel_id) if client and client.channel_id else None

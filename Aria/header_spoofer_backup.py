@@ -133,7 +133,8 @@ class ProtectionCoordinator:
         self.token = token
         self.user_id = self._extract_user_id_from_token(token)
         self.header_rotator.set_token(token)
-        self.fingerprint_manager.set_user_id(self.user_id)
+        if self.user_id:
+            self.fingerprint_manager.set_user_id(self.user_id)
 
     def _extract_user_id_from_token(self, token: str) -> Optional[str]:
         """Extract user ID from bot token"""
@@ -379,7 +380,8 @@ class HeaderSpoofer:
     def handle_response(self, response: Response) -> Optional[float]:
         """Handle response and return any required wait time"""
         if response.status_code == 429:
-            return self.protection_coordinator.handle_429_response(dict(response.headers))
+            headers = {k: v for k, v in dict(response.headers).items() if v is not None}
+            return self.protection_coordinator.handle_429_response(headers)
         elif response.status_code == 200:
             self.protection_coordinator.handle_success_response()
             return None

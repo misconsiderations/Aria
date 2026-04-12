@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aria — Terms of Service</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      background: #030712;
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    body::before {
+      content: '';
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background: radial-gradient(ellipse 60% 50% at 10% 0%, rgba(139,92,246,.14) 0%, transparent 55%);
+    }
+    nav {
+      position: sticky; top: 0; z-index: 50;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 15px 28px;
+      background: rgba(3,7,18,.9);
+      border-bottom: 1px solid rgba(148,163,184,.12);
+      backdrop-filter: blur(18px);
+    }
+    .logo {
+      font-size: 1.25rem; font-weight: 900;
+      background: linear-gradient(135deg, #ec4899, #8b5cf6);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    nav a {
+      text-decoration: none; color: #94a3b8;
+      padding: 6px 13px; border-radius: 8px;
+      font-weight: 700; font-size: .83rem;
+      border: 1px solid rgba(148,163,184,.14);
+      transition: all .2s;
+    }
+    nav a:hover { color: #f1f5f9; border-color: rgba(148,163,184,.3); }
+    .wrap {
+      max-width: 800px; margin: 0 auto;
+      padding: 48px 28px 60px;
+      position: relative; z-index: 1;
+    }
+    .page-title {
+      font-size: 2rem; font-weight: 900; margin-bottom: 6px;
+      background: linear-gradient(135deg, #ec4899, #8b5cf6);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .page-sub { color: #94a3b8; font-size: .9rem; margin-bottom: 32px; }
+    .section {
+      background: rgba(15,23,42,.72);
+      border: 1px solid rgba(148,163,184,.12);
+      border-radius: 14px; padding: 22px 24px;
+      backdrop-filter: blur(16px);
+      margin-bottom: 14px;
+    }
+    h2 { font-size: 1rem; font-weight: 800; color: #a78bfa; margin-bottom: 9px; }
+    p  { color: #cbd5e1; line-height: 1.65; font-size: .92rem; }
+    .back {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-top: 22px;
+      text-decoration: none; color: #94a3b8;
+      font-weight: 700; font-size: .85rem;
+      padding: 8px 14px;
+      background: rgba(15,23,42,.72);
+      border: 1px solid rgba(148,163,184,.14);
+      border-radius: 9px; transition: all .2s;
+    }
+    .back:hover { color: #f1f5f9; border-color: rgba(148,163,184,.3); }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="logo">ARIA</div>
+    <a href="/home">← Home</a>
+  </nav>
+  <div class="wrap">
+    <div class="page-title">Terms of Service</div>
+    <p class="page-sub">Last updated April 2026 · Please read before using the platform.</p>
+
+    <div class="section">
+      <p>By using Aria Premium Discord Hosting, you agree to follow owner/admin rules, access policies, and platform restrictions outlined below.</p>
+    </div>
+    <div class="section">
+      <h2>Account Access</h2>
+      <p>Dashboard access may be approved, denied, or revoked by owner/admin at any time without prior notice or stated reason.</p>
+    </div>
+    <div class="section">
+      <h2>Usage Responsibility</h2>
+      <p>Users are solely responsible for their own Discord account behaviour, token safety, and command usage. Any actions taken via the panel are the user's responsibility.</p>
+    </div>
+    <div class="section">
+      <h2>Prohibited Conduct</h2>
+      <p>Sharing credentials, attempting to access other users' data, abusing the API, or using the platform for harassment will result in immediate access revocation.</p>
+    </div>
+    <div class="section">
+      <h2>Service Changes</h2>
+      <p>Features, plans, access limits, and instance controls can be modified or discontinued without prior notice.</p>
+    </div>
+
+    <a class="back" href="/home">← Back to Home</a>
+  </div>
+</body>
+</html>

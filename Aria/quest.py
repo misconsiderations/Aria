@@ -182,13 +182,9 @@ class QuestSystem:
     def fetch_quests(self):
         """Fetch and cache quests, excluding user-owned quests. Returns (success, message)."""
         try:
-            resp = self.api.session.get(
-                f"{QUESTS_BASE}/quests/@me",
-                headers=self._headers(),
-                timeout=10,
-            )
-            if resp.status_code != 200:
-                return False, f"HTTP {resp.status_code}"
+            resp = self.api.request("GET", "/quests/@me")
+            if not resp or resp.status_code != 200:
+                return False, f"HTTP {resp.status_code if resp else 'No response'}"
 
             data = resp.json()
             blocked_until = None
@@ -240,18 +236,17 @@ class QuestSystem:
             return None
         qid = q.get("id")
         try:
-            resp = self.api.session.post(
-                f"{QUESTS_BASE}/quests/{qid}/enroll",
-                headers=self._headers(),
-                json={"is_targeted": False, "location": 11, "metadata_raw": None},
-                timeout=10,
+            resp = self.api.request(
+                "POST",
+                f"/quests/{qid}/enroll",
+                data={"is_targeted": False, "location": 11, "metadata_raw": None},
             )
-            if resp.status_code in (200, 201):
+            if resp and resp.status_code in (200, 201):
                 body = resp.json() if resp.content else {}
                 if isinstance(body, dict):
                     return body
                 return q.get("user_status") or {}
-            if resp.status_code == 204:
+            if resp and resp.status_code == 204:
                 return q.get("user_status") or {"enrolled_at": datetime.now(timezone.utc).isoformat()}
         except Exception:
             pass
@@ -262,14 +257,14 @@ class QuestSystem:
         if not qid or not self._is_claimable(q):
             return False
         endpoints = (
-            f"{QUESTS_BASE}/quests/{qid}/claim-reward",
-            f"{QUESTS_BASE}/quests/{qid}/claim_reward",
-            f"{QUESTS_BASE}/quests/{qid}/claim",
+            f"/quests/{qid}/claim-reward",
+            f"/quests/{qid}/claim_reward",
+            f"/quests/{qid}/claim",
         )
         for ep in endpoints:
             try:
-                resp = self.api.session.post(ep, headers=self._headers(), json={}, timeout=10)
-                if resp.status_code in (200, 201, 204):
+                resp = self.api.request("POST", ep, data={})
+                if resp and resp.status_code in (200, 201, 204):
                     us = q.get("user_status") or {}
                     us["claimed_at"] = datetime.now(timezone.utc).isoformat()
                     q["user_status"] = us
@@ -283,7 +278,6 @@ class QuestSystem:
         qid = str(q.get("id", ""))
         qtype = self._task_type(q)
         _, done, total = self._get_progress(q)
-        headers = self._headers()
 
         try:
             if qtype == "watch":
@@ -301,28 +295,26 @@ class QuestSystem:
                     return True, False, done, total
 
                 new_val = min(done + speed + random.random(), max_allowed)
-                resp = self.api.session.post(
-                    f"{QUESTS_BASE}/quests/{qid}/video-progress",
-                    headers=headers,
-                    json={"timestamp": new_val},
-                    timeout=10,
+                resp = self.api.request(
+                    "POST",
+                    f"/quests/{qid}/video-progress",
+                    data={"timestamp": new_val},
                 )
             elif qtype in ("play", "stream"):
                 app_id = str(((q.get("config") or {}).get("application") or {}).get("id") or "")
                 hb_payload = {"terminal": False}
                 if app_id:
                     hb_payload["application_id"] = app_id
-                resp = self.api.session.post(
-                    f"{QUESTS_BASE}/quests/{qid}/heartbeat",
-                    headers=headers,
-                    json=hb_payload,
-                    timeout=10,
+                resp = self.api.request(
+                    "POST",
+                    f"/quests/{qid}/heartbeat",
+                    data=hb_payload,
                 )
             else:
                 return False, False, done, total
 
-            if resp.status_code not in (200, 204):
-                if resp.status_code in (401, 404):
+            if not resp or resp.status_code not in (200, 204):
+                if resp and resp.status_code in (401, 404):
                     self.excluded.add(qid)
                 return False, False, done, total
 
