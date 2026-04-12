@@ -218,49 +218,47 @@ Flags: {user.get('flags', 0)}"""
     
     @bot.command(name="avatar", aliases=["pfp", "avatar_url"])
     def avatar_cmd(ctx, args):
-        """Get user's avatar URL"""
-        if not args:
-            user_id = ctx["author_id"]
-        else:
-            user_id = args[0].strip("<>@!")
-        
-        response = ctx["api"].request("GET", f"/users/{user_id}")
-        if response and response.status_code == 200:
-            user = response.json()
-            avatar = user.get("avatar")
-            if avatar:
-                url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar}.png"
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```{url}```")
-                if msg:
-                    delete_after_delay_func(ctx["api"], ctx["channel_id"], msg.get("id"))
-            else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```No avatar```")
-                if msg:
-                    delete_after_delay_func(ctx["api"], ctx["channel_id"], msg.get("id"))
+        """Get user's avatar URL — handled by main avatar command"""
+        pass  # main.py registers a full version of this command after extended_commands
     
     @bot.command(name="banner", aliases=["banner_url"])
     def banner_cmd(ctx, args):
-        """Get user's banner URL"""
-        if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```Usage: +banner <user_id>```")
+        """Get user's profile banner URL"""
+        api = ctx["api"]
+        raw = args[0] if args else str(ctx["author_id"])
+        user_id = raw.strip("<>@!")
+        if not user_id.isdigit():
+            user_id = raw
+
+        # Try profile endpoint; fall back to basic user
+        r = api.request("GET", f"/users/{user_id}/profile?with_mutual_guilds=false")
+        if not r or r.status_code not in (200, 201):
+            r = api.request("GET", f"/users/{user_id}")
+
+        if not r or r.status_code not in (200, 201):
+            msg = api.send_message(ctx["channel_id"], f"```| Banner |\nUser not found: {user_id}```")
             if msg:
-                delete_after_delay_func(ctx["api"], ctx["channel_id"], msg.get("id"))
+                delete_after_delay_func(api, ctx["channel_id"], msg.get("id"))
             return
-        
-        user_id = args[0].strip("<>@!")
-        response = ctx["api"].request("GET", f"/users/{user_id}/profile")
-        if response and response.status_code == 200:
-            data = response.json()
-            banner = data.get("user_profile", {}).get("banner")
-            if banner:
-                url = f"https://cdn.discordapp.com/banners/{user_id}/{banner}.png"
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```{url}```")
-                if msg:
-                    delete_after_delay_func(ctx["api"], ctx["channel_id"], msg.get("id"))
-            else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```No banner```")
-                if msg:
-                    delete_after_delay_func(ctx["api"], ctx["channel_id"], msg.get("id"))
+
+        d = r.json()
+        user = d.get("user") or d
+        # Banner hash is on user object; some profiles also expose it under user_profile
+        banner_hash = user.get("banner") or (d.get("user_profile") or {}).get("banner")
+
+        if not banner_hash:
+            msg = api.send_message(ctx["channel_id"], f"```| Banner |\n{user.get('username', user_id)} has no banner```")
+            if msg:
+                delete_after_delay_func(api, ctx["channel_id"], msg.get("id"))
+            return
+
+        ext = "gif" if banner_hash.startswith("a_") else "png"
+        url = f"https://cdn.discordapp.com/banners/{user_id}/{banner_hash}.{ext}?size=4096"
+        username = user.get("username", user_id)
+        # Send header + bare URL so Discord embeds the image
+        msg = api.send_message(ctx["channel_id"], f"```| Banner — {username} |\n> ID :: {user_id}```\n{url}")
+        if msg:
+            delete_after_delay_func(api, ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="badges")
     def badges_cmd(ctx, args):

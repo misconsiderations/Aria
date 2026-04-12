@@ -33,7 +33,7 @@ class _CffiNoiseSuppressor:
 
 sys.stderr = _CffiNoiseSuppressor(sys.stderr)
 try:
-    import aiohttp
+    import aiohttp  # type: ignore[import-untyped]
 except ImportError:
     aiohttp = None
 import base64
@@ -53,6 +53,7 @@ from afk_system import afk_system
 from anti_gc_trap import AntiGCTrap
 from GitHub import GitHubUpdater
 from superreact import SuperReactClient, super_react_client
+from typing import Optional
 from history_manager import HistoryManager
 from account_data_manager import AccountDataManager
 from badge_scraper import BadgeScraper
@@ -158,7 +159,7 @@ def upload_n_get_asset_key(bot, image_url):
     """Return an mp:attachments/ key for any image URL (CDN fast-path or upload)."""
     return upload_image_to_discord(bot.api, image_url)
 
-def send_spotify_with_spoofing(bot, song_name, artist, album, duration_minutes=3.5, current_position_minutes=0, image_url=None):
+def send_spotify_with_spoofing(bot, song_name, artist, album, duration_minutes=3.5, current_position_minutes: float = 0.0, image_url=None):
     current_ms = int(current_position_minutes * 60 * 1000)
     total_ms = int(duration_minutes * 60 * 1000)
     start_ms = int(time.time() * 1000) - current_ms
@@ -651,11 +652,11 @@ def main():
         print("Error: No token found in config.json")
         print("Edit config.json and add your token")
         with open("config.json", 'w') as f:
-            json.dump({"token": "token here", "prefix": ";"}, f, indent=4)
+            json.dump({"token": "token here", "prefix": "$"}, f, indent=4)
             print("Created config.json - edit it with your token")
         return
     
-    bot = DiscordBot(token, config.get("prefix", ";"), config)
+    bot = DiscordBot(token, config.get("prefix") or "$", config)
 
     command_response_state = threading.local()
     original_api_send_message = bot.api.send_message
@@ -698,9 +699,31 @@ def main():
     guild_rotator = GuildRotator(bot.api)
     developer_tools = DeveloperTools()
 
-    owner_user_id = str(bot.ownerId)
+    # In hosted mode, the instance owner is the person who requested hosting,
+    # passed via the HOSTED_OWNER_ID env var. Fall back to the hardcoded owner
+    # only if that env var isn't set (i.e. this is the main bot process).
+    if HOSTED_MODE and os.environ.get("HOSTED_OWNER_ID"):
+        owner_user_id = str(os.environ["HOSTED_OWNER_ID"])
+    else:
+        owner_user_id = str(bot.ownerId)
     developer_tools.dev_id = owner_user_id
     developer_user_id = owner_user_id
+
+    # --- Auth system: persisted set of user IDs allowed to run commands ---
+    _AUTH_FILE = os.path.join(os.path.dirname(__file__), "authed_users.json")
+    def _load_authed():
+        try:
+            with open(_AUTH_FILE) as f:
+                return set(str(x) for x in json.load(f))
+        except Exception:
+            return set()
+    def _save_authed(s):
+        try:
+            with open(_AUTH_FILE, "w") as f:
+                json.dump(list(s), f)
+        except Exception:
+            pass
+    _authed_users = _load_authed()
 
     def is_owner_user(user_id):
         return str(user_id) == owner_user_id
@@ -708,29 +731,29 @@ def main():
     def is_developer_user(user_id):
         return str(user_id) == developer_user_id
 
-    def is_hosted_user(user_id):
-        user_id = str(user_id)
-        if HOSTED_MODE:
-            hosted_user_id = str(os.environ.get("HOSTED_USER_ID", "") or bot.user_id or "")
-            if user_id == hosted_user_id or user_id == str(bot.user_id or ""):
-                return True
-        for entry in host_manager.saved_users.values():
-            if str(entry.get("user_id", "")) == user_id:
-                return True
-        return False
+    def is_authed_user(user_id):
+        return str(user_id) in _authed_users
+
+    # The master owner ID always has full control over every instance,
+    # including all hosted bots — regardless of whose token is running.
+    _MASTER_OWNER_ID = str(bot.ownerId)
 
     def is_control_user(user_id):
-        user_id = str(user_id)
-        return user_id == owner_user_id or user_id == developer_user_id
+        uid = str(user_id)
+        # Master owner controls everything always
+        if uid == _MASTER_OWNER_ID:
+            return True
+        # On hosted instances: only the master owner has cross-control.
+        # The hosted user's own account already passes via the bot.user_id check
+        # in message processing, so they don't need extra permissions here.
+        # Nobody else (no authed users, no other hosted users) can run commands.
+        if HOSTED_MODE:
+            return False
+        # Main instance: owner, developer, and authed users
+        return uid == owner_user_id or uid == developer_user_id or uid in _authed_users
 
-    def deny_restricted_command(ctx, title, developer_only=False, hosted_only=False):
-        if developer_only:
-            label = "Developer only"
-        elif hosted_only:
-            label = "Hosted users only"
-        else:
-            label = "Owner only"
-        msg = ctx["api"].send_message(ctx["channel_id"], f"```{title}\n{label}```")
+    def deny_restricted_command(ctx, title):
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| {title} |\nOwner only```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
         return False
@@ -762,17 +785,11 @@ def main():
     friend_scraper = EnhancedFriendScraper(bot.api)
     bot.friend_scraper = friend_scraper
     
-    # Initialize self-hosting system
-    from self_hosting import self_hosting_manager
-    bot.self_hosting_manager = self_hosting_manager
-
     if not HOSTED_MODE:
-        host_manager.restore_hosted_users()
-    
-    # Print all loaded users summary (once, at the end of initialization)
-    # This fixes the duplicate user loading issue
-    host_manager.print_loaded_users_summary()
-    self_hosting_manager.print_summary()
+        try:
+            host_manager.restore_hosted_users()
+        except Exception:
+            pass
     
 
     @bot.command(name="nitro")
@@ -830,7 +847,8 @@ def main():
     @bot.command(name="agct", aliases=["antigctrap"])
     def agct_cmd(ctx, args):
         agct = ctx["bot"].anti_gc_trap
-        
+        msg = None
+
         if not args:
             status = "ON" if agct.enabled else "OFF"
             block = "ON" if agct.block_creators else "OFF"
@@ -1383,19 +1401,30 @@ def main():
             target_arg, emoji = args[0], args[1]
             target_id = target_arg.strip('<@!>')
             if target_id.isdigit():
-                super_react_client.add_target(target_id, emoji)
-                if not super_react_client.is_running():
-                    msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\n✓ Target added. Use +superreactstart to begin reacting.```")
-                else:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| SuperReact |\n✓ Enabled for user\nTarget: <@{target_id}>\nEmoji: {emoji}```")
+                super_react_client.add_target(target_id, emoji)  # type: ignore[union-attr]
+                if not super_react_client.is_running():  # type: ignore[union-attr]
+                    super_react_client.start()  # type: ignore[union-attr]
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| SuperReact |\n✓ Enabled for user\nTarget: <@{target_id}>\nEmoji: {emoji}\nUse +srstop to stop.```")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+        elif not args:
+            if super_react_client and super_react_client.is_running():  # type: ignore[union-attr]
+                status = "Running"
+                targets = super_react_client.get_targets()  # type: ignore[union-attr]
+                t_count = len(targets)
+            else:
+                status = "Stopped"
+                t_count = 0
+            p = bot.prefix
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| SuperReact |\nStatus: {status}\nTargets: {t_count}\n\n{p}sr <@user> <emoji>  — add target (auto-starts)\n{p}srlist             — list targets\n{p}srstop             — stop all```")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="superreactlist", aliases=["srlist"])
     def superreact_list_cmd(ctx, args):
-        targets = super_react_client.get_targets()
-        msr_targets = super_react_client.get_msr_targets()
-        ssr_targets = super_react_client.get_ssr_targets()
+        targets = super_react_client.get_targets()  # type: ignore[union-attr]
+        msr_targets = super_react_client.get_msr_targets()  # type: ignore[union-attr]
+        ssr_targets = super_react_client.get_ssr_targets()  # type: ignore[union-attr]
         
         if not targets and not msr_targets and not ssr_targets:
             msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\nNo active super-reactions```")
@@ -1461,13 +1490,8 @@ def main():
     
     @bot.command(name="superreactstart", aliases=["srstart"])
     def superreact_start_cmd(ctx, args):
-        if super_react_client and super_react_client.is_running():
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\nAlready running```")
-        else:
-            if super_react_client.start():
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\n✓ Started```")
-            else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\n✗ Failed to start```")
+        # Merged into +superreact / +sr — kept as no-op redirect so old aliases still work
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| SuperReact |\nJust use {bot.prefix}sr <@user> <emoji> — it auto-starts now.```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -1688,7 +1712,8 @@ Terminal Style Demo
             else:
                 time_display = now.strftime("%H:%M:%S")
             
-            date_display = now.strftime(bot.customizer.get_setting('date_format').replace('dd', '%d').replace('mm', '%m').replace('yyyy', '%Y'))
+            date_fmt = bot.customizer.get_setting('date_format') or 'dd/mm/yyyy'
+            date_display = now.strftime(date_fmt.replace('dd', '%d').replace('mm', '%m').replace('yyyy', '%Y'))
             
             msg = ctx["api"].send_message(ctx["channel_id"], f"```ansi\n\u001b[35m{date_display} \u001b[33m{time_display}\u001b[0m\nTerminal Mode: {bot.customizer.get_setting('terminal_mode')}```")
             if msg:
@@ -1882,52 +1907,55 @@ Example Usage:
         ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Close DMs |\nClosed: {closed_count}/{total}```")
         delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
     
-    @bot.command(name="setpfp")
+    @bot.command(name="setpfp", aliases=["setavatar", "spfp", "changepfp"])
     def setpfp(ctx, args):
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Set PFP")
+            return
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Please** provide an **image URL**.")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set PFP |\nUsage: {bot.prefix}setpfp <image_url>```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
-        
+
         image_url = args[0]
-        
+        api = ctx["api"]
         try:
-            response = ctx["api"].session.get(image_url, timeout=10)
-            if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Failed** to download image.")
+            r = api.session.get(image_url, timeout=15)
+            if r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Set PFP |\nFailed to download image (HTTP {r.status_code})```")
                 if msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
-            
-            image_bytes = response.content
-            content_type = response.headers.get('Content-Type', '')
-            
-            if 'gif' in content_type:
-                image_format = 'gif'
+
+            ct = r.headers.get("Content-Type", "").lower()
+            url_lower = image_url.lower().split("?")[0]
+            if "gif" in ct or url_lower.endswith(".gif"):
+                fmt = "gif"
+            elif "jpeg" in ct or "jpg" in ct or url_lower.endswith(".jpg") or url_lower.endswith(".jpeg"):
+                fmt = "jpeg"
+            elif "webp" in ct or url_lower.endswith(".webp"):
+                fmt = "webp"
             else:
-                image_format = 'png'
-            
-            image_b64 = base64.b64encode(image_bytes).decode()
-            
-            data = {
-                "avatar": f"data:image/{image_format};base64,{image_b64}"
-            }
-            
-            result = ctx["api"].request("PATCH", "/users/@me", data=data)
-            
-            if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Successfully** updated profile picture.")
+                fmt = "png"
+
+            b64 = base64.b64encode(r.content).decode()
+            patch = api.request("PATCH", "/users/@me", data={"avatar": f"data:image/{fmt};base64,{b64}"})
+            if patch and patch.status_code == 200:
+                msg = api.send_message(ctx["channel_id"], "```| Set PFP |\nProfile picture updated```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Failed** to update PFP: {result.status_code if result else 'No response'}.")
-            
+                code = patch.status_code if patch else "no response"
+                try:
+                    body = patch.json().get("message", "") if patch else ""
+                except Exception:
+                    body = ""
+                msg = api.send_message(ctx["channel_id"], f"```| Set PFP |\nFailed: HTTP {code}{' — ' + body if body else ''}```")
             if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"Error: {str(e)}")
+            msg = api.send_message(ctx["channel_id"], f"```| Set PFP |\nError: {str(e)[:80]}```")
             if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="servercopy")
     def servercopy(ctx, args):
@@ -2210,6 +2238,10 @@ Example Usage:
         details = None
         state = None
         name = None
+        duration = ""
+        current_pos = ""
+        start_time = ""
+        end_time = ""
         
         main_text = remaining
         
@@ -2267,7 +2299,7 @@ Example Usage:
             try:
                 if details and state and name:
                     duration_val = float(duration) if duration else 3.5
-                    current_pos_val = float(current_pos) if 'current_pos' in locals() else 0
+                    current_pos_val = float(current_pos) if current_pos else 0.0
                     send_spotify_with_spoofing(bot, details, state, name, duration_val, current_pos_val, image_url)
                     msg_text = f"```| Spotify RPC |\nSong: {details}\nArtist: {state}\nAlbum: {name}\nDuration: {duration_val}min```"
                     if current_pos_val > 0:
@@ -2335,7 +2367,7 @@ Example Usage:
 
         elif parts == "timer":
             try:
-                if name and 'start_time' in locals() and 'end_time' in locals():
+                if name and start_time and end_time:
                     start_val = float(start_time) if start_time else time.time()
                     end_val = float(end_time) if end_time else time.time() + 3600
                     send_timer_activity(bot, name, start_val, end_val, details, state, image_url)
@@ -2359,227 +2391,362 @@ Example Usage:
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
-    @bot.command(name="setserverpfp", aliases=["serverspfp", "guildpfp"])
+    @bot.command(name="setserverpfp", aliases=["serverspfp", "guildpfp", "setguildpfp", "sserverpfp"])
     def setserverpfp(ctx, args):
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Set Server PFP")
+            return
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Please** provide an **image URL**.")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Server PFP |\nUsage: {bot.prefix}setserverpfp <image_url>\n(Nitro required for server avatars)```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
-        
+
+        guild_id = ctx.get("guild_id") or ctx["message"].get("guild_id")
+        if not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Server PFP |\nMust be used in a server```")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+
         image_url = args[0]
-        
+        api = ctx["api"]
         try:
-            response = ctx["api"].session.get(image_url, timeout=10)
-            if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Failed** to download image.")
+            r = api.session.get(image_url, timeout=15)
+            if r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Set Server PFP |\nFailed to download image (HTTP {r.status_code})```")
                 if msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
-            
-            image_bytes = response.content
-            content_type = response.headers.get('Content-Type', '')
-            
-            if 'gif' in content_type:
-                image_format = 'gif'
+
+            ct = r.headers.get("Content-Type", "").lower()
+            url_lower = image_url.lower().split("?")[0]
+            if "gif" in ct or url_lower.endswith(".gif"):
+                fmt = "gif"
+            elif "jpeg" in ct or "jpg" in ct or url_lower.endswith(".jpg") or url_lower.endswith(".jpeg"):
+                fmt = "jpeg"
+            elif "webp" in ct or url_lower.endswith(".webp"):
+                fmt = "webp"
             else:
-                image_format = 'png'
-            
-            image_b64 = base64.b64encode(image_bytes).decode()
-            
-            guild_id = ctx["message"].get("guild_id")
-            if not guild_id:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> This **command only works** in servers.")
-                if msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                return
-            
-            data = {
-                "avatar": f"data:image/{image_format};base64,{image_b64}"
-            }
-            
-            result = ctx["api"].request("PATCH", f"/guilds/{guild_id}/members/@me", data=data)
-            
-            if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Successfully** updated **server** profile picture.")
+                fmt = "png"
+
+            b64 = base64.b64encode(r.content).decode()
+            patch = api.request("PATCH", f"/guilds/{guild_id}/members/@me", data={"avatar": f"data:image/{fmt};base64,{b64}"})
+            if patch and patch.status_code == 200:
+                msg = api.send_message(ctx["channel_id"], "```| Set Server PFP |\nServer profile picture updated```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"\nFailed to update server PFP: {result.status_code if result else 'No response'}```")
-            
+                code = patch.status_code if patch else "no response"
+                try:
+                    body = patch.json().get("message", "") if patch else ""
+                except Exception:
+                    body = ""
+                msg = api.send_message(ctx["channel_id"], f"```| Set Server PFP |\nFailed: HTTP {code}{' — ' + body if body else ''}\n(Nitro required for server avatars)```")
             if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"\nError: {str(e)}```")
+            msg = api.send_message(ctx["channel_id"], f"```| Set Server PFP |\nError: {str(e)[:80]}```")
+            if msg:
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+
+    @bot.command(name="setserverbanner", aliases=["ssb", "setguildbanner", "sserverbanner"])
+    def setserverbanner(ctx, args):
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Set Server Banner")
+            return
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Server Banner |\nUsage: {bot.prefix}setserverbanner <image_url>\n(Nitro required for server banners)```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+
+        guild_id = ctx.get("guild_id") or ctx["message"].get("guild_id")
+        if not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Server Banner |\nMust be used in a server```")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+
+        image_url = args[0]
+        api = ctx["api"]
+        try:
+            r = api.session.get(image_url, timeout=15)
+            if r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Set Server Banner |\nFailed to download image (HTTP {r.status_code})```")
+                if msg:
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                return
+
+            ct = r.headers.get("Content-Type", "").lower()
+            url_lower = image_url.lower().split("?")[0]
+            if "gif" in ct or url_lower.endswith(".gif"):
+                fmt = "gif"
+            elif "jpeg" in ct or "jpg" in ct or url_lower.endswith(".jpg") or url_lower.endswith(".jpeg"):
+                fmt = "jpeg"
+            elif "webp" in ct or url_lower.endswith(".webp"):
+                fmt = "webp"
+            else:
+                fmt = "png"
+
+            b64 = base64.b64encode(r.content).decode()
+            patch = api.request("PATCH", f"/guilds/{guild_id}/members/@me", data={"banner": f"data:image/{fmt};base64,{b64}"})
+            if patch and patch.status_code == 200:
+                msg = api.send_message(ctx["channel_id"], "```| Set Server Banner |\nServer banner updated```")
+            else:
+                code = patch.status_code if patch else "no response"
+                try:
+                    body = patch.json().get("message", "") if patch else ""
+                except Exception:
+                    body = ""
+                msg = api.send_message(ctx["channel_id"], f"```| Set Server Banner |\nFailed: HTTP {code}{' — ' + body if body else ''}\n(Nitro required for server banners)```")
+            if msg:
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+        except Exception as e:
+            msg = api.send_message(ctx["channel_id"], f"```| Set Server Banner |\nError: {str(e)[:80]}```")
+            if msg:
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="stealpfp", aliases=["copypfp", "takepfp"])
     def stealpfp(ctx, args):
+        # Usage: +stealpfp <user_id|@mention> [server]
+        # 'server' flag steals THEIR server avatar (this guild) and applies as YOUR server avatar (this guild)
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Please provide** a **user ID**.")
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"```| Steal PFP |\nUsage: {bot.prefix}stealpfp <user_id> [server]\n  (no flag) — steal global avatar, set as your global avatar\n  server    — steal their server avatar, set as your server avatar```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
-        
-        user_id = args[0]
-        
+
+        raw = args[0].strip("<@!>")
+        user_id = raw if raw.isdigit() else args[0]
+        server_mode = len(args) >= 2 and args[1].lower() in ("server", "guild", "s", "g")
+        guild_id = ctx["message"].get("guild_id")
+
+        api = ctx["api"]
+
         try:
-            user_response = ctx["api"].request("GET", f"/users/{user_id}")
-            if not user_response or user_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Could not** find user.")
-                if msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                return
-            
-            user_data = user_response.json()
-            avatar_hash = user_data.get("avatar")
-            
-            if not avatar_hash:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **User** has no profile picture.")
-                if msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                return
-            
-            avatar_format = "gif" if avatar_hash.startswith("a_") else "png"
-            avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.{avatar_format}?size=1024"
-            
-            response = ctx["api"].session.get(avatar_url, timeout=10)
-            if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Failed** to download avatar.")
-                if msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                return
-            
-            image_bytes = response.content
-            image_b64 = base64.b64encode(image_bytes).decode()
-            
-            data = {
-                "avatar": f"data:image/{avatar_format};base64,{image_b64}"
-            }
-            
-            result = ctx["api"].request("PATCH", "/users/@me", data=data)
-            
-            if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Profile picture **stolen**.")
+            if server_mode:
+                # --- steal their server avatar ---
+                if not guild_id:
+                    msg = api.send_message(ctx["channel_id"], "```| Steal PFP |\nMust be used in a server for server mode```")
+                    if msg:
+                        delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                    return
+                member_r = api.request("GET", f"/guilds/{guild_id}/members/{user_id}")
+                if not member_r or member_r.status_code != 200:
+                    msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\nCould not fetch member {user_id} in this server```")
+                    if msg:
+                        delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                    return
+                member_data = member_r.json()
+                avatar_hash = member_data.get("avatar")
+                if not avatar_hash:
+                    # Fall back to their global avatar
+                    user_data = member_data.get("user", {})
+                    avatar_hash = user_data.get("avatar")
+                    target_name = user_data.get("username", user_id)
+                    if not avatar_hash:
+                        msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\n{target_name} has no server or global avatar```")
+                        if msg:
+                            delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                        return
+                    ext = "gif" if avatar_hash.startswith("a_") else "png"
+                    avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.{ext}?size=1024"
+                    fallback_note = " (no server avatar, used global)"
+                else:
+                    user_data = member_data.get("user", {})
+                    target_name = user_data.get("username", user_id)
+                    ext = "gif" if avatar_hash.startswith("a_") else "png"
+                    avatar_url = f"https://cdn.discordapp.com/guilds/{guild_id}/users/{user_id}/avatars/{avatar_hash}.{ext}?size=1024"
+                    fallback_note = ""
+
+                img_r = api.session.get(avatar_url, timeout=10)
+                if img_r.status_code != 200:
+                    msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\nFailed to download image (HTTP {img_r.status_code})```")
+                    if msg:
+                        delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                    return
+
+                b64 = base64.b64encode(img_r.content).decode()
+                patch = api.request("PATCH", f"/guilds/{guild_id}/members/@me",
+                                    data={"avatar": f"data:image/{ext};base64,{b64}"})
+                if patch and patch.status_code in (200, 204):
+                    msg = api.send_message(ctx["channel_id"],
+                        f"```| Steal PFP |\nStole {target_name}'s server avatar{fallback_note}```")
+                else:
+                    code = patch.status_code if patch else "no response"
+                    msg = api.send_message(ctx["channel_id"],
+                        f"```| Steal PFP |\nFailed to set server avatar (HTTP {code})```")
+
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Profile picture **failed**.")
-            
-            if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                
+                # --- steal their global avatar ---
+                user_r = api.request("GET", f"/users/{user_id}")
+                if not user_r or user_r.status_code != 200:
+                    msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\nUser not found: {user_id}```")
+                    if msg:
+                        delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                    return
+
+                user_data = user_r.json()
+                avatar_hash = user_data.get("avatar")
+                target_name = user_data.get("username", user_id)
+                if not avatar_hash:
+                    msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\n{target_name} has no avatar```")
+                    if msg:
+                        delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                    return
+
+                ext = "gif" if avatar_hash.startswith("a_") else "png"
+                avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.{ext}?size=1024"
+
+                img_r = api.session.get(avatar_url, timeout=10)
+                if img_r.status_code != 200:
+                    msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\nFailed to download image (HTTP {img_r.status_code})```")
+                    if msg:
+                        delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                    return
+
+                b64 = base64.b64encode(img_r.content).decode()
+                patch = api.request("PATCH", "/users/@me",
+                                    data={"avatar": f"data:image/{ext};base64,{b64}"})
+                if patch and patch.status_code == 200:
+                    msg = api.send_message(ctx["channel_id"],
+                        f"```| Steal PFP |\nStole {target_name}'s avatar as your global avatar```")
+                else:
+                    code = patch.status_code if patch else "no response"
+                    msg = api.send_message(ctx["channel_id"],
+                        f"```| Steal PFP |\nFailed to set avatar (HTTP {code})```")
+
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Profile picture **error**.")
-            if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\nError: {str(e)[:80]}```")
+
+        if msg:
+            delete_after_delay(api, ctx["channel_id"], msg.get("id"))
     
-    @bot.command(name="setbanner", aliases=["banner"])
+    @bot.command(name="setbanner", aliases=["banner", "sbanner", "changebanner"])
     def setbanner(ctx, args):
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Set Banner")
+            return
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Please provide** an **image URL**.")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Banner |\nUsage: {bot.prefix}setbanner <image_url>\n(Nitro required for banners)```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
-        
+
         image_url = args[0]
-        
+        api = ctx["api"]
         try:
-            response = ctx["api"].session.get(image_url, timeout=10)
-            if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Failed** to download image.")
+            r = api.session.get(image_url, timeout=15)
+            if r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Set Banner |\nFailed to download image (HTTP {r.status_code})```")
                 if msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
-            
-            image_bytes = response.content
-            content_type = response.headers.get('Content-Type', '')
-            
-            if 'gif' in content_type:
-                image_format = 'gif'
+
+            ct = r.headers.get("Content-Type", "").lower()
+            url_lower = image_url.lower().split("?")[0]
+            if "gif" in ct or url_lower.endswith(".gif"):
+                fmt = "gif"
+            elif "jpeg" in ct or "jpg" in ct or url_lower.endswith(".jpg") or url_lower.endswith(".jpeg"):
+                fmt = "jpeg"
+            elif "webp" in ct or url_lower.endswith(".webp"):
+                fmt = "webp"
             else:
-                image_format = 'png'
-            
-            image_b64 = base64.b64encode(image_bytes).decode()
-            
-            data = {
-                "banner": f"data:image/{image_format};base64,{image_b64}"
-            }
-            
-            result = ctx["api"].request("PATCH", "/users/@me", data=data)
-            
-            if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Banner **updated**.")
+                fmt = "png"
+
+            b64 = base64.b64encode(r.content).decode()
+            patch = api.request("PATCH", "/users/@me", data={"banner": f"data:image/{fmt};base64,{b64}"})
+            if patch and patch.status_code == 200:
+                msg = api.send_message(ctx["channel_id"], "```| Set Banner |\nBanner updated```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Banner **failed**.")
-            
+                code = patch.status_code if patch else "no response"
+                try:
+                    body = patch.json().get("message", "") if patch else ""
+                except Exception:
+                    body = ""
+                msg = api.send_message(ctx["channel_id"], f"```| Set Banner |\nFailed: HTTP {code}{' — ' + body if body else ''}\n(Nitro required for banners)```")
             if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Banner **error**.")
+            msg = api.send_message(ctx["channel_id"], f"```| Set Banner |\nError: {str(e)[:80]}```")
             if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="stealbanner", aliases=["copybanner", "takebanner"])
     def stealbanner(ctx, args):
+        # Usage: +stealbanner <user_id|@mention>
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Please provide** a **user ID**.")
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"```| Steal Banner |\nUsage: {bot.prefix}stealbanner <user_id>```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
-        
-        user_id = args[0]
-        
+
+        raw = args[0].strip("<@!>")
+        user_id = raw if raw.isdigit() else args[0]
+        api = ctx["api"]
+
         try:
-            profile_response = ctx["api"].request("GET", f"/users/{user_id}/profile")
-            if not profile_response or profile_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Could not fetch** user profile.")
-                if msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                return
-            
-            profile_data = profile_response.json()
-            # Check user_profile.banner first (preferred), then user.banner
-            user_profile = profile_data.get("user_profile", {})
-            user = profile_data.get("user", {})
-            banner_hash = user_profile.get("banner") or user.get("banner")
-            
+            banner_hash = None
+            target_name = user_id
+
+            # Try profile endpoint first (has user_profile.banner and user.banner)
+            pr = api.request("GET", f"/users/{user_id}/profile?with_mutual_guilds=false")
+            if pr and pr.status_code in (200, 201):
+                pd = pr.json()
+                user_obj = pd.get("user") or {}
+                target_name = user_obj.get("username", user_id)
+                banner_hash = (
+                    user_obj.get("banner")
+                    or (pd.get("user_profile") or {}).get("banner")
+                )
+
+            # Fallback: basic user endpoint (returns user.banner for Nitro users)
             if not banner_hash:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **User** has no banner.")
+                ur = api.request("GET", f"/users/{user_id}")
+                if ur and ur.status_code == 200:
+                    ud = ur.json()
+                    target_name = ud.get("username", user_id)
+                    banner_hash = ud.get("banner")
+
+            if not banner_hash:
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Banner |\n{target_name} has no banner (Nitro required to have a banner)```")
                 if msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
-            
-            banner_format = "gif" if banner_hash.startswith("a_") else "png"
-            banner_url = f"https://cdn.discordapp.com/banners/{user_id}/{banner_hash}.{banner_format}?size=1024"
-            
-            response = ctx["api"].session.get(banner_url, timeout=10)
-            if response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Failed** to download banner.")
+
+            ext = "gif" if banner_hash.startswith("a_") else "png"
+            banner_url = f"https://cdn.discordapp.com/banners/{user_id}/{banner_hash}.{ext}?size=1024"
+
+            img_r = api.session.get(banner_url, timeout=10)
+            if img_r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Banner |\nFailed to download banner (HTTP {img_r.status_code})```")
                 if msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
-            
-            image_bytes = response.content
-            image_b64 = base64.b64encode(image_bytes).decode()
-            
-            data = {
-                "banner": f"data:image/{banner_format};base64,{image_b64}"
-            }
-            
-            result = ctx["api"].request("PATCH", "/users/@me", data=data)
-            
-            if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Banner **stolen successfully**.")
+
+            b64 = base64.b64encode(img_r.content).decode()
+            patch = api.request("PATCH", "/users/@me",
+                                data={"banner": f"data:image/{ext};base64,{b64}"})
+            if patch and patch.status_code == 200:
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Banner |\nStole {target_name}'s banner```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Failed** to update banner.")
-            
-            if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                
+                code = patch.status_code if patch else "no response"
+                try:
+                    err = patch.json().get("message", "") if patch else ""
+                except Exception:
+                    err = ""
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Banner |\nFailed (HTTP {code}){': ' + err if err else ''}```")
+
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Error** with banner steal.")
-            if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            msg = api.send_message(ctx["channel_id"], f"```| Steal Banner |\nError: {str(e)[:80]}```")
+
+        if msg:
+            delete_after_delay(api, ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="pronouns")
     def pronouns(ctx, args):
@@ -2749,81 +2916,115 @@ Example Usage:
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
-    @bot.command(name="setdisplayname", aliases=["setglobalname"])
+    @bot.command(name="setdisplayname", aliases=["setglobalname", "setname", "changename", "setdn"])
     def setdisplayname(ctx, args):
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Set Display Name")
+            return
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Display Name |\nPlease provide a display name```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Display Name |\nUsage: {bot.prefix}setname <display name>```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
-        
+
         display_name = " ".join(args)
-        
+        api = ctx["api"]
         try:
-            data = {
-                "global_name": display_name
-            }
-            
-            result = ctx["api"].request("PATCH", "/users/@me", data=data)
-            
-            if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Display name **updated**.")
+            patch = api.request("PATCH", "/users/@me", data={"global_name": display_name})
+            if patch and patch.status_code == 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Set Display Name |\nDisplay name set to: {display_name}```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Display name **failed**.")
-            
+                code = patch.status_code if patch else "no response"
+                try:
+                    body = patch.json().get("message", "") if patch else ""
+                except Exception:
+                    body = ""
+                msg = api.send_message(ctx["channel_id"], f"```| Set Display Name |\nFailed: HTTP {code}{' — ' + body if body else ''}```")
             if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Display name **error**.")
+            msg = api.send_message(ctx["channel_id"], f"```| Set Display Name |\nError: {str(e)[:80]}```")
             if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
     
     @bot.command(name="stealname", aliases=["copyname"])
     def stealname(ctx, args):
+        # Usage: +stealname <user_id|@mention> [server]
+        # 'server' flag steals their server nickname and applies as your server nickname in this guild
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Please provide** a **user ID**.")
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"```| Steal Name |\nUsage: {bot.prefix}stealname <user_id> [server]\n  (no flag) — steal display name, set as your global display name\n  server    — steal server nickname, set as your nickname in this server```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
-        
-        user_id = args[0]
-        
+
+        raw = args[0].strip("<@!>")
+        user_id = raw if raw.isdigit() else args[0]
+        server_mode = len(args) >= 2 and args[1].lower() in ("server", "guild", "s", "g")
+        guild_id = ctx["message"].get("guild_id")
+        api = ctx["api"]
+
         try:
-            user_response = ctx["api"].request("GET", f"/users/{user_id}")
-            if not user_response or user_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Could not** find user.")
-                if msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                return
-            
-            user_data = user_response.json()
-            global_name = user_data.get("global_name", "")
-            
-            if not global_name:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **User** has no display name.")
-                if msg:
-                    delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                return
-            
-            data = {
-                "global_name": global_name
-            }
-            
-            result = ctx["api"].request("PATCH", "/users/@me", data=data)
-            
-            if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Display name **stolen**.")
+            if server_mode:
+                if not guild_id:
+                    msg = api.send_message(ctx["channel_id"], "```| Steal Name |\nMust be used in a server for server mode```")
+                    if msg:
+                        delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                    return
+                member_r = api.request("GET", f"/guilds/{guild_id}/members/{user_id}")
+                if not member_r or member_r.status_code != 200:
+                    msg = api.send_message(ctx["channel_id"], f"```| Steal Name |\nCould not fetch member {user_id} in this server```")
+                    if msg:
+                        delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                    return
+                member_data = member_r.json()
+                nick = member_data.get("nick")
+                target_name = (member_data.get("user") or {}).get("username", user_id)
+                if not nick:
+                    msg = api.send_message(ctx["channel_id"],
+                        f"```| Steal Name |\n{target_name} has no server nickname```")
+                    if msg:
+                        delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                    return
+                patch = api.request("PATCH", f"/guilds/{guild_id}/members/@me",
+                                    data={"nick": nick})
+                if patch and patch.status_code in (200, 204):
+                    msg = api.send_message(ctx["channel_id"],
+                        f"```| Steal Name |\nSet server nickname to: {nick} (from {target_name})```")
+                else:
+                    code = patch.status_code if patch else "no response"
+                    msg = api.send_message(ctx["channel_id"],
+                        f"```| Steal Name |\nFailed to set nickname (HTTP {code})```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Display name **failed**.")
-            
-            if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-                
+                user_r = api.request("GET", f"/users/{user_id}")
+                if not user_r or user_r.status_code != 200:
+                    msg = api.send_message(ctx["channel_id"], f"```| Steal Name |\nUser not found: {user_id}```")
+                    if msg:
+                        delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                    return
+                user_data = user_r.json()
+                global_name = user_data.get("global_name") or ""
+                target_name = user_data.get("username", user_id)
+                if not global_name:
+                    msg = api.send_message(ctx["channel_id"],
+                        f"```| Steal Name |\n{target_name} has no display name set```")
+                    if msg:
+                        delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                    return
+                patch = api.request("PATCH", "/users/@me", data={"global_name": global_name})
+                if patch and patch.status_code == 200:
+                    msg = api.send_message(ctx["channel_id"],
+                        f"```| Steal Name |\nSet display name to: {global_name} (from {target_name})```")
+                else:
+                    code = patch.status_code if patch else "no response"
+                    msg = api.send_message(ctx["channel_id"],
+                        f"```| Steal Name |\nFailed to set display name (HTTP {code})```")
+
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Display name **error**.")
-            if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            msg = api.send_message(ctx["channel_id"], f"```| Steal Name |\nError: {str(e)[:80]}```")
+
+        if msg:
+            delete_after_delay(api, ctx["channel_id"], msg.get("id"))
         
     @bot.command(name="stop", aliases=["exit", "quit"])
     def stop_bot(ctx, args):
@@ -2937,7 +3138,280 @@ Example Usage:
             msg = ctx["api"].send_message(ctx["channel_id"], f"```| Steal Status |\nError: {str(e)[:80]}```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-    
+
+    # -----------------------------------------------------------------------
+    # stealserverpfp — steal a member's SERVER avatar and apply as YOURS in this server
+    # -----------------------------------------------------------------------
+
+    @bot.command(name="stealserverpfp", aliases=["sspfp", "ssavatar", "stealservavatar"])
+    def stealserverpfp_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"```| Steal Server PFP |\nUsage: {bot.prefix}stealserverpfp <user_id|@mention>\nSteals their server-specific avatar and sets it as YOUR server avatar in this server```")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+
+        raw = args[0].strip("<@!>")
+        user_id = raw if raw.isdigit() else args[0]
+        guild_id = ctx["message"].get("guild_id")
+        api = ctx["api"]
+
+        if not guild_id:
+            msg = api.send_message(ctx["channel_id"], "```| Steal Server PFP |\nMust be used inside a server```")
+            if msg:
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+            return
+
+        try:
+            member_r = api.request("GET", f"/guilds/{guild_id}/members/{user_id}")
+            if not member_r or member_r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Server PFP |\nCould not find member {user_id} in this server```")
+                if msg:
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                return
+
+            member_data = member_r.json()
+            avatar_hash = member_data.get("avatar")
+            user_obj = member_data.get("user") or {}
+            target_name = user_obj.get("username", user_id)
+
+            if not avatar_hash:
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Server PFP |\n{target_name} has no server-specific avatar in this server\nTip: use {bot.prefix}stealpfp to steal their global avatar```")
+                if msg:
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                return
+
+            ext = "gif" if avatar_hash.startswith("a_") else "png"
+            img_url = f"https://cdn.discordapp.com/guilds/{guild_id}/users/{user_id}/avatars/{avatar_hash}.{ext}?size=1024"
+
+            img_r = api.session.get(img_url, timeout=10)
+            if img_r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Server PFP |\nFailed to download (HTTP {img_r.status_code})```")
+                if msg:
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                return
+
+            b64 = base64.b64encode(img_r.content).decode()
+            patch = api.request("PATCH", f"/guilds/{guild_id}/members/@me",
+                                data={"avatar": f"data:image/{ext};base64,{b64}"})
+            if patch and patch.status_code in (200, 204):
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Server PFP |\nApplied {target_name}'s server avatar as YOUR server avatar in this server```")
+            else:
+                code = patch.status_code if patch else "no response"
+                try:
+                    err = (patch.json() or {}).get("message", "") if patch else ""
+                except Exception:
+                    err = ""
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Server PFP |\nFailed (HTTP {code}){': ' + err if err else ''}\nNote: server avatars require Nitro```")
+        except Exception as e:
+            msg = api.send_message(ctx["channel_id"], f"```| Steal Server PFP |\nError: {str(e)[:80]}```")
+
+        if msg:
+            delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+
+    # -----------------------------------------------------------------------
+    # stealserverbanner — steal a member's SERVER banner and apply as YOURS
+    # -----------------------------------------------------------------------
+
+    @bot.command(name="stealserverbanner", aliases=["ssbanner", "stealservbanner"])
+    def stealserverbanner_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"```| Steal Server Banner |\nUsage: {bot.prefix}stealserverbanner <user_id|@mention>\nSteals their server-specific banner and sets it as YOUR server banner in this server```")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+
+        raw = args[0].strip("<@!>")
+        user_id = raw if raw.isdigit() else args[0]
+        guild_id = ctx["message"].get("guild_id")
+        api = ctx["api"]
+
+        if not guild_id:
+            msg = api.send_message(ctx["channel_id"], "```| Steal Server Banner |\nMust be used inside a server```")
+            if msg:
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+            return
+
+        try:
+            member_r = api.request("GET", f"/guilds/{guild_id}/members/{user_id}")
+            if not member_r or member_r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Server Banner |\nCould not find member {user_id} in this server```")
+                if msg:
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                return
+
+            member_data = member_r.json()
+            banner_hash = member_data.get("banner")
+            user_obj = member_data.get("user") or {}
+            target_name = user_obj.get("username", user_id)
+
+            if not banner_hash:
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Server Banner |\n{target_name} has no server-specific banner in this server\nTip: use {bot.prefix}stealbanner to steal their global banner```")
+                if msg:
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                return
+
+            ext = "gif" if banner_hash.startswith("a_") else "png"
+            img_url = f"https://cdn.discordapp.com/guilds/{guild_id}/users/{user_id}/banners/{banner_hash}.{ext}?size=1024"
+
+            img_r = api.session.get(img_url, timeout=10)
+            if img_r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Server Banner |\nFailed to download (HTTP {img_r.status_code})```")
+                if msg:
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                return
+
+            b64 = base64.b64encode(img_r.content).decode()
+            patch = api.request("PATCH", f"/guilds/{guild_id}/members/@me",
+                                data={"banner": f"data:image/{ext};base64,{b64}"})
+            if patch and patch.status_code in (200, 204):
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Server Banner |\nApplied {target_name}'s server banner as YOUR server banner in this server```")
+            else:
+                code = patch.status_code if patch else "no response"
+                try:
+                    err = (patch.json() or {}).get("message", "") if patch else ""
+                except Exception:
+                    err = ""
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Server Banner |\nFailed (HTTP {code}){': ' + err if err else ''}\nNote: server banners require Nitro```")
+        except Exception as e:
+            msg = api.send_message(ctx["channel_id"], f"```| Steal Server Banner |\nError: {str(e)[:80]}```")
+
+        if msg:
+            delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+
+    # -----------------------------------------------------------------------
+    # stealservernick — steal a member's SERVER nickname and apply as yours
+    # -----------------------------------------------------------------------
+
+    @bot.command(name="stealservernick", aliases=["ssnick", "stealservnick", "stealsnick"])
+    def stealservernick_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"```| Steal Server Nick |\nUsage: {bot.prefix}stealservernick <user_id|@mention>\nSteals their server nickname and sets it as YOUR nickname in this server```")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+
+        raw = args[0].strip("<@!>")
+        user_id = raw if raw.isdigit() else args[0]
+        guild_id = ctx["message"].get("guild_id")
+        api = ctx["api"]
+
+        if not guild_id:
+            msg = api.send_message(ctx["channel_id"], "```| Steal Server Nick |\nMust be used inside a server```")
+            if msg:
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+            return
+
+        try:
+            member_r = api.request("GET", f"/guilds/{guild_id}/members/{user_id}")
+            if not member_r or member_r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Server Nick |\nCould not find member {user_id} in this server```")
+                if msg:
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                return
+
+            member_data = member_r.json()
+            nick = member_data.get("nick")
+            user_obj = member_data.get("user") or {}
+            target_name = user_obj.get("username", user_id)
+
+            if not nick:
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Server Nick |\n{target_name} has no server nickname set```")
+                if msg:
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                return
+
+            patch = api.request("PATCH", f"/guilds/{guild_id}/members/@me",
+                                data={"nick": nick})
+            if patch and patch.status_code in (200, 204):
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Server Nick |\nSet YOUR nickname to: {nick}\n(stolen from {target_name})```")
+            else:
+                code = patch.status_code if patch else "no response"
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Server Nick |\nFailed to set nickname (HTTP {code})```")
+        except Exception as e:
+            msg = api.send_message(ctx["channel_id"], f"```| Steal Server Nick |\nError: {str(e)[:80]}```")
+
+        if msg:
+            delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+
+    # -----------------------------------------------------------------------
+    # stealservericon — steal the SERVER'S icon and set as your global avatar
+    # -----------------------------------------------------------------------
+
+    @bot.command(name="stealservericon", aliases=["ssicon", "stealicon", "stealguildicon"])
+    def stealservericon_cmd(ctx, args):
+        # No args needed — steals current server's icon; can also pass a guild_id
+        guild_id = args[0] if args and args[0].isdigit() else ctx["message"].get("guild_id")
+        api = ctx["api"]
+
+        if not guild_id:
+            msg = api.send_message(ctx["channel_id"],
+                f"```| Steal Server Icon |\nUsage: {bot.prefix}stealservericon [guild_id]\nSteals the server's icon and sets it as YOUR global avatar\n(no guild_id needed when used inside the server)```")
+            if msg:
+                delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+            return
+
+        try:
+            guild_r = api.request("GET", f"/guilds/{guild_id}")
+            if not guild_r or guild_r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Server Icon |\nCould not fetch guild {guild_id}```")
+                if msg:
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                return
+
+            guild_data = guild_r.json()
+            icon_hash = guild_data.get("icon")
+            guild_name = guild_data.get("name", guild_id)
+
+            if not icon_hash:
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Server Icon |\n{guild_name} has no server icon```")
+                if msg:
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                return
+
+            ext = "gif" if icon_hash.startswith("a_") else "png"
+            img_url = f"https://cdn.discordapp.com/icons/{guild_id}/{icon_hash}.{ext}?size=1024"
+
+            img_r = api.session.get(img_url, timeout=10)
+            if img_r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Server Icon |\nFailed to download (HTTP {img_r.status_code})```")
+                if msg:
+                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+                return
+
+            b64 = base64.b64encode(img_r.content).decode()
+            patch = api.request("PATCH", "/users/@me",
+                                data={"avatar": f"data:image/{ext};base64,{b64}"})
+            if patch and patch.status_code == 200:
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Server Icon |\nSet {guild_name}'s icon as YOUR global avatar```")
+            else:
+                code = patch.status_code if patch else "no response"
+                try:
+                    err = (patch.json() or {}).get("message", "") if patch else ""
+                except Exception:
+                    err = ""
+                msg = api.send_message(ctx["channel_id"],
+                    f"```| Steal Server Icon |\nFailed to set avatar (HTTP {code}){': ' + err if err else ''}```")
+        except Exception as e:
+            msg = api.send_message(ctx["channel_id"], f"```| Steal Server Icon |\nError: {str(e)[:80]}```")
+
+        if msg:
+            delete_after_delay(api, ctx["channel_id"], msg.get("id"))
+
     @bot.command(name="help", aliases=["h", "commands"])
     def show_help(ctx, args):
         import formatter as fmt
@@ -2946,25 +3420,22 @@ Example Usage:
         def help_page(title, *lines):
             return {"title": title, "lines": list(lines)}
 
-        def format_native_lines(lines):
-            formatted = []
-            for line in lines:
-                if isinstance(line, tuple) and len(line) == 2:
-                    left, right = line
-                    formatted.append(f"{fmt.CYAN}{left:<20}{fmt.DARK}:: {fmt.RESET}{fmt.WHITE}{right}{fmt.RESET}")
-                elif isinstance(line, dict) and line.get("type") == "section":
-                    formatted.append(f"{fmt.PURPLE}{fmt.BOLD}{line['text']}{fmt.RESET}")
-                elif line == "":
-                    formatted.append("")
-                else:
-                    formatted.append(f"{fmt.WHITE}{str(line)}{fmt.RESET}")
-            return "\n".join(formatted)
-
         def render_help_page(page_name, content, current_page, total_pages):
             title = content.get("title", "Help")
-            body = format_native_lines(content.get("lines", []))
-            footer = content.get("footer") or fmt.footer_page(p, page_name, current_page, total_pages)
-            return fmt.layout(title, body, footer)
+            lines = content.get("lines", [])
+            out = []
+            for line in lines:
+                if isinstance(line, tuple) and len(line) == 2:
+                    out.append(f"{line[0]:<24}:: {line[1]}")
+                elif isinstance(line, dict) and line.get("type") == "section":
+                    out.append(f"  [{line['text']}]")
+                elif line == "":
+                    out.append("")
+                else:
+                    out.append(str(line))
+            page_sfx = f"  [{current_page}/{total_pages}]" if total_pages > 1 else ""
+            nav = f"\n{p}help {page_name.lower()} {current_page + 1}" if current_page < total_pages else ""
+            return f"```| {title} |{page_sfx}\n" + "\n".join(out) + nav + "```"
 
         help_pages = {
             # ── General ──────────────────────────────────────────────────────
@@ -3777,62 +4248,66 @@ Example Usage:
             "hosting": {
                 "title": f"{p}help Hosting",
                 "lines": [
-                    ("hoston", "Enable hosting for others (owner only)"),
-                    ("hostoff", "Disable hosting for others (owner only)"),
-                    ("host <token>", "Host a token"),
-                    ("stophost", "Stop hosting your token"),
+                    ("auth <user_id>", "Grant account access (owner)"),
+                    ("unauth <user_id>", "Revoke account access (owner)"),
+                    ("authlist", "List authed users"),
                     ("listhosted", "List your hosted tokens"),
-                    ("listallhosted", "List all hosted tokens (owner only)"),
-                    ("hoststopall", "Stop all hosted tokens (owner only)"),
+                    ("listallhosted", "List all hosted tokens (owner)"),
+                    ("clearhost [uid]", "Remove a hosted entry"),
+                    ("clearallhosted", "Clear all hosted entries (owner)"),
                 ],
             },
 
-            "hoston": help_page(
-                f"{p}hoston",
-                "Enables the hosting feature so other users can host tokens.",
+            "auth": help_page(
+                f"{p}auth <user_id>",
+                "Grants account access to a user (owner only).",
+                "",
+                {"type": "section", "text": "Arguments"},
+                ("user_id", "Discord user ID to authorize"),
             ),
 
-            "hostoff": help_page(
-                f"{p}hostoff",
-                "Disables the hosting feature, preventing others from hosting tokens.",
+            "unauth": help_page(
+                f"{p}unauth <user_id>",
+                "Revokes account access from a user (owner only).",
+                "",
+                {"type": "section", "text": "Arguments"},
+                ("user_id", "Discord user ID to deauthorize"),
             ),
 
-                        "host": help_page(
-                                f"{p}host <token>",
-                                "Starts hosting a Discord token through this bot instance.",
-                                "",
-                                {"type": "section", "text": "Arguments"},
-                                ("token", "Discord user token to host"),
-                        ),
-
-            "stophost": help_page(
-                f"{p}stophost",
-                "Stops hosting your currently hosted token.",
+            "authlist": help_page(
+                f"{p}authlist",
+                "Lists all currently authorized users.",
             ),
 
             "listhosted": help_page(
                 f"{p}listhosted",
-                "Lists all tokens you are currently hosting.",
+                "Lists your currently hosted tokens.",
             ),
 
             "listallhosted": help_page(
                 f"{p}listallhosted",
-                "Lists all tokens currently hosted by any user.",
+                "Lists all hosted tokens (owner only).",
             ),
 
-            "hoststopall": help_page(
-                f"{p}hoststopall",
-                "Stops all hosted tokens from all users immediately.",
+            "clearhost": help_page(
+                f"{p}clearhost [user_id]",
+                "Removes a hosted token entry.",
+            ),
+
+            "clearallhosted": help_page(
+                f"{p}clearallhosted",
+                "Clears all hosted token entries (owner only).",
             ),
 
             # ── Owner ────────────────────────────────────────────────────────
             "owner": {
                 "title": f"{p}help Owner",
                 "lines": [
-                    ("hoston", "Enable hosting for other users"),
-                    ("hostoff", "Disable hosting for other users"),
-                    ("listallhosted", "List every hosted token"),
-                    ("hoststopall", "Stop every hosted token"),
+                    ("auth <user_id>", "Grant account access"),
+                    ("unauth <user_id>", "Revoke account access"),
+                    ("authlist", "List authed users"),
+                    ("listallhosted", "List all hosted tokens"),
+                    ("clearallhosted", "Clear all hosted entries"),
                     (f"{p}drun", "Execute commands on instances"),
                     (f"{p}dlog", "Manage developer logging"),
                     (f"{p}ddebug", "Toggle developer debug mode"),
@@ -4244,19 +4719,19 @@ Example Usage:
                     ("setbanner <url>", "Set banner"),
                     ("stealbanner <user_id>", "Steal banner"),
                     ("setpronouns <text>", "Set pronouns"),
-                    ("host <token>", "Host token"),
-                    ("hoston", "Enable public hosting"),
-                    ("hostoff", "Disable public hosting"),
+                    ("auth <user_id>", "Grant access"),
+                    ("unauth <user_id>", "Revoke access"),
+                    ("authlist", "List authed users"),
                     ("listhosted", "Your hosted tokens"),
+                    ("listallhosted", "All hosted (owner)"),
+                    ("clearhost [uid]", "Remove hosted entry"),
+                    ("clearallhosted", "Clear all hosted (owner)"),
                     ("afk [reason]", "Set AFK status"),
                     ("afkstatus [id]", "Check AFK"),
                     ("nitro on/off", "Nitro sniper"),
                     ("giveaway [on|off]", "Giveaway sniper"),
                     ("nitro clear", "Clear codes"),
                     ("badges user <user_id>", "User badges"),
-                    ("stophost", "Stop hosting"),
-                    ("listallhosted", "All hosted (owner)"),
-                    ("hoststopall", "Stop all hosted (owner)"),
                     ("setbio <text>", "Set bio"),
                     ("setdisplayname <text>", "Set display name"),
                     ("stealname <user_id>", "Steal name"),
@@ -4337,13 +4812,10 @@ Example Usage:
                 ("Quest", f"Quest & task automation"),
             
             ]
+            cat_lines = "\n".join(f"{p}help {cat.lower():<16}:: {desc}" for cat, desc in categories)
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt.command_page(
-                    f"{p}help <category> or {p}help <command>",
-                    categories,
-                    f"Developed By Misconsideration",
-                ),
+                f"```| Aria Help |\n{cat_lines}\n\n{p}help <command> for command details```",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -4383,56 +4855,45 @@ Example Usage:
             if 'msg' in locals() and msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
         else:
-            page_options = "Available pages: General, Utility, Messaging, Profile, Server, Voice, Social, Boost, Backup, Moderation, Hosting, Token, Owner, AFK, Nitro, AGCT, Quest, All"
-            error_body = f"{fmt.RED}Invalid page{fmt.RESET}\n{fmt.WHITE}{page_options}{fmt.RESET}"
-            error_msg = fmt.layout("Help", error_body, f"{p}help all")
-            
-            msg = ctx["api"].send_message(ctx["channel_id"], error_msg)
+            page_options = "general utility messaging profile server voice social boost backup moderation hosting token owner afk nitro agct quest all"
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Help |\nUnknown page. Available:\n{page_options}\n\n{p}help <page>```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="cmdwall", aliases=["commandsraw", "allcmds"])
     def cmdwall(ctx, args):
-        unique_commands = []
+        import formatter as _fmt
+        # Collect unique commands (primary names only), sorted
         seen = set()
+        unique = []
         for key in sorted(ctx["bot"].commands.keys()):
-            command_obj = ctx["bot"].commands[key]
-            canonical = command_obj.name
-            if canonical in seen:
+            cmd = ctx["bot"].commands[key]
+            if cmd.name in seen:
                 continue
-            seen.add(canonical)
-            unique_commands.append(canonical)
+            seen.add(cmd.name)
+            unique.append(cmd)
 
-        lines = [f"@bot.command(name=\"{name}\")" for name in unique_commands]
-        chunks = []
-        current_lines = ["```python"]
-        current_len = len(current_lines[0]) + 1
+        p = ctx["bot"].prefix
+        chunk, messages = [], []
+        for cmd in unique:
+            alias_str = f" [{', '.join(cmd.aliases)}]" if cmd.aliases else ""
+            chunk.append(f"{_fmt.CYAN}{p}{cmd.name}{_fmt.RESET}{_fmt.DARK}{alias_str}{_fmt.RESET}")
+            if len(chunk) >= 30:
+                messages.append(_fmt._block("\n".join(chunk)))
+                chunk = []
+        if chunk:
+            messages.append(_fmt._block("\n".join(chunk)))
 
-        for line in lines:
-            projected = current_len + len(line) + 1 + len("```")
-            if projected > 1990:
-                current_lines.append("```")
-                chunks.append("\n".join(current_lines))
-                current_lines = ["```python", line]
-                current_len = len("```python") + len(line) + 2
-            else:
-                current_lines.append(line)
-                current_len += len(line) + 1
-
-        current_lines.append("```")
-        chunks.append("\n".join(current_lines))
-
-        for i, part in enumerate(chunks):
+        for i, part in enumerate(messages):
             msg = ctx["api"].send_message(ctx["channel_id"], part)
-            if msg and i < len(chunks) - 1:
+            if msg and i < len(messages) - 1:
                 time.sleep(0.3)
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"), 15)
             elif msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="restart")
     def restart_cmd(ctx, args):
-        msg = ctx["api"].send_message(ctx["channel_id"], "> **Restarting** bot in 3 seconds...```")
+        msg = ctx["api"].send_message(ctx["channel_id"], "> **Restarting** bot in 3 seconds...")
         
         def restart_sequence():
             time.sleep(1)
@@ -4440,17 +4901,25 @@ Example Usage:
             time.sleep(1)
             ctx["api"].edit_message(ctx["channel_id"], msg.get("id"), "> **Restarting** bot in 1 second...")
             time.sleep(1)
-            
+
             ctx["api"].send_message(ctx["channel_id"], "> **System** restarting...")
-            
+
             import subprocess
             import sys
-            
+
             time.sleep(0.5)
-            
+
+            # Terminate all hosted child processes so the new instance
+            # can cleanly restore them all via restore_hosted_users().
+            if not HOSTED_MODE:
+                try:
+                    host_manager.cleanup()
+                except Exception:
+                    pass
+
             python = sys.executable
             subprocess.Popen([python, "main.py"])
-            
+
             time.sleep(1)
             bot.stop()
         
@@ -4756,168 +5225,182 @@ Example Usage:
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
-    @bot.command(name="host")
-    def host_cmd(ctx, args):
-        if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host |\nUsage: {bot.prefix}host <token> [prefix]```")
+    @bot.command(name="auth", aliases=["authuser"])
+    def auth_cmd(ctx, args):
+        if not is_owner_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Auth")
+            return
+        if not args or not args[0].isdigit():
+            p = bot.prefix
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"```| Auth |\nUsage: {p}auth <user_id>   — allow user to run commands\n       {p}unauth <user_id> — revoke access\n       {p}authlist       — list authed users```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
+        uid = str(args[0])
+        _authed_users.add(uid)
+        _save_authed(_authed_users)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Auth |\n✓ User {uid} authorised```")
+        if msg:
+            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
-        # Non-owners need hosting to be enabled by owner
-        if not is_control_user(ctx["author_id"]) and not host_manager.hosting_enabled:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Host |\nHosting is currently disabled```")
+    @bot.command(name="unauth", aliases=["deauth"])
+    def unauth_cmd(ctx, args):
+        if not is_owner_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Unauth")
+            return
+        if not args or not args[0].isdigit():
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Unauth |\nUsage: {bot.prefix}unauth <user_id>```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
+        uid = str(args[0])
+        _authed_users.discard(uid)
+        _save_authed(_authed_users)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Auth |\n✓ User {uid} revoked```")
+        if msg:
+            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
-        # Prefix is optional — last arg used as prefix only if it's a short symbol (1-3 chars, no dot)
-        if len(args) > 1 and len(args[-1]) <= 3 and "." not in args[-1]:
-            host_prefix = args[-1]
-            token_input = " ".join(args[:-1])
+    @bot.command(name="authlist", aliases=["authed"])
+    def authlist_cmd(ctx, args):
+        if not is_owner_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Auth List")
+            return
+        if not _authed_users:
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Auth |\nNo authorised users```")
         else:
-            host_prefix = bot.prefix
-            token_input = " ".join(args)
-
-        # Resolve the hosted token's Discord user info
-        hosted_user_id = ""
-        hosted_username = ""
-        try:
-            clean_token = token_input.strip('"\' ')
-            probe_api = ctx["api"].__class__(clean_token, "", False)
-            data = probe_api.get_user_info(force=True)
-            if data:
-                hosted_user_id = data.get("id", "")
-                hosted_username = data.get("username", "") or data.get("global_name", "")
-        except Exception:
-            pass
-
-        success, message = host_manager.host_token(
-            ctx["author_id"], token_input,
-            prefix=host_prefix,
-            user_id=hosted_user_id,
-            username=hosted_username,
-        )
-
-        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host |\n{message}```")
-        if msg:
-            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-    
-    @bot.command(name="stophost")
-    def stophost_cmd(ctx, args):
-        success, message = host_manager.stop_hosting(ctx["author_id"])
-        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host |\n{message}```")
-        if msg:
-            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-    
-    @bot.command(name="listhosted")
-    def listhosted_cmd(ctx, args):
-        hosted = host_manager.list_hosted_entries(ctx["author_id"])
-        if not hosted:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Hosted Tokens |\nNo hosted tokens found```")
-            if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-            return
-        lines = ["Your hosted tokens"]
-        for index, (_, u) in enumerate(hosted, start=1):
-            name = u.get("username") or "Unknown"
-            user_id = u.get("user_id", "?")
-            uid = u.get("uid") or u.get("token_id")
-            prefix = u.get("prefix", ";")
-            lines.append(f"{index}. {name} | user_id={user_id} | uid={uid} | prefix={prefix}")
-        lines.append("")
-        lines.append(f"Use {bot.prefix}clearhostlist <index|uid|user_id>")
-        status_msg = "```" + "\n".join(lines) + "```"
-        msg = ctx["api"].send_message(ctx["channel_id"], status_msg)
+            lines = "\n".join(f"• {uid}" for uid in sorted(_authed_users))
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Authed Users |\n{lines}```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
-    @bot.command(name="listallhosted")
+    @bot.command(name="listallhosted", aliases=["lah"])
     def listallhosted_cmd(ctx, args):
         if not is_owner_user(ctx["author_id"]):
             deny_restricted_command(ctx, "List All Hosted")
             return
-
         hosted = host_manager.list_hosted_entries()
         if not hosted:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| All Hosted Tokens |\nNo hosted users```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| All Hosted |\nNo entries```")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
-
-        lines = ["All hosted tokens"]
-        for index, (_, u) in enumerate(hosted, start=1):
+        lines = ["All Hosted Tokens"]
+        for i, (token_id, u) in enumerate(hosted, 1):
             name = u.get("username") or "Unknown"
-            owner = u.get("owner") or "Unknown"
-            user_id = u.get("user_id", "?")
-            uid = u.get("uid") or u.get("token_id")
-            prefix = u.get("prefix", ";")
-            lines.append(f"{index}. {name} | owner={owner} | user_id={user_id} | uid={uid} | prefix={prefix}")
-        lines.append("")
-        lines.append(f"Use {bot.prefix}clearhostlist all or {bot.prefix}clearhostlist <index|uid|user_id>")
-
-        status_msg = "```" + "\n".join(lines) + "```"
-        msg = ctx["api"].send_message(ctx["channel_id"], status_msg)
+            owner = u.get("owner") or "?"
+            uid = u.get("uid") or token_id
+            lines.append(f"{i}. {name} | owner={owner} | uid={uid}")
+        msg = ctx["api"].send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
-    @bot.command(name="clearhostlist")
-    def clearhostlist_cmd(ctx, args):
-        requester_id = ctx["author_id"]
-        is_owner = is_owner_user(requester_id)
+    @bot.command(name="listhosted", aliases=["lh"])
+    def listhosted_cmd(ctx, args):
+        hosted = host_manager.list_hosted_entries(ctx["author_id"])
+        if not hosted:
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Hosted |\nNo entries```")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+        lines = ["Your Hosted Tokens"]
+        for i, (token_id, u) in enumerate(hosted, 1):
+            name = u.get("username") or "Unknown"
+            uid = u.get("uid") or token_id
+            lines.append(f"{i}. {name} | uid={uid}")
+        lines.append(f"\nUse {bot.prefix}clearhost [uid] to remove")
+        msg = ctx["api"].send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
+        if msg:
+            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
-        all_hosts = False
-        selectors = []
-        if args:
-            if args[0].lower() == "all":
-                if not is_owner:
-                    deny_restricted_command(ctx, "Clear Host List")
-                    return
-                all_hosts = True
-                selectors = args[1:]
-            elif args[0].lower() == "mine":
-                selectors = args[1:]
+    @bot.command(name="hostedlogs", aliases=["hlogs", "hostlog"])
+    def hostedlogs_cmd(ctx, args):
+        if not is_owner_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Hosted Logs")
+            return
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"```| Hosted Logs |\nUsage: {bot.prefix}hostedlogs <uid> [lines=50]```")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+        uid = args[0]
+        lines_count = 50
+        if len(args) >= 2 and args[1].isdigit():
+            lines_count = min(int(args[1]), 200)
+        import os
+        log_path = os.path.join("hosted_logs", f"hosted_{uid}.log")
+        if not os.path.exists(log_path):
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"```| Hosted Logs |\nNo log found for uid: {uid}```")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+        try:
+            with open(log_path, "r", errors="replace") as f:
+                all_lines = f.readlines()
+            tail = all_lines[-lines_count:]
+            content = "".join(tail).replace("```", "'''")[:1800]
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"```| Hosted Logs [{uid}] (last {len(tail)} lines) |\n{content}```")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"```| Hosted Logs |\nError reading log: {str(e)[:80]}```")
+        if msg:
+            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"), delay=60)
+
+    @bot.command(name="hostedstatus", aliases=["hstatus", "hoststat"])
+    def hostedstatus_cmd(ctx, args):
+        if not is_owner_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Hosted Status")
+            return
+        all_entries = host_manager.list_hosted_entries()
+        if not all_entries:
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Hosted Status |\nNo hosted entries```")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+        lines = ["Hosted Status"]
+        for i, (token_id, u) in enumerate(all_entries, 1):
+            uid = u.get("uid") or token_id
+            name = u.get("username") or "Unknown"
+            owner = u.get("owner") or "?"
+            proc = host_manager.processes.get(token_id)
+            if proc is None:
+                status = "no process"
+            elif proc.poll() is None:
+                status = "running"
             else:
-                selectors = args
-
-        removed = host_manager.remove_hosts(requester_id, selectors=selectors, all_hosts=all_hosts)
-        scope = "all hosted entries" if all_hosts else "your hosted entries"
-        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Clear Host List |\nRemoved {removed} entries from {scope}```")
+                status = f"exited({proc.poll()})"
+            has_keepalive = token_id in host_manager._stop_events
+            ka = "keepalive" if has_keepalive else "no-keepalive"
+            lines.append(f"{i}. {name} | uid={uid} | owner={owner} | {status} | {ka}")
+        msg = ctx["api"].send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
-    @bot.command(name="hoststopall")
-    def hoststopall_cmd(ctx, args):
+    @bot.command(name="clearallhosted", aliases=["cah"])
+    def clearallhosted_cmd(ctx, args):
         if not is_owner_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Host")
+            deny_restricted_command(ctx, "Clear All Hosted")
             return
-        count = host_manager.stop_all()
-        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host |\nStopped {count} hosted token(s)```")
+        removed = host_manager.remove_hosts(all_hosts=True)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Clear All Hosted |\nRemoved {removed} entries```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
-    @bot.command(name="hoston")
-    def hoston_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Host")
-            return
-        host_manager.hosting_enabled = True
-        msg = ctx["api"].send_message(ctx["channel_id"], "```| Host |\nHosting enabled```")
-        if msg:
-            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-
-    @bot.command(name="hostoff")
-    def hostoff_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Host")
-            return
-        host_manager.hosting_enabled = False
-        msg = ctx["api"].send_message(ctx["channel_id"], "```| Host |\nHosting disabled```")
+    @bot.command(name="clearhost", aliases=["ch"])
+    def clearhost_cmd(ctx, args):
+        # optional uid/index — if omitted clears all of caller's entries
+        selectors = args if args else []
+        removed = host_manager.remove_hosts(requester_id=ctx["author_id"], selectors=selectors)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Clear Host |\nRemoved {removed} entr{'y' if removed == 1 else 'ies'}```")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="backup", aliases=["save"])
     def backup_cmd(ctx, args):
+        msg = None
         if not args:
             import formatter as fmt
             p = bot.prefix
@@ -4971,6 +5454,7 @@ Example Usage:
     
     @bot.command(name="mod", aliases=["moderation"])
     def mod_cmd(ctx, args):
+        msg = None
         if not args:
             import formatter as fmt
             p = bot.prefix
@@ -5073,7 +5557,7 @@ Example Usage:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
     original_run_command = bot.run_command
-    def new_run_command(cmd_name, ctx, args):
+    def new_run_command(command_name: str, ctx, args):
         channel_id = ctx.get("channel_id")
         message = ctx.get("message") or {}
         message_id = message.get("id")
@@ -5083,7 +5567,7 @@ Example Usage:
         command_response_state.channel_id = channel_id
         command_response_state.delay = 20
         try:
-            original_run_command(cmd_name, ctx, args)
+            original_run_command(command_name, ctx, args)
         finally:
             command_response_state.enabled = False
             command_response_state.channel_id = None
@@ -5113,7 +5597,7 @@ Example Usage:
         channel_id = message_data.get("channel_id")
         msg_id = message_data.get("id")
         is_control = is_control_user(author_id)
-        is_hosted = is_hosted_user(author_id)
+        is_hosted = is_control_user(author_id)
 
         # AFK notice check runs for ALL messages before the owner-only filter
         # so users who ping us while we're AFK get a reply
@@ -5135,9 +5619,18 @@ Example Usage:
                 f"```| AFK Notice |\nI'm currently AFK\nReason: {afk_data.get('reason', 'AFK')}\nDuration: {time_str}```",
             )
 
-        # Hosted users should use their own hosted instance, not control the main account.
-        # Only the main account itself and control users can execute commands here.
-        if author_id and author_id != bot.user_id and not is_control:
+        # Auto-remove AFK when the owner sends any message
+        if (
+            author_id
+            and str(author_id) == str(bot.user_id)
+            and afk_system.is_afk(bot.user_id)
+            and not content.startswith(bot.prefix)
+        ):
+            afk_system.remove_afk(bot.user_id)
+            afk_system.save_state()
+
+        # Only the token owner, developer, and authed users can run commands.
+        if author_id and str(author_id) != str(bot.user_id) and not is_control:
             return
         
         # Super react is handled by SuperReactClient WebSocket
@@ -5161,6 +5654,7 @@ Example Usage:
     
     @bot.command(name="history", aliases=["hist"])
     def history_cmd(ctx, args):
+        msg = None
         if not args:
             import formatter as fmt
             p = bot.prefix
@@ -5568,7 +6062,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                "```| VR RPC Commands |\nvrrpc on :: Enable VR headless status loop (uses config token/settings)\nvrrpc off :: Disable VR headless status loop and clear session\nvrrpc stop :: Clear normal activity payload\nvrrpc preset <social|battle|explore|chill> :: Quick VR status\nvrrpc custom \"World | Details | State [| image_url] [>> Button Label >> Button URL]\" :: Custom VR status\n```"
+                "```| VR RPC |\nvrrpc on   :: Enable VR headless status loop\nvrrpc off  :: Disable VR headless status loop\nvrrpc stop :: Clear activity payload```"
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -5581,38 +6075,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
 
-        presets = {
-            "social": {
-                "world": "Black Cat",
-                "details": "Hanging out in VRChat",
-                "state": "Talking with friends",
-                "button_label": "Join VRChat",
-                "button_url": "https://hello.vrchat.com/"
-            },
-            "battle": {
-                "world": "Udon Arena",
-                "details": "In a VR battle session",
-                "state": "Competitive mode",
-                "button_label": "Open VRChat",
-                "button_url": "https://hello.vrchat.com/"
-            },
-            "explore": {
-                "world": "World Explorer",
-                "details": "Exploring community worlds",
-                "state": "Traveling through portals",
-                "button_label": "Explore Worlds",
-                "button_url": "https://vrchat.com/home/worlds"
-            },
-            "chill": {
-                "world": "Midnight Rooftop",
-                "details": "Relaxing in VR",
-                "state": "Lo-fi vibe",
-                "button_label": "VRChat Home",
-                "button_url": "https://vrchat.com/home"
-            }
-        }
-
         async def run_async_vr():
+            global VR_HEADLESS_TOKEN
             if args[0].lower() == "on":
                 oauth_token = str(config.get("vr_oauth_token", "")).strip()
                 activity_name = str(config.get("vr_headless_name", "~~")).strip() or "~~"
@@ -5644,65 +6108,14 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
                 )
 
             if args[0].lower() == "off":
-                _ = stop_vr_headless_loop()
+                stop_vr_headless_loop()
                 oauth_token = VR_HEADLESS_LOOP.get("oauth_token", "") or str(config.get("vr_oauth_token", "")).strip()
-
                 if oauth_token and VR_HEADLESS_TOKEN:
-                    ok, info = clear_vr_headless_status(bot, oauth_token, VR_HEADLESS_TOKEN)
-                    if not ok:
-                        return f"```| VR Headless |\nFailed to fully disable\nError: {info}```"
-
+                    clear_vr_headless_status(bot, oauth_token, VR_HEADLESS_TOKEN)
                 VR_HEADLESS_TOKEN = None
                 return "```| VR Headless |\nStatus: ✓ Disabled```"
 
-            if args[0].lower() == "preset" and len(args) >= 2:
-                preset = presets.get(args[1].lower())
-                if not preset:
-                    return "```| VR RPC |\nUnknown preset\nAvailable: social, battle, explore, chill```"
-
-                send_vr_activity(
-                    bot,
-                    preset["world"],
-                    details=preset["details"],
-                    state=preset["state"],
-                    button_label=preset["button_label"],
-                    button_url=preset["button_url"]
-                )
-                return f"```| VR RPC |\nPreset: {args[1].lower()}\nWorld: {preset['world']}\nStatus: ✓ Active```"
-
-            if args[0].lower() == "custom" and len(args) >= 2:
-                raw = " ".join(args[1:]).strip().strip('"')
-                button_label = None
-                button_url = None
-
-                if " >> " in raw:
-                    button_parts = raw.split(" >> ")
-                    if len(button_parts) >= 3:
-                        raw = button_parts[0].strip()
-                        button_label = button_parts[1].strip()
-                        button_url = button_parts[2].strip()
-
-                parts = [item.strip() for item in raw.split("|")]
-                if len(parts) < 3:
-                    return "```| VR RPC |\nInvalid custom format\nUse: vrrpc custom \"World | Details | State [| image_url] [>> Label >> URL]\"```"
-
-                world = parts[0]
-                details = parts[1]
-                state = parts[2]
-                image_url = parts[3] if len(parts) >= 4 and parts[3] else None
-
-                send_vr_activity(
-                    bot,
-                    world,
-                    details=details,
-                    state=state,
-                    image_url=image_url,
-                    button_label=button_label,
-                    button_url=button_url
-                )
-                return f"```| VR RPC |\nWorld: {world}\nDetails: {details}\nState: {state}\nStatus: ✓ Active```"
-
-            return "```| VR RPC |\nInvalid command\nUse: vrrpc preset <name> or vrrpc custom \"...\"```"
+            return "```| VR RPC |\nInvalid command\nUse: vrrpc on | off | stop```"
 
         msg_text = asyncio.run(run_async_vr())
         msg = ctx["api"].send_message(ctx["channel_id"], msg_text)
@@ -5912,8 +6325,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="leaveguild", aliases=["lg", "leaveserver"])
     def leaveguild_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Leave Guild", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Leave Guild")
             return
 
         if not args:
@@ -5954,9 +6367,9 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
     # checktoken — validate a Discord token via API
     # -----------------------------------------------------------------------
 
-    @bot.command(name="checktoken", aliases=["ct", "tokencheck", "validatetoken"])
+    @bot.command(name="checktoken", aliases=["tokencheck", "validatetoken"])
     def checktoken_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Check Token")
             return
 
@@ -6004,10 +6417,10 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
     # myguilds — list guilds the account is currently in
     # -----------------------------------------------------------------------
 
-    @bot.command(name="myguilds", aliases=["guilds", "guildlist", "servers"])
+    @bot.command(name="myguilds", aliases=["guildlist", "servers"])
     def myguilds_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "My Guilds", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "My Guilds")
             return
 
         api = ctx["api"]
@@ -6061,7 +6474,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="hostblacklist", aliases=["hbl", "hostblock"])
     def hostblacklist_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Host Blacklist")
             return
 
@@ -6131,20 +6544,24 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="userinfo", aliases=["whois", "lookup", "profile"])
     def userinfo_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "User Info", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "User Info")
             return
 
         uid = args[0] if args else ctx["author_id"]
+        # Strip mention syntax
+        uid = uid.strip("<@!>")
+        if not uid.isdigit():
+            uid = (args[0] if args else ctx["author_id"])
         api = ctx["api"]
 
         try:
             r = api.request("GET", f"/users/{uid}/profile?with_mutual_guilds=true")
-            if not r or r.status_code != 200:
+            if not r or r.status_code not in (200, 201):
                 # Fall back to basic user endpoint
                 r = api.request("GET", f"/users/{uid}")
 
-            if not r or r.status_code != 200:
+            if not r or r.status_code not in (200, 201):
                 msg = api.send_message(ctx["channel_id"], f"```| User Info |\nUser not found: {uid}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -6155,7 +6572,6 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
             username = user.get("username", "Unknown")
             global_name = user.get("global_name") or ""
-            discriminator = user.get("discriminator", "0")
             user_id = user.get("id", uid)
             bot_flag = " [BOT]" if user.get("bot") else ""
             system_flag = " [SYSTEM]" if user.get("system") else ""
@@ -6174,6 +6590,22 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
             mutual_guilds = d.get("mutual_guilds", [])
             mutual_count = len(mutual_guilds)
 
+            # Avatar URL
+            avatar_hash = user.get("avatar")
+            if avatar_hash:
+                ext = "gif" if avatar_hash.startswith("a_") else "png"
+                avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.{ext}?size=1024"
+            else:
+                default_idx = (int(user_id) >> 22) % 6
+                avatar_url = f"https://cdn.discordapp.com/embed/avatars/{default_idx}.png"
+
+            # Banner URL
+            banner_hash = user.get("banner") or (d.get("user_profile") or {}).get("banner")
+            banner_url = None
+            if banner_hash:
+                ext = "gif" if banner_hash.startswith("a_") else "png"
+                banner_url = f"https://cdn.discordapp.com/banners/{user_id}/{banner_hash}.{ext}?size=1024"
+
             display = f"{global_name} ({username})" if global_name else username
             lines = [
                 f"User Info{bot_flag}{system_flag}",
@@ -6185,8 +6617,15 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
             ]
             if public_flags:
                 lines.append(f"> Flags      :: {public_flags}")
+            if banner_url:
+                lines.append("> Banner shown below")
 
-            msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
+            # Info block + avatar/banner URLs outside block so Discord embeds them
+            output = "```| " + " |\n".join(lines) + "```\n" + avatar_url
+            if banner_url:
+                output += f"\n**Banner:** {banner_url}"
+
+            msg = api.send_message(ctx["channel_id"], output)
         except Exception as e:
             msg = api.send_message(ctx["channel_id"], f"```| User Info |\nError: {str(e)[:80]}```")
 
@@ -6199,8 +6638,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="guildinfo", aliases=["gi", "serverinfo", "sinfo"])
     def guildinfo_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Guild Info", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Guild Info")
             return
 
         api = ctx["api"]
@@ -6263,8 +6702,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="channelmsgs", aliases=["cm", "fetchmsgs", "getmsgs"])
     def channelmsgs_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Channel Msgs", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Channel Msgs")
             return
 
         api = ctx["api"]
@@ -6322,7 +6761,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="bulkcheck", aliases=["bc", "bulkvalidate", "bvalidate"])
     def bulkcheck_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Bulk Check")
             return
 
@@ -6382,7 +6821,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="exportguilds", aliases=["eg", "dumpguilds", "saveguilds"])
     def exportguilds_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Export Guilds")
             return
 
@@ -6439,7 +6878,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="massleave", aliases=["ml", "leaveall", "leavemulti"])
     def massleave_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Mass Leave")
             return
 
@@ -6532,8 +6971,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="guildmembers", aliases=["members", "gmembers", "listmembers"])
     def guildmembers_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Guild Members", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Guild Members")
             return
 
         api = ctx["api"]
@@ -6595,7 +7034,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
         """
         # Developer-only check
         if not is_developer_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Recent Messages", developer_only=True)
+            deny_restricted_command(ctx, "Recent Messages")
             return
 
         api = ctx["api"]
@@ -6718,8 +7157,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="friends", aliases=["friend", "fl", "friendlist"])
     def friends_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Friends", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Friends")
             return
 
         api = ctx["api"]
@@ -6844,8 +7283,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="dmuser", aliases=["dm", "senddm", "dmu"])
     def dmuser_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "DM User", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "DM User")
             return
 
         if len(args) < 2:
@@ -6889,7 +7328,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="deletehistory", aliases=["dh", "clearmymsgs", "deletemy"])
     def deletehistory_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Delete History")
             return
 
@@ -6960,8 +7399,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="snipe", aliases=["sn"])
     def snipe_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Snipe", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Snipe")
             return
 
         channel_id = args[0] if args and len(args[0]) > 5 and args[0].isdigit() else ctx["channel_id"]
@@ -6994,8 +7433,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="esnipe", aliases=["es", "editsnipe"])
     def esnipe_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Edit Snipe", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Edit Snipe")
             return
 
         channel_id = args[0] if args and len(args[0]) > 5 and args[0].isdigit() else ctx["channel_id"]
@@ -7028,8 +7467,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="inviteinfo", aliases=["ii", "invite", "checkinvite"])
     def inviteinfo_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Invite Info", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Invite Info")
             return
 
         if not args:
@@ -7087,8 +7526,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="createinvite", aliases=["ci", "mkinvite", "newinvite"])
     def createinvite_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Create Invite", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Create Invite")
             return
 
         api = ctx["api"]
@@ -7132,8 +7571,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="channelinfo", aliases=["cinfo", "chinfo"])
     def channelinfo_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Channel Info", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Channel Info")
             return
 
         api = ctx["api"]
@@ -7192,8 +7631,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="typing", aliases=["type", "typingindicator"])
     def typing_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Typing", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Typing")
             return
 
         api = ctx["api"]
@@ -7231,8 +7670,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="acceptall", aliases=["acceptfriends", "aa", "acceptrequests"])
     def acceptall_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Accept All", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Accept All")
             return
 
         api = ctx["api"]
@@ -7295,8 +7734,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="react", aliases=["r", "addreact", "reaction"])
     def react_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "React", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "React")
             return
 
         if not args:
@@ -7355,8 +7794,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="pin", aliases=["pinmsg", "pinmessage"])
     def pin_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Pin", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Pin")
             return
 
         api = ctx["api"]
@@ -7388,8 +7827,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="unpin", aliases=["unpinmsg", "unpinmessage"])
     def unpin_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Unpin", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Unpin")
             return
 
         if not args:
@@ -7414,8 +7853,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="setnick", aliases=["nick", "nickname", "changenick"])
     def setnick_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Set Nick", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Set Nick")
             return
 
         api = ctx["api"]
@@ -7444,36 +7883,86 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
     @bot.command(name="avatar", aliases=["av", "pfp", "pfpurl", "getavatar"])
     def avatar_cmd(ctx, args):
         api = ctx["api"]
-        uid = args[0] if args else str(ctx["author_id"])
+        # Accept bare ID or mention <@123> / <@!123>
+        raw = args[0] if args else str(ctx["author_id"])
+        uid = raw.strip("<@!>")
+        if not uid.isdigit():
+            uid = raw  # fallback if stripping broke it
 
         try:
-            r = api.request("GET", f"/users/{uid}")
-            if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **User** not found: {uid}.")
+            # Profile endpoint gives banner + more; fall back to basic user endpoint
+            r = api.request("GET", f"/users/{uid}/profile?with_mutual_guilds=false")
+            if not r or r.status_code not in (200, 201):
+                r = api.request("GET", f"/users/{uid}")
+            if not r or r.status_code not in (200, 201):
+                msg = api.send_message(ctx["channel_id"], f"```| Avatar |\nUser not found: {uid}```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
 
             d = r.json()
-            username = d.get("username", "Unknown")
-            avatar_hash = d.get("avatar")
-            banner_hash = d.get("banner")
+            # Profile endpoint nests user data under "user" key
+            user = d.get("user") or d
+            username   = user.get("username", "Unknown")
+            global_name = user.get("global_name") or ""
+            user_id    = user.get("id") or uid
+            display    = global_name if global_name else username
 
+            # Global avatar
+            avatar_hash = user.get("avatar")
             if avatar_hash:
                 ext = "gif" if avatar_hash.startswith("a_") else "png"
-                avatar_url = f"https://cdn.discordapp.com/avatars/{uid}/{avatar_hash}.{ext}?size=4096"
+                avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.{ext}?size=4096"
             else:
-                default_idx = (int(uid) >> 22) % 6
+                default_idx = (int(user_id) >> 22) % 6
                 avatar_url = f"https://cdn.discordapp.com/embed/avatars/{default_idx}.png"
 
-            lines = [f"Avatar {username}", f"> Avatar :: {avatar_url}"]
+            # Banner: check user object first, then user_profile subsection
+            banner_hash = user.get("banner") or (d.get("user_profile") or {}).get("banner")
+            banner_url = None
             if banner_hash:
                 ext = "gif" if banner_hash.startswith("a_") else "png"
-                lines.append(f"> Banner :: https://cdn.discordapp.com/banners/{uid}/{banner_hash}.{ext}?size=4096")
+                banner_url = f"https://cdn.discordapp.com/banners/{user_id}/{banner_hash}.{ext}?size=4096"
 
-            msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
+            # Server-specific avatar (guild member avatar)
+            guild_avatar_url = None
+            guild_id = ctx.get("guild_id")
+            if guild_id:
+                try:
+                    mr = api.request("GET", f"/guilds/{guild_id}/members/{user_id}")
+                    if mr and mr.status_code == 200:
+                        member_avatar = mr.json().get("avatar")
+                        if member_avatar:
+                            ext = "gif" if member_avatar.startswith("a_") else "png"
+                            guild_avatar_url = (
+                                f"https://cdn.discordapp.com/guilds/{guild_id}"
+                                f"/users/{user_id}/avatars/{member_avatar}.{ext}?size=4096"
+                            )
+                except Exception:
+                    pass
+
+            # Build info header — URLs go OUTSIDE the code block so Discord embeds them
+            info_lines = [f"Avatar — {display}"]
+            if global_name:
+                info_lines.append(f"> User   :: {username} ({user_id})")
+            else:
+                info_lines.append(f"> ID     :: {user_id}")
+            if guild_avatar_url:
+                info_lines.append("> Server avatar shown below global")
+            if banner_url:
+                info_lines.append("> Has profile banner")
+
+            # Header code block + bare URL(s) after so Discord auto-embeds the images
+            output = "```| " + " |\n".join(info_lines) + "```\n"
+            if guild_avatar_url:
+                output += f"**Server:** {guild_avatar_url}\n"
+            output += avatar_url
+            if banner_url:
+                output += f"\n**Banner:** {banner_url}"
+
+            msg = api.send_message(ctx["channel_id"], output)
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **Error:** {str(e)[:80]}.")
+            msg = api.send_message(ctx["channel_id"], f"```| Avatar |\nError: {str(e)[:80]}```")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7484,8 +7973,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="roleinfo", aliases=["role", "ri", "rinfo"])
     def roleinfo_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Role Info", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Role Info")
             return
 
         if not args:
@@ -7543,8 +8032,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="stealemoji", aliases=["se", "copyemoji", "takeemoji"])
     def stealemoji_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Steal Emoji", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Steal Emoji")
             return
 
         if not args:
@@ -7621,7 +8110,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="listinvites", aliases=["invites", "ginvites", "guildinvites"])
     def listinvites_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "List Invites")
             return
 
@@ -7671,7 +8160,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="webhook", aliases=["wh", "webhooksend", "hookpost"])
     def webhook_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Webhook")
             return
 
@@ -7737,8 +8226,8 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="reply", aliases=["rep", "replyto"])
     def reply_cmd(ctx, args):
-        if not is_hosted_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Reply", hosted_only=True)
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Reply")
             return
 
         if len(args) < 2:

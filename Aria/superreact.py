@@ -6,15 +6,13 @@ import threading
 import time
 import websocket
 import requests
+from typing import Optional
 from urllib.parse import quote as url_quote
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # logger = Logger("Superreact")
 print("Superreact initialized")
-
-# Global super react client
-super_react_client = None
 
 
 class SuperReactClient:
@@ -319,3 +317,7 @@ class SuperReactClient:
         """Get all ssr targets"""
         with self.targets_lock:
             return dict(self.ssr_targets)
+
+
+# Global super react client (typed for static analysis)
+super_react_client: Optional[SuperReactClient] = None

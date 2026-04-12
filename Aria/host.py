@@ -15,6 +15,7 @@ class HostManager:
         self.saved_users = {}     # token_id -> persisted settings
         self.lock = threading.Lock()
         self.hosting_enabled = True  # owner toggle — allows non-owners to use +host
+        self._stop_events = {}    # token_id -> threading.Event for keepalive control
         self._load_saved_users()
         # Removed: self._print_startup_summary()  <- This was causing duplicate loading
 
@@ -132,7 +133,8 @@ class HostManager:
                 f"| user_id={entry['user_id'] or 'unknown'} | uid={entry['uid']} | owner={owner_id}"
             )
 
-            return True, "Hosting token"
+        self._start_keepalive(token_id)
+        return True, "Hosting token"
     
     def _clean_token(self, token_input):
         token_input = token_input.strip('"\' ')
@@ -151,17 +153,30 @@ class HostManager:
             runner_code = f"""
 import sys, os, json, time, subprocess, shutil
 
-temp_dir = "hosted_bot_{{int(time.time())}}"
+temp_dir = "hosted_bot_{hosted_uid}"
+first_run = not os.path.exists(temp_dir)
 os.makedirs(temp_dir, exist_ok=True)
 
-for file in os.listdir("."):
-    if file.endswith(".py"):
-        shutil.copy(file, os.path.join(temp_dir, file))
+if first_run:
+    # First launch: copy everything and write fresh config
+    for file in os.listdir("."):
+        if file.endswith(".py") or file.endswith(".json"):
+            try:
+                shutil.copy(file, os.path.join(temp_dir, file))
+            except Exception:
+                pass
+    with open(os.path.join(temp_dir, "config.json"), "w") as f:
+        json.dump({{"token": "{token}", "prefix": "{prefix}"}}, f)
+else:
+    # Restart: refresh .py files only — preserve .json files so saved prefix persists
+    for file in os.listdir("."):
+        if file.endswith(".py"):
+            try:
+                shutil.copy(file, os.path.join(temp_dir, file))
+            except Exception:
+                pass
 
 os.chdir(temp_dir)
-
-with open("config.json", "w") as f:
-    json.dump({{"token": "{token}", "prefix": "{prefix}"}}, f)
 
 env = os.environ.copy()
 env["HOSTED_TOKEN"] = "true"
@@ -172,25 +187,102 @@ env["HOSTED_USERNAME"] = {username!r}
 
 subprocess.run([sys.executable, "main.py"], env=env)
 """
-            
-            runner_file = f"runner_{int(time.time())}.py"
+            # Fixed runner filename per token so keepalive restarts work cleanly
+            runner_file = f"runner_{hosted_uid}.py"
             with open(runner_file, "w") as f:
                 f.write(runner_code)
-            
+
+            # Each hosted bot writes to its own log — keeps main console clean
+            log_dir = "hosted_logs"
+            os.makedirs(log_dir, exist_ok=True)
+            log_path = os.path.join(log_dir, f"hosted_{hosted_uid}.log")
+            log_file = open(log_path, "a")
+
             process = subprocess.Popen(
                 [sys.executable, runner_file],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                stdin=subprocess.PIPE,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                stdout=log_file,
+                stderr=log_file,
+                stdin=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
             )
-            
-            threading.Thread(target=self._cleanup, args=(runner_file, config_file, process), daemon=True).start()
+            log_file.close()  # parent closes; child keeps its own fd copy
             return process
-            
+
         except Exception as e:
             print(f"Host error: {e}")
             return None
+
+    def _start_keepalive(self, token_id):
+        """Spawn a daemon watchdog that auto-restarts a hosted bot when it crashes."""
+        stop_event = threading.Event()
+        self._stop_events[token_id] = stop_event
+
+        def _monitor():
+            restart_count = 0
+            while not stop_event.is_set():
+                time.sleep(5)
+                if stop_event.is_set():
+                    break
+
+                with self.lock:
+                    process = self.processes.get(token_id)
+                if process is None:
+                    break
+
+                ret = process.poll()
+                if ret is None:
+                    # Still running — nothing to do
+                    continue
+
+                # Process exited
+                if stop_event.is_set():
+                    break
+
+                restart_count += 1
+                with self.lock:
+                    saved = self.saved_users.get(token_id, {})
+                uname = saved.get("username") or "unknown"
+                uid = saved.get("uid") or token_id
+                print(
+                    f"\033[1;33m[KEEPALIVE]\033[0m Hosted {uname} ({uid}) "
+                    f"exited (code={ret}), restart #{restart_count} in 5s..."
+                )
+                time.sleep(5)
+                if stop_event.is_set():
+                    break
+
+                with self.lock:
+                    saved = self.saved_users.get(token_id)
+                if not saved:
+                    break
+                token = saved.get("token")
+                if not token:
+                    break
+
+                new_process = self._run_their_bot(
+                    f"hosted_{token_id}.json",
+                    token,
+                    prefix=saved.get("prefix", ";"),
+                    hosted_uid=token_id,
+                    owner_id=saved.get("owner"),
+                    user_id=saved.get("user_id"),
+                    username=saved.get("username"),
+                )
+                if new_process and not stop_event.is_set():
+                    with self.lock:
+                        self.processes[token_id] = new_process
+                    print(
+                        f"\033[1;32m[KEEPALIVE]\033[0m Hosted {uname} ({uid}) "
+                        f"restarted (#{restart_count})"
+                    )
+                else:
+                    print(
+                        f"\033[1;31m[KEEPALIVE]\033[0m Failed to restart hosted "
+                        f"{uname} ({uid}) — giving up"
+                    )
+                    break
+
+        threading.Thread(target=_monitor, daemon=True, name=f"keepalive-{token_id}").start()
     
     def stop_hosting(self, owner_id):
         with self.lock:
@@ -200,6 +292,9 @@ subprocess.run([sys.executable, "main.py"], env=env)
                     to_stop.append((token_id, data))
             
             for token_id, data in to_stop:
+                stop_event = self._stop_events.pop(token_id, None)
+                if stop_event:
+                    stop_event.set()
                 if token_id in self.processes:
                     try:
                         self.processes[token_id].terminate()
@@ -225,6 +320,9 @@ subprocess.run([sys.executable, "main.py"], env=env)
             count = len(self.active_tokens)
             for token_id in list(self.active_tokens.keys()):
                 data = self.active_tokens[token_id]
+                stop_event = self._stop_events.pop(token_id, None)
+                if stop_event:
+                    stop_event.set()
                 if token_id in self.processes:
                     try:
                         self.processes[token_id].terminate()
@@ -304,6 +402,9 @@ subprocess.run([sys.executable, "main.py"], env=env)
                 data = self.saved_users.get(token_id)
                 if not data:
                     continue
+                stop_event = self._stop_events.pop(token_id, None)
+                if stop_event:
+                    stop_event.set()
                 proc = self.processes.pop(token_id, None)
                 if proc:
                     try:
@@ -366,6 +467,7 @@ subprocess.run([sys.executable, "main.py"], env=env)
                 self.active_tokens[token_id] = entry
                 self.processes[token_id] = process
 
+            self._start_keepalive(token_id)
             restored += 1
 
         if restored:
@@ -386,11 +488,15 @@ subprocess.run([sys.executable, "main.py"], env=env)
     def cleanup(self):
         with self.lock:
             for token_id in list(self.active_tokens.keys()):
+                stop_event = self._stop_events.pop(token_id, None)
+                if stop_event:
+                    stop_event.set()
                 if token_id in self.processes:
                     try:
                         self.processes[token_id].terminate()
                     except:
                         pass
+                    self.processes.pop(token_id, None)
                 del self.active_tokens[token_id]
 
     def _remove_invalid_users(self):

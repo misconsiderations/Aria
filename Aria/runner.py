@@ -86,7 +86,7 @@ def inst_all():
 
 def chk_all():
     required = [
-        "main.py", "bot.py", "api_client.py", "header.py", 
+        "main.py", "bot.py", "api_client.py", "header_spoofer.py", 
         "rate_limit.py", "cache.py", "config.py", "owner.py",
         "nitro.py", "afk_system.py", "anti_gc_trap.py",
         "backup.py", "moderation.py", "voice.py", "webpanel.py",

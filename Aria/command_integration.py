@@ -38,7 +38,7 @@ class CommandIntegration:
             )
             self.api_client.send_message(ctx["channel_id"], msg_text)
         
-        @self.bot.command(name="helpwall", aliases=["cmdwall", "allcmds", "wallcmds"])
+        @self.bot.command(name="helpwall", aliases=["wallcmds"])
         def cmd_helpwall(ctx, args):
             """List all real registered commands split across messages."""
             unique = self._unique_commands()
@@ -88,13 +88,52 @@ class CommandIntegration:
         
         @self.bot.command(name="categories")
         def cmd_categories(ctx, args):
-            """Show real command count."""
+            """Show real command count with a category-style breakdown."""
             unique = self._unique_commands()
             real_count = len(unique)
-            msg_text = fmt.status_box(
-                "Commands",
-                {"Active Commands": str(real_count), "Tip": f"Use {self.bot.prefix}helpwall to list all"},
-            )
+            prefix = self.bot.prefix
+
+            # Build a quick keyword-based category map from real commands
+            _cat_map = {
+                "System": ["help", "helpwall", "cmdwall", "categories", "quickhelp", "cmdinfo",
+                            "restart", "stop", "setprefix", "customize", "terminal", "ui",
+                            "web", "backup", "version"],
+                "Profile": ["setpfp", "setbanner", "stealpfp", "stealbanner", "stealname",
+                             "bio", "setbio", "pronouns", "setpronouns", "displayname",
+                             "setdisplayname", "setstatus", "deco"],
+                "Guild": ["guilds", "myguilds", "guildinfo", "guildbadge", "guildmembers",
+                           "leaveguild", "massleave", "joininvite", "join", "exportguilds"],
+                "Messaging": ["purge", "spam", "massdm", "dmuser", "deletehistory",
+                               "snipe", "esnipe", "react", "typing", "channelmsgs"],
+                "User": ["userinfo", "friends", "mutualinfo", "block", "acceptall",
+                          "bulkcheck", "checktoken", "inviteinfo", "createinvite",
+                          "channelinfo", "hypesquad", "status", "client"],
+                "Activity": ["rpc", "vrrpc", "superreact", "autoreact"],
+                "Tools": ["history", "badges", "quest", "localstats", "export",
+                           "scrapesummary", "ms", "bold", "italic", "upper", "lower",
+                           "reverse", "mock", "flip", "echo", "length", "time"],
+                "Host": ["host", "stophost", "listhosted", "hoststopall", "hoston",
+                          "hostoff", "hostblacklist", "listallhosted"],
+                "Boost": ["nitro", "giveaway"],
+                "Voice": ["vc", "vce", "vccam", "vcstream"],
+            }
+            cmd_names = {name for name, _ in unique}
+            breakdown = {}
+            assigned = set()
+            for cat, cmds in _cat_map.items():
+                matched = [c for c in cmds if c in cmd_names]
+                if matched:
+                    breakdown[cat] = len(matched)
+                    assigned.update(matched)
+            other = len([n for n in cmd_names if n not in assigned])
+            if other:
+                breakdown["Other"] = other
+
+            info = {cat: str(cnt) for cat, cnt in sorted(breakdown.items())}
+            info["──────────"] = "──────────"
+            info["Total"] = str(real_count)
+            info["Tip"] = f"{prefix}helpwall · {prefix}cmdwall · {prefix}help"
+            msg_text = fmt.status_box("Commands Overview", info)
             self.api_client.send_message(ctx["channel_id"], msg_text)
     
     def setup_text_commands(self):

@@ -25,13 +25,13 @@ sudo chown aria:aria /home/aria/Aria
 
 # Set up virtual environment
 sudo -u aria bash -c "cd /home/aria/Aria && python3 -m venv .venv"
-sudo -u aria bash -c "cd /home/aria/Aria && .venv/bin/pip install requests curl_cffi websocket discord aiohttp urllib3 websockets flask pyarmor"
+sudo -u aria bash -c "cd /home/aria/Aria && .venv/bin/pip install curl-cffi websocket-client aiohttp websockets flask colorama requests"
 
 # Install PM2
 sudo npm install -g pm2
 
 # Set up PM2 for the bot
-sudo -u aria bash -c "cd /home/aria/Aria && pm2 start main.py --name aria --interpreter python3"
+sudo -u aria bash -c "cd /home/aria/Aria && pm2 start main.py --name aria --interpreter /home/aria/Aria/.venv/bin/python3 --cwd /home/aria/Aria"
 sudo -u aria bash -c "pm2 save"
 sudo -u aria bash -c "pm2 startup"
 
