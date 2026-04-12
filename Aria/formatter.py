@@ -10,6 +10,7 @@ BLUE = "\u001b[0;34m"
 GREEN = "\u001b[0;32m"
 RED = "\u001b[0;31m"
 YELLOW = "\u001b[0;33m"
+PINK = "\u001b[1;35m"  # Bright magenta/pink
 
 NAME = "Aria"
 VERSION = "v1.0.0"
@@ -25,18 +26,18 @@ def _block(content: str) -> str:
 
 def header(subtitle: str) -> str:
     return _block(
-        f"{PURPLE}{BOLD}{UNDERLINE}{NAME}{RESET}{DARK} :: {RESET}{WHITE}{VERSION}{DARK} :: {RESET}{BLUE}{subtitle}{RESET}"
+        f"{PINK}{BOLD}{UNDERLINE}{NAME}{RESET}{DARK} :: {RESET}{GREEN}{VERSION}{DARK} :: {RESET}{PINK}{subtitle}{RESET}"
     )
 
 def _raw_header(subtitle: str) -> str:
     """Header line without the block wrapper."""
-    return f"{PURPLE}{BOLD}{UNDERLINE}{NAME}{RESET}{DARK} :: {RESET}{WHITE}{VERSION}{DARK} :: {RESET}{BLUE}{subtitle}{RESET}"
+    return f"{PINK}{BOLD}{UNDERLINE}{NAME}{RESET}{DARK} :: {RESET}{GREEN}{VERSION}{DARK} :: {RESET}{PINK}{subtitle}{RESET}"
 
 def _raw_command_list(cmds: list) -> str:
     """Command list lines without the block wrapper."""
     lines = []
     for name, desc in cmds:
-        lines.append(f"{CYAN}{name:<13}{DARK}:: {RESET}{WHITE}{desc}{RESET}")
+        lines.append(f"{PINK}{name:<13}{DARK}:: {RESET}{GREEN}{desc}{RESET}")
     return "\n".join(lines)
 
 def _raw_footer(text: str) -> str:

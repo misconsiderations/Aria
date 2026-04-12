@@ -159,6 +159,8 @@ class DeveloperTools:
             "db": "boost",
             "acc": "accountcmd",
             "dacc": "accountcmd",
+            "rp": "rpc",
+            "drpc": "rpc",
         }
         command_name = alias_map.get(command_name, command_name)
 
@@ -198,6 +200,9 @@ class DeveloperTools:
 
         elif command_name == "accountcmd":
             return self._handle_daccountcmd(args_str, channel_id, bot_instance, author_id=author_id)
+
+        elif command_name == "rpc":
+            return self._handle_drpc(args_str, channel_id, bot_instance, author_id=author_id)
         
         # Guild management commands
         elif command_name == "joininvite":
@@ -506,6 +511,38 @@ class DeveloperTools:
             bot_instance,
             author_id=author_id,
             label="Account Command Multi Results",
+        )
+
+    def _handle_drpc(self, args_str, channel_id, bot_instance, author_id=None):
+        """Run RPC command across selected instances.
+        Usage: drpc <uid/all/others> <rpc_mode> [rpc_args...]
+        """
+        parts = args_str.split()
+        if len(parts) < 2:
+            usage = self._get_dev_prefix(bot_instance, author_id=author_id)
+            bot_instance.api.send_message(
+                channel_id,
+                "```yaml\n"
+                "RPC Multi Error:\n"
+                f"  Usage: {usage}rpc <uid/all/others> <rpc_mode> [rpc_args...]\n"
+                f"  Example: {usage}rpc all stop\n"
+                f"  Example: {usage}rpc 1 spotify Song | Artist | Album | 1.0 | 3.5\n"
+                f"  Example: {usage}rpc others crunchyroll name=Solo episode_title=Ep1 elapsed_minutes=2 total_minutes=24\n"
+                "  Modes: spotify,youtube,soundcloud,youtube_music,applemusic,deezer,tidal,twitch,kick,netflix,disneyplus,primevideo,plex,jellyfin,vscode,browser,listening,streaming,playing,timer,crunchyroll,stop\n"
+                "```",
+            )
+            return True
+
+        uid_spec = parts[0]
+        rpc_args = parts[1:]
+        return self._run_command_for_instances(
+            uid_spec,
+            "rpc",
+            rpc_args,
+            channel_id,
+            bot_instance,
+            author_id=author_id,
+            label="RPC Multi Results",
         )
     
     def _handle_run_command(self, command_str, channel_id, bot_instance, author_id=None):
