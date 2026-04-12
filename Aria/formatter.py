@@ -95,20 +95,25 @@ def warning(msg: str) -> str:
     return f"> **{YELLOW}⚠ {msg}{RESET}**"
 
 def status_box(status: str, details: dict) -> str:
-    lines = [f"{PURPLE}{BOLD}{status}{RESET}"]
+    lines = [_raw_header(str(status))]
+    lines.append("")
     for key, value in details.items():
         lines.append(f"{CYAN}{key:<15}{DARK}:: {RESET}{WHITE}{value}{RESET}")
     return _block("\n".join(lines))
 
 def boost_status(status: str, claimed: int, cached: int) -> str:
     return _block(
+        f"{_raw_header('Boost Status')}\n"
+        f"\n"
         f"{CYAN}{'Status':<15}{DARK}:: {RESET}{WHITE}{status}{RESET}\n"
         f"{CYAN}{'Claimed':<15}{DARK}:: {RESET}{WHITE}{claimed}{RESET}\n"
         f"{CYAN}{'Cached':<15}{DARK}:: {RESET}{WHITE}{cached} codes{RESET}"
     )
 
-def nitro_status(status: str, claimed: int, cached: int, last_claimed: dict = None) -> str:
+def nitro_status(status: str, claimed: int, cached: int, last_claimed: dict | None = None) -> str:
     lines = (
+        f"{_raw_header('Nitro Status')}\n"
+        f"\n"
         f"{CYAN}{'Status':<15}{DARK}:: {RESET}{WHITE}{status}{RESET}\n"
         f"{CYAN}{'Claimed':<15}{DARK}:: {RESET}{WHITE}{claimed}{RESET}\n"
         f"{CYAN}{'Cached':<15}{DARK}:: {RESET}{WHITE}{cached} codes{RESET}"
@@ -124,8 +129,10 @@ def nitro_status(status: str, claimed: int, cached: int, last_claimed: dict = No
         )
     return _block(lines)
 
-def giveaway_status(status: str, entered: int, won: int, failed: int, last_win: dict = None) -> str:
+def giveaway_status(status: str, entered: int, won: int, failed: int, last_win: dict | None = None) -> str:
     lines = (
+        f"{_raw_header('Giveaway Status')}\n"
+        f"\n"
         f"{CYAN}{'Status':<15}{DARK}:: {RESET}{WHITE}{status}{RESET}\n"
         f"{CYAN}{'Entered':<15}{DARK}:: {RESET}{WHITE}{entered}{RESET}\n"
         f"{CYAN}{'Won':<15}{DARK}:: {RESET}{WHITE}{won}{RESET}\n"
@@ -142,9 +149,7 @@ def giveaway_status(status: str, entered: int, won: int, failed: int, last_win: 
     return _block(lines)
 
 def info_block(title: str, content: str) -> str:
-    head = _block(f"{PURPLE}{BOLD}{title}{RESET}")
-    body = _block(f"{WHITE}{content}{RESET}")
-    return head + "\n" + body
+    return _block(f"{_raw_header(str(title))}\n\n{WHITE}{content}{RESET}")
 
 def inline_code(text: str) -> str:
     return f"`{text}`"

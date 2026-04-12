@@ -3957,6 +3957,7 @@ Example Usage:
                         f"\n{body}\n"
                         f"\n{fmt.CYAN}Usage{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{pager}{fmt.RESET}"
                     ),
+                    fmt.footer_main(),
                 ]
             )
 
@@ -5395,7 +5396,7 @@ Example Usage:
                     fmt.header("Help"),
                     fmt.command_list(cat_cmds),
                     fmt._block(f"{fmt.CYAN}Usage{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{p}help <command>{fmt.RESET}"),
-                    fmt.footer_main(),
+                    fmt._block(f"{fmt.DARK}Devloped By Misconsiderations{fmt.RESET}"),
                 ]),
             )
             if msg:
@@ -5452,6 +5453,7 @@ Example Usage:
                                 f"{fmt.CYAN}Aliases{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{aliases}{fmt.RESET}\n"
                                 f"{fmt.CYAN}Tip{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}Use {p}cmdwall to view all loaded commands{fmt.RESET}"
                             ),
+                            fmt.footer_main(),
                         ]
                     ),
                 )
@@ -5468,6 +5470,7 @@ Example Usage:
                                 f"{fmt.CYAN}Try{fmt.DARK}       :: {fmt.RESET}{fmt.WHITE}{p}help <page>{fmt.RESET}\n"
                                 f"{fmt.CYAN}Or{fmt.DARK}        :: {fmt.RESET}{fmt.WHITE}{p}cmdwall{fmt.RESET}"
                             ),
+                            fmt.footer_main(),
                         ]
                     ),
                 )
