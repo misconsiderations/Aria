@@ -8466,7 +8466,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
             return
 
         api = ctx["api"]
-        role_id = args[0]
+my         role_id = args[0]
         guild_id = ctx.get("guild_id")
         if not guild_id:
             msg = api.send_message(ctx["channel_id"], "```| Role Info |\nMust be used in a server```")

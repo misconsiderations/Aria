@@ -803,7 +803,7 @@ class WebPanel:
             self._append_instance_log(str(session.get("user_id") or "unknown"), "logout", "logged out")
             session.pop("user_id", None)
             session.pop("webpanel_authenticated", None)
-            return redirect(url_for("login"))
+            return redirect_for("login")
 
         @self.app.get("/access-pending")
         def access_pending() -> str:
@@ -2557,9 +2557,12 @@ class WebPanel:
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: radial-gradient(circle at 10% 10%, #1e1b4b 0%, #0f172a 52%, #020617 100%);
             color: #e5e7eb;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: radial-gradient(circle at 10% 10%, #1e1b4b 0%, #0f172a 52%, #020617 100%);
+            padding: 24px;
         }
         .top {
             display: flex;
@@ -2791,7 +2794,7 @@ a{color:#93c5fd;text-decoration:none}
             min-height: 100vh;
             display: grid;
             place-items: center;
-            background: radial-gradient(circle at 20% 20%, #1e1b4b, #0f172a 55%, #020617 100%);
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
             color: #e5e7eb;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             padding: 24px;
@@ -2853,7 +2856,7 @@ a{color:#93c5fd;text-decoration:none}
 </body>
 </html>"""
 
-    def _render_login(self, error: str = "", next_path: str = "/dashboard", mode: str = "login") -> str:
+        def _render_login(self, error: str = "", next_path: str = "/dashboard", mode: str = "login") -> str:
         safe_next = next_path if isinstance(next_path, str) and next_path.startswith("/") else "/dashboard"
         error_html = (
             f"<p style='color:#fca5a5;margin:0 0 12px 0;font-size:14px;'>{error}</p>"
@@ -2881,12 +2884,9 @@ a{color:#93c5fd;text-decoration:none}
         toggle_text_prefix = "" if is_register else "Don't have an account? "
         
         html = f"""<!DOCTYPE html>
-<html lang=\"en\">
+<html lang="en">
 <head>
-  <meta charset=\"UTF-8\" />
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
-  <title>Aria Dashboard - {title}</title>
-  <style>
+  <meta charset="UTF-8" />
     * {{
       margin: 0;
       padding: 0;
