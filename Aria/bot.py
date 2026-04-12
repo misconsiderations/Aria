@@ -6,7 +6,7 @@ import os
 from typing import Dict, Any, Callable, List, Optional, Union
 from api_client import DiscordAPIClient
 from owner import BotCustomizer
-import websocket
+import websocket  # type: ignore[import-not-found]
 import queue
 from nitro import NitroSniper
 from anti_gc_trap import AntiGCTrap
@@ -14,7 +14,7 @@ from giveaway import GiveawaySniper
 from header_spoofer import HeaderSpoofer
 
 class Command:
-    def __init__(self, func: Callable, name: str, aliases: List[str] = None):
+    def __init__(self, func: Callable, name: str, aliases: Optional[List[str]] = None):
         self.func = func
         self.name = name
         self.aliases = aliases or []
@@ -50,7 +50,7 @@ class DiscordBot:
         self._msg_cache: Dict[str, Any] = {}
 
         self.running = True
-        self.ws = None
+        self.ws: Any = None
         self.ws_thread = None
         self.sequence = None
         self.user_id = None
@@ -58,7 +58,7 @@ class DiscordBot:
         self.auto_react_emoji = None
         self.message_queue = queue.Queue()
         self.last_heartbeat = time.time()
-        self.heartbeat_interval = None
+        self.heartbeat_interval: Optional[float] = None
         self.heartbeat_thread = None
         self.identified = False
         self.reconnect_attempts = 0
@@ -113,27 +113,46 @@ class DiscordBot:
             self.globalPrefix = default_prefix
 
     # ── command registration ─────────────────────────────────────────────
-    def command(self, name: str = None, aliases: List[str] = None):
+    def _register_command_key(self, key: str, cmd_obj: Command) -> None:
+        k = str(key or "").strip().lower()
+        if not k:
+            return
+        self.commands[k] = cmd_obj
+        # Allow using commands without underscores (e.g. hypesquad_leave -> hypesquadleave)
+        compact = k.replace("_", "")
+        if compact and compact not in self.commands:
+            self.commands[compact] = cmd_obj
+
+    def _resolve_command(self, command_name: str) -> Optional[Command]:
+        k = str(command_name or "").strip().lower()
+        if not k:
+            return None
+        cmd = self.commands.get(k)
+        if cmd is not None:
+            return cmd
+        return self.commands.get(k.replace("_", ""))
+
+    def command(self, name: Optional[str] = None, aliases: Optional[List[str]] = None):
         def decorator(func: Callable):
             cmd_name = name or func.__name__
             cmd_obj = Command(func, cmd_name, aliases)
-            self.commands[cmd_name] = cmd_obj
+            self._register_command_key(cmd_name, cmd_obj)
             # register every alias so it can be looked up directly
             for alias in (aliases or []):
-                self.commands[alias] = cmd_obj
+                self._register_command_key(alias, cmd_obj)
             return func
         return decorator
 
     def execute_command(self, user_id: str, command_name: str, *args, **kwargs):
-        if command_name not in self.commands:
+        command = self._resolve_command(command_name)
+        if command is None:
             raise ValueError("Command not found.")
-        command = self.commands[command_name]
         return command.func(*args, **kwargs)
 
     def run_command(self, command_name: str, ctx: Dict[str, Any], args: List[str]) -> None:
-        if command_name in self.commands:
+        cmd = self._resolve_command(command_name)
+        if cmd is not None:
             self.command_count += 1
-            cmd = self.commands[command_name]
             ts = time.strftime("%H:%M:%S")
             author = ctx.get("author_id", "?")
             guild = ctx.get("guild_id") or "DM"
@@ -279,7 +298,8 @@ class DiscordBot:
                     if self.ws and self.ws.sock and self.ws.sock.connected:
                         heartbeat_msg = {"op": 1, "d": self.sequence}
                         self.ws.send(json.dumps(heartbeat_msg))
-                    time.sleep(self.heartbeat_interval)
+                    interval = float(self.heartbeat_interval or 30.0)
+                    time.sleep(interval)
                 except:
                     if self.running:
                         self.connection_active = False
@@ -326,6 +346,17 @@ class DiscordBot:
             "release_channel":   "stable",
             "client_build_number": 284054,
         },
+        "vr": {
+            "$os":               "Meta Quest",
+            "$browser":          "Discord VR",
+            "$device":           "Meta Quest 3",
+            "browser_user_agent": "Mozilla/5.0 (Linux; Android 14; Meta Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "browser_version":   "Discord VR",
+            "os_version":        "Meta Quest OS",
+            "system_locale":     "en-US",
+            "release_channel":   "stable",
+            "client_build_number": 284054,
+        },
     }
 
     def identify(self):
@@ -347,7 +378,8 @@ class DiscordBot:
                     "intents": 3276799,
                 },
             }
-            self.ws.send(json.dumps(identify))
+            if self.ws:
+                self.ws.send(json.dumps(identify))
         except:
             pass
 
@@ -390,7 +422,7 @@ class DiscordBot:
     def _connect_gateway(self):
         url = "wss://gateway.discord.gg/?v=10&encoding=json"
         self.identified = False
-        self.ws = websocket.WebSocketApp(
+        ws_app = websocket.WebSocketApp(
             url,
             on_message=self.on_message,
             on_error=self.on_error,
@@ -398,8 +430,9 @@ class DiscordBot:
             on_open=self.on_open,
             header={"User-Agent": "Mozilla/5.0"},
         )
+        self.ws = ws_app
         self.ws_thread = threading.Thread(
-            target=lambda: self.ws.run_forever(
+            target=lambda: ws_app.run_forever(
                 sslopt={"cert_reqs": ssl.CERT_NONE},
                 ping_interval=30,
                 ping_timeout=10,
@@ -421,7 +454,7 @@ class DiscordBot:
             # AFK auto-clear when the owner sends any message
             if author_id == self.user_id:
                 afk_ref = getattr(self, "_afk_system_ref", None)
-                active_prefix = self.get_user_prefix(self.user_id)
+                active_prefix = self.get_user_prefix(str(self.user_id or ""))
                 is_setting_afk = (
                     content.startswith(active_prefix)
                     and content[len(active_prefix):].strip().split()[:1] == ["afk"]
@@ -437,8 +470,9 @@ class DiscordBot:
             if author_id == self.user_id and self.auto_react_emoji:
                 msg_id = message_data.get("id")
                 if msg_id:
+                    emoji = str(self.auto_react_emoji)
                     threading.Thread(
-                        target=lambda: self.api.add_reaction(channel_id, msg_id, self.auto_react_emoji),
+                        target=lambda: self.api.add_reaction(channel_id, msg_id, emoji),
                         daemon=True,
                     ).start()
 
@@ -447,8 +481,8 @@ class DiscordBot:
             alt_prefix = self.config.get("alt_prefix", "") if isinstance(self.config, dict) else ""
             if content.startswith(active_prefix):
                 matched_prefix = active_prefix
-            elif alt_prefix and content.startswith(alt_prefix) and author_id == str(self.ownerId):
-                # Alt prefix is only usable by the master owner
+            elif alt_prefix and content.startswith(alt_prefix) and author_id == str(self.user_id):
+                # Alt prefix is only usable by the master owner (the running account)
                 matched_prefix = alt_prefix
             else:
                 return
@@ -459,7 +493,7 @@ class DiscordBot:
             cmd_name = parts[0].lower()
             args = parts[1:]
 
-            if cmd_name in self.commands:
+            if self._resolve_command(cmd_name) is not None:
                 ctx = {
                     "author_id": author_id,
                     "channel_id": channel_id,

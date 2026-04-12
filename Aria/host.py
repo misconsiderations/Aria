@@ -41,21 +41,7 @@ class HostManager:
         This prevents duplicate user loading at startup.
         """
         total = len(self.saved_users)
-        print(f"\033[1;36m[HOST]\033[0m Loaded hosted users: {total}")
-        seen_users = set()  # Track which users we've printed to prevent duplicates
-        
-        for entry in self.saved_users.values():
-            user_id = entry.get("user_id", "unknown")
-            if user_id in seen_users:
-                continue  # Skip duplicate users
-            
-            seen_users.add(user_id)
-            username = entry.get("username") or "unknown"
-            uid = entry.get("uid") or "unknown"
-            owner = entry.get("owner") or "unknown"
-            print(
-                f"\033[1;36m[HOSTED USER]\033[0m user={username} | user_id={user_id} | uid={uid} | owner={owner}"
-            )
+        pass  # hosted user summary suppressed — hosted bots have their own logs
 
     def _save_users(self):
         try:
@@ -128,10 +114,7 @@ class HostManager:
             self.saved_users[token_id] = {k: v for k, v in entry.items() if k != "config"}
             self._save_users()
 
-            print(
-                f"\033[1;36m[HOST]\033[0m Started hosting | user={entry['username'] or 'unknown'} "
-                f"| user_id={entry['user_id'] or 'unknown'} | uid={entry['uid']} | owner={owner_id}"
-            )
+            pass  # hosted bot start suppressed — output goes to hosted log
 
         self._start_keepalive(token_id)
         return True, "Hosting token"
@@ -243,10 +226,7 @@ subprocess.run([sys.executable, "main.py"], env=env)
                     saved = self.saved_users.get(token_id, {})
                 uname = saved.get("username") or "unknown"
                 uid = saved.get("uid") or token_id
-                print(
-                    f"\033[1;33m[KEEPALIVE]\033[0m Hosted {uname} ({uid}) "
-                    f"exited (code={ret}), restart #{restart_count} in 5s..."
-                )
+                pass  # keepalive restart suppressed — output goes to hosted log
                 time.sleep(5)
                 if stop_event.is_set():
                     break
@@ -271,16 +251,8 @@ subprocess.run([sys.executable, "main.py"], env=env)
                 if new_process and not stop_event.is_set():
                     with self.lock:
                         self.processes[token_id] = new_process
-                    print(
-                        f"\033[1;32m[KEEPALIVE]\033[0m Hosted {uname} ({uid}) "
-                        f"restarted (#{restart_count})"
-                    )
                 else:
-                    print(
-                        f"\033[1;31m[KEEPALIVE]\033[0m Failed to restart hosted "
-                        f"{uname} ({uid}) — giving up"
-                    )
-                    break
+                    break  # failed to restart — give up silently
 
         threading.Thread(target=_monitor, daemon=True, name=f"keepalive-{token_id}").start()
     
@@ -304,10 +276,7 @@ subprocess.run([sys.executable, "main.py"], env=env)
                 del self.active_tokens[token_id]
                 # Remove from persistent store
                 self.saved_users.pop(token_id, None)
-                print(
-                    f"\033[1;36m[HOST]\033[0m Stopped hosting | user={data.get('username') or 'unknown'} "
-                    f"| user_id={data.get('user_id') or 'unknown'} | uid={token_id} | owner={owner_id}"
-                )
+                pass  # stop suppressed — hosted bots have their own logs
             self._save_users()
 
             if to_stop:
@@ -331,10 +300,7 @@ subprocess.run([sys.executable, "main.py"], env=env)
                     del self.processes[token_id]
                 del self.active_tokens[token_id]
                 self.saved_users.pop(token_id, None)
-                print(
-                    f"\033[1;36m[HOST]\033[0m Force-stopped | user={data.get('username') or 'unknown'} "
-                    f"| user_id={data.get('user_id') or 'unknown'} | uid={token_id} | owner={data.get('owner') or 'unknown'}"
-                )
+                pass  # force-stop suppressed
             self._save_users()
             return count
 
@@ -471,7 +437,7 @@ subprocess.run([sys.executable, "main.py"], env=env)
             restored += 1
 
         if restored:
-            print(f"\033[1;36m[HOST]\033[0m Restored hosted users: {restored}")
+            pass  # restore count suppressed
 
         return restored
     
@@ -505,7 +471,6 @@ subprocess.run([sys.executable, "main.py"], env=env)
             invalid_users = [tid for tid, data in self.saved_users.items() if not self._is_token_valid(data.get("token"))]
             for tid in invalid_users:
                 del self.saved_users[tid]
-                print(f"Removed invalid user: {tid}")
             self._save_users()
 
     def _is_token_valid(self, token):
@@ -521,7 +486,6 @@ subprocess.run([sys.executable, "main.py"], env=env)
                     "uid": uid,
                     "owner": user_id
                 }
-                print(f"Rehosted user: {username} ({user_id})")
                 self._save_users()
 
 host_manager = HostManager()

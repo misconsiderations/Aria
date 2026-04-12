@@ -35,16 +35,38 @@ class QuestSystem:
 
     def _tasks_map(self, q: dict) -> dict:
         config = q.get("config", {}) or {}
-        for key in ("task_config_v2", "task_config"):
+        # Discord may return snake_case or camelCase for task config keys.
+        for key in ("task_config_v2", "taskConfigV2", "task_config", "taskConfig"):
             tc = config.get(key, {})
-            if isinstance(tc, dict):
-                tasks = tc.get("tasks", {})
-                if tasks:
-                    return tasks
+            if not isinstance(tc, dict):
+                continue
+
+            tasks = tc.get("tasks", {})
+            if isinstance(tasks, dict) and tasks:
+                return tasks
+
+            # Some payloads store tasks directly at this level.
+            looks_like_tasks = False
+            for _, tv in tc.items():
+                if isinstance(tv, dict) and (
+                    "event_name" in tv
+                    or "eventName" in tv
+                    or "target" in tv
+                ):
+                    looks_like_tasks = True
+                    break
+            if looks_like_tasks:
+                return tc
         return {}
 
     def _task_type(self, q: dict) -> str:
-        names = [str(k).lower() for k in self._tasks_map(q).keys()]
+        tasks = self._tasks_map(q)
+        names = [str(k).lower() for k in tasks.keys()]
+        for _, tv in tasks.items():
+            if isinstance(tv, dict):
+                ev = str(tv.get("event_name") or tv.get("eventName") or "").lower()
+                if ev:
+                    names.append(ev)
         if any("watch" in n for n in names):
             return "watch"
         if any("play" in n for n in names):
@@ -144,50 +166,13 @@ class QuestSystem:
         return names
 
     def _is_user_quest(self, q: dict) -> bool:
-        """Identify if a quest is user-owned/user-created"""
+        """Identify if quest is explicitly user-made; avoid aggressive filtering."""
         config = q.get("config", {}) or {}
-        
-        # Check for grant_type indicating user-made
-        if config.get("grant_type") == "USER_MADE":
+        grant_type = str(config.get("grant_type") or config.get("grantType") or "").upper()
+        if grant_type == "USER_MADE":
             return True
-        
-        # Check if created_by field exists and is not Discord
-        created_by = config.get("created_by")
-        if created_by and created_by not in ("Discord", "discord", "", None):
+        if bool(config.get("user_created") or config.get("userCreated")):
             return True
-        
-        # Check application - real quests have Discord app IDs or game IDs
-        app = config.get("application") or {}
-        app_id = str(app.get("id", ""))
-        
-        # Known Discord/legit app ID ranges (Discord apps are large numbers)
-        # User-created apps would be smaller or different format
-        if app_id and len(app_id) > 0:
-            try:
-                app_id_int = int(app_id)
-                # Discord official apps have very large IDs (>= 1000000000000000000)
-                # User apps are typically much smaller
-                if app_id_int < 100000000:  # Heuristic: likely user app
-                    return True
-            except (ValueError, TypeError):
-                pass
-        
-        # Check for user_created flag
-        if config.get("user_created"):
-            return True
-        
-        # User quests might have different reward types
-        rewards_config = config.get("rewards_config") or {}
-        rewards = rewards_config.get("rewards", []) or []
-        
-        # Check if rewards are not standard Discord rewards
-        for reward in rewards:
-            if isinstance(reward, dict):
-                # Non-standard reward types indicate user quest
-                reward_type = reward.get("type")
-                if reward_type not in (3, 4, 5):  # 3=Boost, 4=Game, 5=Standard
-                    return True
-        
         return False
 
     # ------------------------------------------------------------------
@@ -206,13 +191,16 @@ class QuestSystem:
                 return False, f"HTTP {resp.status_code}"
 
             data = resp.json()
-            if isinstance(data, dict) and data.get("quest_enrollment_blocked_until"):
-                return False, f"Blocked until {data['quest_enrollment_blocked_until']}"
+            blocked_until = None
+            if isinstance(data, dict):
+                blocked_until = data.get("quest_enrollment_blocked_until") or data.get("questEnrollmentBlockedUntil")
+            if blocked_until:
+                return False, f"Blocked until {blocked_until}"
 
             raw = []
             if isinstance(data, dict):
                 raw = data.get("quests", []) or []
-                for eq in data.get("excluded_quests", []) or []:
+                for eq in (data.get("excluded_quests", []) or data.get("excludedQuests", []) or []):
                     eid = eq.get("id")
                     if eid:
                         self.excluded.add(str(eid))
@@ -258,11 +246,37 @@ class QuestSystem:
                 json={"is_targeted": False, "location": 11, "metadata_raw": None},
                 timeout=10,
             )
-            if resp.status_code == 200:
-                return resp.json()
+            if resp.status_code in (200, 201):
+                body = resp.json() if resp.content else {}
+                if isinstance(body, dict):
+                    return body
+                return q.get("user_status") or {}
+            if resp.status_code == 204:
+                return q.get("user_status") or {"enrolled_at": datetime.now(timezone.utc).isoformat()}
         except Exception:
             pass
         return None
+
+    def claim(self, q: dict) -> bool:
+        qid = str(q.get("id", ""))
+        if not qid or not self._is_claimable(q):
+            return False
+        endpoints = (
+            f"{QUESTS_BASE}/quests/{qid}/claim-reward",
+            f"{QUESTS_BASE}/quests/{qid}/claim_reward",
+            f"{QUESTS_BASE}/quests/{qid}/claim",
+        )
+        for ep in endpoints:
+            try:
+                resp = self.api.session.post(ep, headers=self._headers(), json={}, timeout=10)
+                if resp.status_code in (200, 201, 204):
+                    us = q.get("user_status") or {}
+                    us["claimed_at"] = datetime.now(timezone.utc).isoformat()
+                    q["user_status"] = us
+                    return True
+            except Exception:
+                continue
+        return False
 
     def _send_progress(self, q: dict):
         """Send one progress tick. Returns (success, completed, done, total)."""
@@ -293,11 +307,15 @@ class QuestSystem:
                     json={"timestamp": new_val},
                     timeout=10,
                 )
-            elif qtype == "play":
+            elif qtype in ("play", "stream"):
+                app_id = str(((q.get("config") or {}).get("application") or {}).get("id") or "")
+                hb_payload = {"terminal": False}
+                if app_id:
+                    hb_payload["application_id"] = app_id
                 resp = self.api.session.post(
                     f"{QUESTS_BASE}/quests/{qid}/heartbeat",
                     headers=headers,
-                    json={"application_id": qid, "terminal": False},
+                    json=hb_payload,
                     timeout=10,
                 )
             else:
@@ -311,7 +329,9 @@ class QuestSystem:
             if resp.status_code == 204:
                 return True, False, done, total
 
-            rdata = resp.json()
+            rdata = resp.json() if resp.content else {}
+            if not isinstance(rdata, dict):
+                rdata = {}
 
             # Completed?
             if rdata.get("completed_at"):
@@ -321,7 +341,7 @@ class QuestSystem:
                 return True, True, total, total
 
             # Parse updated progress
-            prog = rdata.get("progress") or {}
+            prog = rdata.get("progress") or rdata.get("user_status", {}).get("progress") or {}
             for _, pv in prog.items():
                 if isinstance(pv, dict):
                     try:
@@ -371,6 +391,13 @@ class QuestSystem:
                     if not self.auto_complete:
                         break
                     self._send_progress(q)
+
+                for q in list(self.quests.values()):
+                    if not self.auto_complete:
+                        break
+                    if self._is_claimable(q):
+                        self.claim(q)
+                        time.sleep(0.6)
 
                 time.sleep(random.randint(45, 60))
             except Exception:

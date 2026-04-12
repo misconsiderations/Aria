@@ -201,6 +201,271 @@ def send_spotify_with_spoofing(bot, song_name, artist, album, duration_minutes=3
     }
     bot.set_activity(activity)
 
+def send_spotify_listening_activity(bot, song_name, artist, album=None, elapsed_minutes=0.0, total_minutes=None, image_url=None):
+    """Modern Spotify-style listening activity without legacy spoof metadata."""
+    start_ms = int(time.time() * 1000) - int(float(max(0.0, elapsed_minutes)) * 60 * 1000)
+    activity = {
+        "type": 2,
+        "name": "Spotify",
+        "application_id": "3201606009684",
+        "details": song_name,
+        "state": artist,
+    }
+    if total_minutes is not None:
+        total_ms = int(float(max(0.1, total_minutes)) * 60 * 1000)
+        activity["timestamps"] = {"start": start_ms, "end": start_ms + total_ms}
+
+    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    activity["assets"] = {
+        "large_image": asset_key if asset_key else "spotify",
+        "large_text": f"{album} on Spotify" if album else "Spotify",
+    }
+    bot.set_activity(activity)
+
+def send_youtube_activity(bot, title, channel, elapsed_minutes=0.0, total_minutes=None, image_url=None, button_label=None, button_url=None):
+    start_ms = int(time.time() * 1000) - int(float(max(0.0, elapsed_minutes)) * 60 * 1000)
+    activity = {
+        "type": 3,
+        "name": "YouTube",
+        "application_id": "880218394199220334",
+        "details": title,
+        "state": channel,
+    }
+    if total_minutes is not None:
+        total_ms = int(float(max(0.1, total_minutes)) * 60 * 1000)
+        activity["timestamps"] = {"start": start_ms, "end": start_ms + total_ms}
+
+    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    activity["assets"] = {
+        "large_image": asset_key if asset_key else "youtube",
+        "large_text": "YouTube",
+    }
+
+    if button_label and button_url:
+        activity["buttons"] = [button_label]
+        activity["metadata"] = {"button_urls": [button_url]}
+
+    bot.set_activity(activity)
+
+def send_soundcloud_activity(bot, track, artist, elapsed_minutes=0.0, total_minutes=None, image_url=None, button_label=None, button_url=None):
+    start_ms = int(time.time() * 1000) - int(float(max(0.0, elapsed_minutes)) * 60 * 1000)
+    activity = {
+        "type": 2,
+        "name": "SoundCloud",
+        "application_id": "451016423729692673",
+        "details": track,
+        "state": artist,
+    }
+    if total_minutes is not None:
+        total_ms = int(float(max(0.1, total_minutes)) * 60 * 1000)
+        activity["timestamps"] = {"start": start_ms, "end": start_ms + total_ms}
+
+    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    activity["assets"] = {
+        "large_image": asset_key if asset_key else "soundcloud",
+        "large_text": "SoundCloud",
+    }
+
+    if button_label and button_url:
+        activity["buttons"] = [button_label]
+        activity["metadata"] = {"button_urls": [button_url]}
+
+    bot.set_activity(activity)
+
+
+REAL_RPC_APPS = {
+    "youtube_music": {
+        "name": "YouTube Music",
+        "type": 2,
+        "application_id": "880218394199220334",
+        "asset": "youtube",
+        "default_button": "Listen",
+        "default_url": "https://music.youtube.com",
+    },
+    "applemusic": {
+        "name": "Apple Music",
+        "type": 2,
+        "application_id": "886578863147192381",
+        "asset": "music",
+        "default_button": "Listen",
+        "default_url": "https://music.apple.com",
+    },
+    "deezer": {
+        "name": "Deezer",
+        "type": 2,
+        "application_id": "356268235697553409",
+        "asset": "music",
+        "default_button": "Listen",
+        "default_url": "https://www.deezer.com",
+    },
+    "tidal": {
+        "name": "TIDAL",
+        "type": 2,
+        "application_id": "967730792256327751",
+        "asset": "music",
+        "default_button": "Listen",
+        "default_url": "https://tidal.com",
+    },
+    "twitch": {
+        "name": "Twitch",
+        "type": 1,
+        "application_id": "432980957394370572",
+        "asset": "twitch",
+        "default_button": "Watch",
+        "default_url": "https://www.twitch.tv",
+    },
+    "kick": {
+        "name": "Kick",
+        "type": 1,
+        "application_id": "1108574023776385135",
+        "asset": "stream",
+        "default_button": "Watch",
+        "default_url": "https://kick.com",
+    },
+    "netflix": {
+        "name": "Netflix",
+        "type": 3,
+        "application_id": "523416993301913601",
+        "asset": "movie",
+        "default_button": "Watch",
+        "default_url": "https://www.netflix.com",
+    },
+    "disneyplus": {
+        "name": "Disney+",
+        "type": 3,
+        "application_id": "911240629547008050",
+        "asset": "movie",
+        "default_button": "Watch",
+        "default_url": "https://www.disneyplus.com",
+    },
+    "primevideo": {
+        "name": "Prime Video",
+        "type": 3,
+        "application_id": "1052207893980653608",
+        "asset": "movie",
+        "default_button": "Watch",
+        "default_url": "https://www.primevideo.com",
+    },
+    "plex": {
+        "name": "Plex",
+        "type": 3,
+        "application_id": "435674941344555008",
+        "asset": "movie",
+        "default_button": "Open",
+        "default_url": "https://app.plex.tv",
+    },
+    "jellyfin": {
+        "name": "Jellyfin",
+        "type": 3,
+        "application_id": "1011297904504971264",
+        "asset": "movie",
+        "default_button": "Open",
+        "default_url": "https://jellyfin.org",
+    },
+    "vscode": {
+        "name": "Visual Studio Code",
+        "type": 0,
+        "application_id": "383226320970055681",
+        "asset": "code",
+        "default_button": "Open",
+        "default_url": "https://code.visualstudio.com",
+    },
+    "browser": {
+        "name": "Browser",
+        "type": 0,
+        "application_id": "485951488964247552",
+        "asset": "browser",
+        "default_button": "Open",
+        "default_url": "https://www.google.com",
+    },
+}
+
+REAL_RPC_ALIASES = {
+    "ytmusic": "youtube_music",
+    "youtubemusic": "youtube_music",
+    "apple_music": "applemusic",
+    "disney+": "disneyplus",
+    "disney_plus": "disneyplus",
+    "prime": "primevideo",
+    "prime_video": "primevideo",
+    "amazonprime": "primevideo",
+    "amazon_prime": "primevideo",
+    "chrome": "browser",
+    "web": "browser",
+}
+
+
+def send_real_app_activity(
+    bot,
+    app_key,
+    title,
+    context,
+    elapsed_minutes=0.0,
+    total_minutes=None,
+    image_url=None,
+    button_label=None,
+    button_url=None,
+):
+    cfg = REAL_RPC_APPS.get(app_key)
+    if not cfg:
+        raise ValueError(f"Unknown app type: {app_key}")
+
+    start_ms = int(time.time() * 1000) - int(float(max(0.0, elapsed_minutes)) * 60 * 1000)
+    activity = {
+        "type": cfg["type"],
+        "name": cfg["name"],
+        "details": title,
+        "state": context,
+    }
+
+    app_id = cfg.get("application_id")
+    if app_id:
+        activity["application_id"] = app_id
+
+    if total_minutes is not None:
+        total_ms = int(float(max(0.1, total_minutes)) * 60 * 1000)
+        activity["timestamps"] = {"start": start_ms, "end": start_ms + total_ms}
+
+    if int(cfg.get("type", 0)) == 1:
+        activity["url"] = button_url or cfg.get("default_url") or "https://www.twitch.tv"
+
+    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    activity["assets"] = {
+        "large_image": asset_key if asset_key else cfg.get("asset", "game"),
+        "large_text": cfg["name"],
+    }
+
+    final_button = button_label or cfg.get("default_button")
+    final_url = button_url or cfg.get("default_url")
+    if final_button and final_url:
+        activity["buttons"] = [final_button]
+        activity["metadata"] = {"button_urls": [final_url]}
+
+    bot.set_activity(activity)
+
+def send_crunchyroll_activity(bot, name, episode_title, elapsed_minutes, total_minutes, image_url=None):
+    """Create a Crunchyroll-like watching activity with progress timer."""
+    elapsed = float(max(0.0, elapsed_minutes))
+    total = float(max(0.1, total_minutes))
+    start_ms = int(time.time() * 1000) - int(elapsed * 60 * 1000)
+    end_ms = start_ms + int(total * 60 * 1000)
+
+    activity = {
+        "type": 3,
+        "name": "Crunchyroll",
+        "details": episode_title,
+        "state": name,
+        "application_id": "367827983903490050",
+        "timestamps": {"start": start_ms, "end": end_ms},
+    }
+
+    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    activity["assets"] = {
+        "large_image": asset_key if asset_key else "game",
+        "large_text": f"{name} on Crunchyroll",
+    }
+    bot.set_activity(activity)
+
 def send_listening_activity(bot, name, button_label=None, button_url=None, image_url=None, state=None, details=None):
     activity = {
         "type": 2,
@@ -228,7 +493,7 @@ def send_streaming_activity(bot, name, button_label=None, button_url=None, image
     activity = {
         "type": 1,
         "name": "Streaming",
-        "url": "https://twitch.tv/kaicenat",
+        "url": "https://twitch.tv/misconsiderations",
         "application_id": "111299001912",
         "details": details if details else name,
     }
@@ -290,162 +555,69 @@ def send_timer_activity(bot, name, start_time=None, end_time=None, details=None,
     }
     bot.set_activity(activity)
 
-def send_vr_activity(bot, world_name, details=None, state=None, image_url=None, button_label=None, button_url=None):
-    activity = {
-        "type": 0,
-        "name": "VRChat",
-        "application_id": "367827983903490050",
-        "details": details or f"In {world_name}",
-        "state": state or "In VR",
-        "assets": {
-            "large_image": "game",
-            "large_text": world_name,
-            "small_image": "game",
-            "small_text": "VR Session",
-        },
-    }
-    if image_url:
-        asset_key = upload_n_get_asset_key(bot, image_url)
-        if asset_key:
-            activity["assets"]["large_image"] = asset_key
-
-    if button_label and button_url:
-        activity["buttons"] = [button_label]
-        activity["metadata"] = {"button_urls": [button_url]}
-
-    bot.set_activity(activity)
-
-
-def send_vr_headless_status(
-    bot,
-    oauth_access_token,
-    session_token=None,
-    activity_name="~~",
-    application_id="1417273808645259344",
-    platform="meta_quest",
-):
-    """Create/update a headless session to show the VR indicator."""
-    try:
-        headers = {
-            "Authorization": f"Bearer {oauth_access_token}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "activitis": [
-                {
-                    "application_id": str(application_id),
-                    "name": activity_name,
-                    "type": 6,
-                    "platform": platform,
-                    "session_id": None,
-                }
-            ],
-            "token": session_token,
-        }
-        response = bot.api.session.post(
-            "https://discord.com/api/v10/users/@me/headless-sessions",
-            headers=headers,
-            json=payload,
-            timeout=15,
-        )
-        if response.status_code not in [200, 201]:
-            text = response.text[:500] if hasattr(response, "text") else "no response body"
-            return False, None, f"HTTP {response.status_code}: {text}"
-        data = response.json()
-        return True, data.get("token"), "Headless VR session updated"
-    except Exception as e:
-        return False, None, str(e)
-
-
-def clear_vr_headless_status(bot, oauth_access_token, session_token):
-    """Delete a previously created headless session token."""
-    try:
-        headers = {
-            "Authorization": f"Bearer {oauth_access_token}",
-            "Content-Type": "application/json",
-        }
-        payload = {"token": session_token}
-        response = bot.api.session.post(
-            "https://discord.com/api/v10/users/@me/headless-sessions/delete",
-            headers=headers,
-            json=payload,
-            timeout=15,
-        )
-        if response.status_code not in [200, 204]:
-            text = response.text[:500] if hasattr(response, "text") else "no response body"
-            return False, f"HTTP {response.status_code}: {text}"
-        return True, "Headless VR session deleted"
-    except Exception as e:
-        return False, str(e)
-
 LAST_SERVER_COPY = None
-VR_HEADLESS_TOKEN = None
-VR_HEADLESS_LOCK = threading.Lock()
-VR_HEADLESS_LOOP = {
+
+RPC_KEEPALIVE_LOCK = threading.Lock()
+RPC_KEEPALIVE = {
     "running": False,
     "thread": None,
-    "oauth_token": "",
-    "activity_name": "~~",
-    "platform": "meta_quest",
-    "interval": 60,
-    "last_update": 0,
+    "mode": "",
+    "interval": 120,
+    "refresh_fn": None,
+    "last_refresh": 0,
     "last_error": "",
 }
 
 
-def start_vr_headless_loop(bot, oauth_token, activity_name="~~", platform="meta_quest", interval=60):
-    global VR_HEADLESS_TOKEN
-
-    with VR_HEADLESS_LOCK:
-        if VR_HEADLESS_LOOP["running"]:
-            return False, "Headless loop already running"
-
-        VR_HEADLESS_LOOP["running"] = True
-        VR_HEADLESS_LOOP["oauth_token"] = oauth_token
-        VR_HEADLESS_LOOP["activity_name"] = activity_name
-        VR_HEADLESS_LOOP["platform"] = platform
-        VR_HEADLESS_LOOP["interval"] = max(30, int(interval))
-        VR_HEADLESS_LOOP["last_update"] = 0
-        VR_HEADLESS_LOOP["last_error"] = ""
+def configure_rpc_keepalive(bot, mode, refresh_fn=None, interval=120):
+    """Keep RPC alive by periodically refreshing the current activity payload."""
+    with RPC_KEEPALIVE_LOCK:
+        RPC_KEEPALIVE["mode"] = str(mode)
+        RPC_KEEPALIVE["interval"] = max(30, int(interval))
+        RPC_KEEPALIVE["refresh_fn"] = refresh_fn
+        if RPC_KEEPALIVE["running"]:
+            return True, "RPC keepalive updated"
+        RPC_KEEPALIVE["running"] = True
+        RPC_KEEPALIVE["last_refresh"] = int(time.time())
+        RPC_KEEPALIVE["last_error"] = ""
 
     def _worker():
-        global VR_HEADLESS_TOKEN
-        while VR_HEADLESS_LOOP["running"]:
+        while RPC_KEEPALIVE["running"] and bot.running:
             try:
-                ok, new_token, info = send_vr_headless_status(
-                    bot,
-                    VR_HEADLESS_LOOP["oauth_token"],
-                    session_token=VR_HEADLESS_TOKEN,
-                    activity_name=VR_HEADLESS_LOOP["activity_name"],
-                    platform=VR_HEADLESS_LOOP["platform"],
-                )
-                if ok:
-                    VR_HEADLESS_TOKEN = new_token or VR_HEADLESS_TOKEN
-                    VR_HEADLESS_LOOP["last_update"] = int(time.time())
-                    VR_HEADLESS_LOOP["last_error"] = ""
-                else:
-                    VR_HEADLESS_LOOP["last_error"] = info
+                fn = RPC_KEEPALIVE.get("refresh_fn")
+                if callable(fn):
+                    fn()
+                elif bot.activity:
+                    bot.set_activity(bot.activity)
+                RPC_KEEPALIVE["last_refresh"] = int(time.time())
+                RPC_KEEPALIVE["last_error"] = ""
             except Exception as e:
-                VR_HEADLESS_LOOP["last_error"] = str(e)
+                RPC_KEEPALIVE["last_error"] = str(e)
 
-            wait_for = VR_HEADLESS_LOOP["interval"]
+            wait_for = int(RPC_KEEPALIVE.get("interval", 120))
             for _ in range(wait_for):
-                if not VR_HEADLESS_LOOP["running"]:
+                if not RPC_KEEPALIVE["running"] or not bot.running:
                     break
                 time.sleep(1)
 
-    thread = threading.Thread(target=_worker, daemon=True)
-    VR_HEADLESS_LOOP["thread"] = thread
+    thread = threading.Thread(target=_worker, daemon=True, name="rpc-keepalive")
+    RPC_KEEPALIVE["thread"] = thread
     thread.start()
-    return True, "Headless loop started"
+    return True, "RPC keepalive started"
 
 
-def stop_vr_headless_loop():
-    with VR_HEADLESS_LOCK:
-        if not VR_HEADLESS_LOOP["running"]:
-            return False, "Headless loop is not running"
-        VR_HEADLESS_LOOP["running"] = False
-    return True, "Headless loop stopped"
+def stop_rpc_keepalive(bot=None, clear_activity=False):
+    with RPC_KEEPALIVE_LOCK:
+        was_running = RPC_KEEPALIVE["running"]
+        RPC_KEEPALIVE["running"] = False
+        RPC_KEEPALIVE["mode"] = ""
+        RPC_KEEPALIVE["refresh_fn"] = None
+    if clear_activity and bot is not None:
+        try:
+            bot.set_activity(None)
+        except Exception:
+            pass
+    return (True, "RPC keepalive stopped") if was_running else (False, "RPC keepalive is not running")
 
 
 # ---------------------------------------------------------------------------
@@ -753,7 +925,8 @@ def main():
         return uid == owner_user_id or uid == developer_user_id or uid in _authed_users
 
     def deny_restricted_command(ctx, title):
-        msg = ctx["api"].send_message(ctx["channel_id"], f"```| {title} |\nOwner only```")
+        import formatter as _fmt
+        msg = ctx["api"].send_message(ctx["channel_id"], _fmt.error(f"{title} :: Owner only"))
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
         return False
@@ -1035,18 +1208,19 @@ def main():
     
     @bot.command(name="purge", aliases=[ "clear", "clean"])
     def purge(ctx, args):
+        import formatter as _fmt
         # Usage: +purge [amount] [user_id]
         amount = 100
         target_user = None
         for arg in (args or []):
-            if arg.isdigit() and len(arg) <= 4:
-                amount = min(500, max(1, int(arg)))
+            if arg.strip('<@!>').isdigit() and len(arg.strip('<@!>')) > 4:
+                target_user = arg.strip('<@!>')
             elif arg.isdigit():
-                target_user = arg
+                amount = min(500, max(1, int(arg)))
 
         status = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```| Purge |\nDeleting up to {amount} messages{' for user ' + target_user if target_user else ''}```",
+            f"> **Purge** :: Deleting up to {amount} messages{' for ' + target_user if target_user else ''}...",
         )
         status_id = status.get("id") if status else None
         scan_limit = min(1000, max(amount, 1))
@@ -1064,7 +1238,6 @@ def main():
 
         deleted = 0
         failed = 0
-        forbidden = 0
         scanned = 0
         mine_id = str(bot.user_id)
         for m in messages:
@@ -1087,20 +1260,19 @@ def main():
                 if ok:
                     deleted += 1
                 else:
-                    failed += 1
-                    if target_user and not is_mine:
-                        forbidden += 1
+                    # Only count as failed if it was our own message
+                    if is_mine:
+                        failed += 1
                 time.sleep(0.3)
             except:
-                failed += 1
+                if is_mine:
+                    failed += 1
 
         if status:
             suffix = f" | Failed {failed}" if failed else ""
-            if forbidden:
-                suffix += " | Missing perms for some target-user messages"
             ctx["api"].edit_message(
                 ctx["channel_id"], status.get("id"),
-                f"```| Purge |\nDeleted {deleted} messages | Scanned {scanned}{suffix}```",
+                f"> **✓ Purge** :: Deleted **{deleted}** — Scanned {scanned}{suffix}",
             )
             delete_after_delay(ctx["api"], ctx["channel_id"], status.get("id"))
     
@@ -1296,14 +1468,35 @@ def main():
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
 
+    def _clear_hypesquad_badge(api):
+        resp = api.request("DELETE", "/users/@me/hypesquad")
+        if not resp:
+            return False, "No response"
+        if resp.status_code in (200, 204):
+            return True, "Badge removed"
+        # Discord may return 400 when there's nothing to remove; treat as clean state.
+        if resp.status_code == 400:
+            return True, "Badge already removed"
+        return False, f"HTTP {resp.status_code}"
+
     @bot.command(name="hypesquad", aliases=["changehypesquad", "hs"])
     def hypesquad_cmd(ctx, args):
         houses = {"bravery": 1, "brilliance": 2, "balance": 3}
         house = (args[0].lower() if args else "")
+        if house in {"off", "leave", "remove", "none"}:
+            ok, note = _clear_hypesquad_badge(ctx["api"])
+            if ok:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Hypesquad** :: {note}")
+            else:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Hypesquad** :: {note}")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+
         if house not in houses:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Hypesquad** | Usage: {bot.prefix}hypesquad bravery/brilliance/balance",
+                f"> **Hypesquad** :: Usage: {bot.prefix}hypesquad bravery/brilliance/balance/off",
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -1322,14 +1515,11 @@ def main():
 
     @bot.command(name="hypesquad_leave", aliases=["leavehypesquad", "hsl", "hypesquadleave"])
     def hypesquad_leave_cmd(ctx, args):
-        resp = ctx["api"].request(
-            "DELETE",
-            "/users/@me/hypesquad"
-        )
-        if resp and resp.status_code == 204:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Hypesquad** left successfully")
+        ok, note = _clear_hypesquad_badge(ctx["api"])
+        if ok:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Hypesquad** :: {note}")
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Hypesquad** failed (HTTP {resp.status_code if resp else 'N/A'})")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Hypesquad** :: {note}")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -1353,23 +1543,21 @@ def main():
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
         ok = ctx["bot"].set_status(status)
-        result = f"Set to {status}" if ok else "Saved — will apply on reconnect"
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.status_box("Status", {"Status": result, "Value": status}),
-        )
+        result = f"Set to **{status}**" if ok else f"Saved **{status}** — applies on reconnect"
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Status** :: {result}")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="client", aliases=["clienttype", "ct"])
     def client_cmd(ctx, args):
         import formatter as fmt
-        valid = {"web", "desktop", "mobile"}
+        valid = {"web", "desktop", "mobile", "vr"}
         ctype = (args[0].lower() if args else "")
         labels = {
             "web":     "Web (Chrome/Linux)",
             "desktop": "Desktop (Discord Client/Windows)",
             "mobile":  "Android (Discord Android)",
+            "vr":      "VR (Meta Quest 3)",
         }
         if ctype not in valid:
             current = getattr(ctx["bot"], "_client_type", "mobile")
@@ -1377,6 +1565,7 @@ def main():
                 (f"{bot.prefix}client web", "Web browser client"),
                 (f"{bot.prefix}client desktop", "Desktop app client"),
                 (f"{bot.prefix}client mobile", "Android mobile client"),
+                (f"{bot.prefix}client vr", "Meta Quest VR client"),
             ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
@@ -1387,11 +1576,10 @@ def main():
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
         ok = ctx["bot"].set_client_type(ctype)
-        result = f"Switched to {labels[ctype]} — reconnecting..." if ok else "Failed to switch client type"
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.status_box("Client Type", {"Status": result, "Type": labels.get(ctype, ctype)}),
-        )
+        if ok:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Client** :: Switched to **{labels[ctype]}** — reconnecting...")
+        else:
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Client** :: Failed to switch client type")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -1913,7 +2101,7 @@ Example Usage:
             deny_restricted_command(ctx, "Set PFP")
             return
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set PFP |\nUsage: {bot.prefix}setpfp <image_url>```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **SetPFP** :: Usage: `{bot.prefix}setpfp <image_url>`")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -1923,7 +2111,7 @@ Example Usage:
         try:
             r = api.session.get(image_url, timeout=15)
             if r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```| Set PFP |\nFailed to download image (HTTP {r.status_code})```")
+                msg = api.send_message(ctx["channel_id"], f"> **✗ SetPFP** :: Failed to download image (HTTP {r.status_code})")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -1942,18 +2130,18 @@ Example Usage:
             b64 = base64.b64encode(r.content).decode()
             patch = api.request("PATCH", "/users/@me", data={"avatar": f"data:image/{fmt};base64,{b64}"})
             if patch and patch.status_code == 200:
-                msg = api.send_message(ctx["channel_id"], "```| Set PFP |\nProfile picture updated```")
+                msg = api.send_message(ctx["channel_id"], "> **✓ SetPFP** :: Profile picture updated")
             else:
                 code = patch.status_code if patch else "no response"
                 try:
                     body = patch.json().get("message", "") if patch else ""
                 except Exception:
                     body = ""
-                msg = api.send_message(ctx["channel_id"], f"```| Set PFP |\nFailed: HTTP {code}{' — ' + body if body else ''}```")
+                msg = api.send_message(ctx["channel_id"], f"> **✗ SetPFP** :: Failed HTTP {code}{' — ' + body if body else ''}")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```| Set PFP |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"> **✗ SetPFP** :: Error: {str(e)[:80]}")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
     
@@ -2203,11 +2391,27 @@ Example Usage:
             import formatter as fmt
             p = bot.prefix
             cmds = [
-                (f"{p}rpc spotify", '"Song | Artist | Album | Duration [| img]"'),
+                (f"{p}rpc spotify", '"Song | Artist | Album | Elapsed [| Total] [| img]"'),
+                (f"{p}rpc youtube", '"Title | Channel | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc soundcloud", '"Track | Artist | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc youtube_music", '"Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc applemusic", '"Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc deezer", '"Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc tidal", '"Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc twitch", '"Stream Title | Channel | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc kick", '"Stream Title | Channel | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc netflix", '"Title | Show/Movie | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc disneyplus", '"Title | Show/Movie | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc primevideo", '"Title | Show/Movie | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc plex", '"Title | Library/User | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc jellyfin", '"Title | Library/User | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc vscode", '"Workspace/Task | File/Project | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
+                (f"{p}rpc browser", '"Tab/Task | Site | Elapsed [| Total] [| img] [>> Btn >> URL]"'),
                 (f"{p}rpc listening", '"Details | State | Name [| img] [>> Btn >> URL]"'),
                 (f"{p}rpc streaming", '"Details | State | Name [| img] [>> Btn >> URL]"'),
                 (f"{p}rpc playing", '"Details | State | Name [| img]"'),
                 (f"{p}rpc timer", '"Details | State | Name | Start | End [| img]"'),
+                (f"{p}rpc crunchyroll", 'name=<show> episode_title=<ep> elapsed_minutes=<n> total_minutes=<n> [image_url=<url>]'),
                 (f"{p}rpc stop", "Clear all activities"),
             ]
             help_text = fmt.header("RPC Commands") + "\n" + fmt.command_list(cmds)
@@ -2217,10 +2421,11 @@ Example Usage:
             return
         
         parts = args[0].lower()
+        parts = REAL_RPC_ALIASES.get(parts, parts)
         remaining = " ".join(args[1:]) if len(args) > 1 else ""
         
         if parts == "stop":
-            bot.set_activity(None)
+            stop_rpc_keepalive(bot=bot, clear_activity=True)
             msg = ctx["api"].send_message(ctx["channel_id"], "> **Cleared** all **activities**.")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -2242,6 +2447,7 @@ Example Usage:
         current_pos = ""
         start_time = ""
         end_time = ""
+        msg_text = "```| RPC |\nInvalid input```"
         
         main_text = remaining
         
@@ -2256,7 +2462,63 @@ Example Usage:
                 button_label = btn_split[1].strip()
                 button_url = "https://discord.com"
         
-        if ' | ' in main_text:
+        if parts == "crunchyroll":
+            import shlex
+            kv = {}
+            try:
+                tokens = shlex.split(main_text)
+            except Exception:
+                tokens = main_text.split()
+            for token in tokens:
+                if "=" not in token:
+                    continue
+                k, v = token.split("=", 1)
+                kv[k.strip().lower()] = v.strip()
+
+            try:
+                show_name = kv.get("name")
+                episode_title = kv.get("episode_title")
+                elapsed = kv.get("elapsed_minutes")
+                total = kv.get("total_minutes")
+                image_url = kv.get("image_url")
+                if not (show_name and episode_title and elapsed and total):
+                    msg_text = (
+                        "```| Crunchyroll RPC |\n"
+                        "Format: name=<show> episode_title=<ep> elapsed_minutes=<n> total_minutes=<n> [image_url=<url>]\n"
+                        f"Example: {bot.prefix}rpc crunchyroll name=\"Solo Leveling\" episode_title=\"Episode 12\" elapsed_minutes=6 total_minutes=24 image_url=https://img.url"
+                        "```"
+                    )
+                else:
+                    elapsed_val = float(elapsed)
+                    total_val = float(total)
+                    send_crunchyroll_activity(bot, show_name, episode_title, elapsed_val, total_val, image_url)
+                    _cr_start = time.time() - (elapsed_val * 60.0)
+                    _cr_total = max(0.1, float(total_val))
+
+                    def _refresh_crunchyroll(
+                        _show=show_name,
+                        _episode=episode_title,
+                        _start=_cr_start,
+                        _total=_cr_total,
+                        _img=image_url,
+                    ):
+                        cyc_elapsed = ((time.time() - _start) / 60.0) % _total
+                        send_crunchyroll_activity(bot, _show, _episode, cyc_elapsed, _total, _img)
+
+                    configure_rpc_keepalive(bot, "crunchyroll", _refresh_crunchyroll)
+                    msg_text = (
+                        "```| Crunchyroll RPC |\n"
+                        f"Show: {show_name}\n"
+                        f"Episode: {episode_title}\n"
+                        f"Progress: {elapsed_val} / {total_val} min"
+                        "```"
+                    )
+                    if image_url:
+                        msg_text = msg_text.replace("```", "\nImage: Yes```")
+            except Exception as e:
+                msg_text = f"```| Crunchyroll RPC |\nError: {str(e)}```"
+
+        elif ' | ' in main_text:
             pipe_parts = [part.strip() for part in main_text.split('|')]
             
             if parts == "spotify":
@@ -2267,13 +2529,43 @@ Example Usage:
                     duration = pipe_parts[3]
                     
                     if len(pipe_parts) >= 5:
-                        image_url = pipe_parts[4]
+                        current_pos = pipe_parts[4]
                     if len(pipe_parts) >= 6:
-                        current_pos = pipe_parts[5]
+                        image_url = pipe_parts[5]
                     
                     details = song
                     state = artist
-                    name = "Spotify"
+                    name = album
+
+            elif parts == "youtube":
+                if len(pipe_parts) >= 3:
+                    details = pipe_parts[0]  # title
+                    state = pipe_parts[1]    # channel
+                    duration = pipe_parts[2] # elapsed
+                    if len(pipe_parts) >= 4:
+                        current_pos = pipe_parts[3]  # total
+                    if len(pipe_parts) >= 5:
+                        image_url = pipe_parts[4]
+
+            elif parts == "soundcloud":
+                if len(pipe_parts) >= 3:
+                    details = pipe_parts[0]  # track
+                    state = pipe_parts[1]    # artist
+                    duration = pipe_parts[2] # elapsed
+                    if len(pipe_parts) >= 4:
+                        current_pos = pipe_parts[3]  # total
+                    if len(pipe_parts) >= 5:
+                        image_url = pipe_parts[4]
+
+            elif parts in REAL_RPC_APPS:
+                if len(pipe_parts) >= 3:
+                    details = pipe_parts[0]
+                    state = pipe_parts[1]
+                    duration = pipe_parts[2]
+                    if len(pipe_parts) >= 4:
+                        current_pos = pipe_parts[3]
+                    if len(pipe_parts) >= 5:
+                        image_url = pipe_parts[4]
             
             elif parts in ["listening", "streaming", "playing"]:
                 if len(pipe_parts) >= 3:
@@ -2298,23 +2590,187 @@ Example Usage:
         if parts == "spotify":
             try:
                 if details and state and name:
-                    duration_val = float(duration) if duration else 3.5
-                    current_pos_val = float(current_pos) if current_pos else 0.0
-                    send_spotify_with_spoofing(bot, details, state, name, duration_val, current_pos_val, image_url)
-                    msg_text = f"```| Spotify RPC |\nSong: {details}\nArtist: {state}\nAlbum: {name}\nDuration: {duration_val}min```"
-                    if current_pos_val > 0:
-                        msg_text = msg_text.replace("```", f"\nPosition: {current_pos_val}min```")
+                    elapsed_val = float(duration) if duration else 0.0
+                    total_val = float(current_pos) if current_pos else None
+                    send_spotify_listening_activity(bot, details, state, name, elapsed_val, total_val, image_url)
+                    _sp_start = time.time() - (elapsed_val * 60.0)
+                    _sp_total = float(total_val) if total_val is not None else None
+
+                    def _refresh_spotify(
+                        _song=details,
+                        _artist=state,
+                        _album=name,
+                        _start=_sp_start,
+                        _total=_sp_total,
+                        _img=image_url,
+                    ):
+                        if _total is not None and _total > 0:
+                            cyc_elapsed = ((time.time() - _start) / 60.0) % _total
+                        else:
+                            cyc_elapsed = max(0.0, (time.time() - _start) / 60.0)
+                        send_spotify_listening_activity(bot, _song, _artist, _album, cyc_elapsed, _total, _img)
+
+                    configure_rpc_keepalive(bot, "spotify", _refresh_spotify)
+                    msg_text = f"```| Spotify RPC |\nSong: {details}\nArtist: {state}\nAlbum: {name}\nElapsed: {elapsed_val}min```"
+                    if total_val is not None:
+                        msg_text = msg_text.replace("```", f"\nTotal: {total_val}min```")
                     if image_url:
                         msg_text = msg_text.replace("```", f"\nImage: Yes```")
                 else:
-                    msg_text = "```| Spotify RPC |\nFormat: Song | Artist | Album | Duration [| image_url] [| position]\nExample: +rpc spotify \"Song Name | Artist Name | Album Name | 3.5 | https://image.url | 1.5\"```"
+                    msg_text = (
+                        "```| Spotify RPC |\n"
+                        "Format: Song | Artist | Album | Elapsed [| Total] [| image_url]\n"
+                        f"Example: {bot.prefix}rpc spotify \"Song Name | Artist Name | Album Name | 1.5 | 3.5 | https://image.url\""
+                        "```"
+                    )
             except Exception as e:
                 msg_text = f"```| Spotify RPC |\nError: {str(e)}```"
+
+        elif parts == "youtube":
+            try:
+                if details and state:
+                    elapsed_val = float(duration) if duration else 0.0
+                    total_val = float(current_pos) if current_pos else None
+                    send_youtube_activity(bot, details, state, elapsed_val, total_val, image_url, button_label, button_url)
+                    _yt_start = time.time() - (elapsed_val * 60.0)
+                    _yt_total = float(total_val) if total_val is not None else None
+
+                    def _refresh_youtube(
+                        _title=details,
+                        _channel=state,
+                        _start=_yt_start,
+                        _total=_yt_total,
+                        _img=image_url,
+                        _btn=button_label,
+                        _url=button_url,
+                    ):
+                        if _total is not None and _total > 0:
+                            cyc_elapsed = ((time.time() - _start) / 60.0) % _total
+                        else:
+                            cyc_elapsed = max(0.0, (time.time() - _start) / 60.0)
+                        send_youtube_activity(bot, _title, _channel, cyc_elapsed, _total, _img, _btn, _url)
+
+                    configure_rpc_keepalive(bot, "youtube", _refresh_youtube)
+                    msg_text = f"```| YouTube RPC |\nTitle: {details}\nChannel: {state}\nElapsed: {elapsed_val}min```"
+                    if total_val is not None:
+                        msg_text = msg_text.replace("```", f"\nTotal: {total_val}min```")
+                    if button_label:
+                        msg_text = msg_text.replace("```", f"\nButton: {button_label}```")
+                    if image_url:
+                        msg_text = msg_text.replace("```", f"\nImage: Yes```")
+                else:
+                    msg_text = (
+                        "```| YouTube RPC |\n"
+                        "Format: Title | Channel | Elapsed [| Total] [| image_url] [>> Button >> URL]\n"
+                        f"Example: {bot.prefix}rpc youtube \"Devlog #12 | Aria Channel | 2.5 | 10 | https://image.url >> Watch >> https://youtube.com\""
+                        "```"
+                    )
+            except Exception as e:
+                msg_text = f"```| YouTube RPC |\nError: {str(e)}```"
+
+        elif parts == "soundcloud":
+            try:
+                if details and state:
+                    elapsed_val = float(duration) if duration else 0.0
+                    total_val = float(current_pos) if current_pos else None
+                    send_soundcloud_activity(bot, details, state, elapsed_val, total_val, image_url, button_label, button_url)
+                    _sc_start = time.time() - (elapsed_val * 60.0)
+                    _sc_total = float(total_val) if total_val is not None else None
+
+                    def _refresh_soundcloud(
+                        _track=details,
+                        _artist=state,
+                        _start=_sc_start,
+                        _total=_sc_total,
+                        _img=image_url,
+                        _btn=button_label,
+                        _url=button_url,
+                    ):
+                        if _total is not None and _total > 0:
+                            cyc_elapsed = ((time.time() - _start) / 60.0) % _total
+                        else:
+                            cyc_elapsed = max(0.0, (time.time() - _start) / 60.0)
+                        send_soundcloud_activity(bot, _track, _artist, cyc_elapsed, _total, _img, _btn, _url)
+
+                    configure_rpc_keepalive(bot, "soundcloud", _refresh_soundcloud)
+                    msg_text = f"```| SoundCloud RPC |\nTrack: {details}\nArtist: {state}\nElapsed: {elapsed_val}min```"
+                    if total_val is not None:
+                        msg_text = msg_text.replace("```", f"\nTotal: {total_val}min```")
+                    if button_label:
+                        msg_text = msg_text.replace("```", f"\nButton: {button_label}```")
+                    if image_url:
+                        msg_text = msg_text.replace("```", f"\nImage: Yes```")
+                else:
+                    msg_text = (
+                        "```| SoundCloud RPC |\n"
+                        "Format: Track | Artist | Elapsed [| Total] [| image_url] [>> Button >> URL]\n"
+                        f"Example: {bot.prefix}rpc soundcloud \"Track Name | Artist Name | 1.2 | 4.1 | https://image.url >> Listen >> https://soundcloud.com\""
+                        "```"
+                    )
+            except Exception as e:
+                msg_text = f"```| SoundCloud RPC |\nError: {str(e)}```"
+
+        elif parts in REAL_RPC_APPS:
+            try:
+                cfg = REAL_RPC_APPS[parts]
+                app_label = cfg["name"]
+                if details and state:
+                    elapsed_val = float(duration) if duration else 0.0
+                    total_val = float(current_pos) if current_pos else None
+                    send_real_app_activity(bot, parts, details, state, elapsed_val, total_val, image_url, button_label, button_url)
+                    _app_start = time.time() - (elapsed_val * 60.0)
+                    _app_total = float(total_val) if total_val is not None else None
+
+                    def _refresh_real_app(
+                        _mode=parts,
+                        _title=details,
+                        _state=state,
+                        _start=_app_start,
+                        _total=_app_total,
+                        _img=image_url,
+                        _btn=button_label,
+                        _url=button_url,
+                    ):
+                        if _total is not None and _total > 0:
+                            cyc_elapsed = ((time.time() - _start) / 60.0) % _total
+                        else:
+                            cyc_elapsed = max(0.0, (time.time() - _start) / 60.0)
+                        send_real_app_activity(bot, _mode, _title, _state, cyc_elapsed, _total, _img, _btn, _url)
+
+                    configure_rpc_keepalive(bot, parts, _refresh_real_app)
+                    msg_text = f"```| {app_label} RPC |\nTitle: {details}\nContext: {state}\nElapsed: {elapsed_val}min```"
+                    if total_val is not None:
+                        msg_text = msg_text.replace("```", f"\nTotal: {total_val}min```")
+                    if button_label:
+                        msg_text = msg_text.replace("```", f"\nButton: {button_label}```")
+                    if image_url:
+                        msg_text = msg_text.replace("```", f"\nImage: Yes```")
+                else:
+                    msg_text = (
+                        f"```| {app_label} RPC |\n"
+                        "Format: Title | Context | Elapsed [| Total] [| image_url] [>> Button >> URL]\n"
+                        f"Example: {bot.prefix}rpc {parts} \"Title Here | Context Here | 3.5 | 22 | https://image.url >> Open >> https://example.com\""
+                        "```"
+                    )
+            except Exception as e:
+                msg_text = f"```| RPC |\nError ({parts}): {str(e)}```"
 
         elif parts == "listening":
             try:
                 if name:
                     send_listening_activity(bot, name, button_label, button_url, image_url, state, details)
+
+                    def _refresh_listening(
+                        _name=name,
+                        _btn=button_label,
+                        _url=button_url,
+                        _img=image_url,
+                        _state=state,
+                        _details=details,
+                    ):
+                        send_listening_activity(bot, _name, _btn, _url, _img, _state, _details)
+
+                    configure_rpc_keepalive(bot, "listening", _refresh_listening)
                     msg_text = f"```| Listening RPC |\nName: {name}```"
                     if details:
                         msg_text = msg_text.replace("```", f"\nDetails: {details}```")
@@ -2333,6 +2789,18 @@ Example Usage:
             try:
                 if name:
                     send_streaming_activity(bot, name, button_label, button_url, image_url, state, details)
+
+                    def _refresh_streaming(
+                        _name=name,
+                        _btn=button_label,
+                        _url=button_url,
+                        _img=image_url,
+                        _state=state,
+                        _details=details,
+                    ):
+                        send_streaming_activity(bot, _name, _btn, _url, _img, _state, _details)
+
+                    configure_rpc_keepalive(bot, "streaming", _refresh_streaming)
                     msg_text = f"```| Streaming RPC |\nName: {name}```"
                     if details:
                         msg_text = msg_text.replace("```", f"\nDetails: {details}```")
@@ -2351,6 +2819,18 @@ Example Usage:
             try:
                 if name:
                     send_playing_activity(bot, name, button_label, button_url, image_url, state, details)
+
+                    def _refresh_playing(
+                        _name=name,
+                        _btn=button_label,
+                        _url=button_url,
+                        _img=image_url,
+                        _state=state,
+                        _details=details,
+                    ):
+                        send_playing_activity(bot, _name, _btn, _url, _img, _state, _details)
+
+                    configure_rpc_keepalive(bot, "playing", _refresh_playing)
                     msg_text = f"```| Playing RPC |\nGame: {name}```"
                     if details:
                         msg_text = msg_text.replace("```", f"\nDetails: {details}```")
@@ -2371,6 +2851,19 @@ Example Usage:
                     start_val = float(start_time) if start_time else time.time()
                     end_val = float(end_time) if end_time else time.time() + 3600
                     send_timer_activity(bot, name, start_val, end_val, details, state, image_url)
+                    timer_duration = max(60.0, end_val - start_val)
+
+                    def _refresh_timer(
+                        _name=name,
+                        _dur=timer_duration,
+                        _details=details,
+                        _state=state,
+                        _img=image_url,
+                    ):
+                        now = time.time()
+                        send_timer_activity(bot, _name, now, now + _dur, _details, _state, _img)
+
+                    configure_rpc_keepalive(bot, "timer", _refresh_timer)
                     duration_min = int((end_val - start_val) / 60)
                     msg_text = f"```| Timer RPC |\nActivity: {name}\nDuration: {duration_min}min```"
                     if details:
@@ -2384,8 +2877,18 @@ Example Usage:
             except Exception as e:
                 msg_text = f"```| Timer RPC |\nError: {str(e)}```"
 
+        elif parts == "crunchyroll":
+            pass
+
         else:
-            msg_text = "```| RPC |\nInvalid type. Use: spotify, listening, streaming, playing, timer```"
+            valid_types = [
+                "spotify", "youtube", "soundcloud",
+                "youtube_music", "applemusic", "deezer", "tidal",
+                "twitch", "kick",
+                "netflix", "disneyplus", "primevideo", "plex", "jellyfin", "vscode", "browser",
+                "listening", "streaming", "playing", "timer", "crunchyroll",
+            ]
+            msg_text = "```| RPC |\nInvalid type. Use: " + ", ".join(valid_types) + "```"
 
         msg = ctx["api"].send_message(ctx["channel_id"], msg_text)
         if msg:
@@ -2397,14 +2900,14 @@ Example Usage:
             deny_restricted_command(ctx, "Set Server PFP")
             return
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Server PFP |\nUsage: {bot.prefix}setserverpfp <image_url>\n(Nitro required for server avatars)```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **SetServerPFP** :: Usage: `{bot.prefix}setserverpfp <image_url>`")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
 
         guild_id = ctx.get("guild_id") or ctx["message"].get("guild_id")
         if not guild_id:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Server PFP |\nMust be used in a server```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ SetServerPFP** :: Must be used in a server")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2414,7 +2917,7 @@ Example Usage:
         try:
             r = api.session.get(image_url, timeout=15)
             if r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```| Set Server PFP |\nFailed to download image (HTTP {r.status_code})```")
+                msg = api.send_message(ctx["channel_id"], f"> **✗ SetServerPFP** :: Failed to download (HTTP {r.status_code})")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -2433,18 +2936,18 @@ Example Usage:
             b64 = base64.b64encode(r.content).decode()
             patch = api.request("PATCH", f"/guilds/{guild_id}/members/@me", data={"avatar": f"data:image/{fmt};base64,{b64}"})
             if patch and patch.status_code == 200:
-                msg = api.send_message(ctx["channel_id"], "```| Set Server PFP |\nServer profile picture updated```")
+                msg = api.send_message(ctx["channel_id"], "> **✓ SetServerPFP** :: Server profile picture updated")
             else:
                 code = patch.status_code if patch else "no response"
                 try:
                     body = patch.json().get("message", "") if patch else ""
                 except Exception:
                     body = ""
-                msg = api.send_message(ctx["channel_id"], f"```| Set Server PFP |\nFailed: HTTP {code}{' — ' + body if body else ''}\n(Nitro required for server avatars)```")
+                msg = api.send_message(ctx["channel_id"], f"> **✗ SetServerPFP** :: Failed HTTP {code}{' — ' + body if body else ''} (Nitro required)")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```| Set Server PFP |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"> **✗ SetServerPFP** :: Error: {str(e)[:80]}")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
 
@@ -2508,10 +3011,9 @@ Example Usage:
     @bot.command(name="stealpfp", aliases=["copypfp", "takepfp"])
     def stealpfp(ctx, args):
         # Usage: +stealpfp <user_id|@mention> [server]
-        # 'server' flag steals THEIR server avatar (this guild) and applies as YOUR server avatar (this guild)
         if not args:
             msg = ctx["api"].send_message(ctx["channel_id"],
-                f"```| Steal PFP |\nUsage: {bot.prefix}stealpfp <user_id> [server]\n  (no flag) — steal global avatar, set as your global avatar\n  server    — steal their server avatar, set as your server avatar```")
+                f"> **StealPFP** :: Usage: `{bot.prefix}stealpfp <user_id> [server]`")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2527,13 +3029,13 @@ Example Usage:
             if server_mode:
                 # --- steal their server avatar ---
                 if not guild_id:
-                    msg = api.send_message(ctx["channel_id"], "```| Steal PFP |\nMust be used in a server for server mode```")
+                    msg = api.send_message(ctx["channel_id"], "> **✗ StealPFP** :: Must be in a server for server mode")
                     if msg:
                         delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                     return
                 member_r = api.request("GET", f"/guilds/{guild_id}/members/{user_id}")
                 if not member_r or member_r.status_code != 200:
-                    msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\nCould not fetch member {user_id} in this server```")
+                    msg = api.send_message(ctx["channel_id"], f"> **✗ StealPFP** :: Could not fetch member {user_id} in this server")
                     if msg:
                         delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                     return
@@ -2545,7 +3047,7 @@ Example Usage:
                     avatar_hash = user_data.get("avatar")
                     target_name = user_data.get("username", user_id)
                     if not avatar_hash:
-                        msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\n{target_name} has no server or global avatar```")
+                        msg = api.send_message(ctx["channel_id"], f"> **✗ StealPFP** :: {target_name} has no server or global avatar")
                         if msg:
                             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                         return
@@ -2561,7 +3063,7 @@ Example Usage:
 
                 img_r = api.session.get(avatar_url, timeout=10)
                 if img_r.status_code != 200:
-                    msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\nFailed to download image (HTTP {img_r.status_code})```")
+                    msg = api.send_message(ctx["channel_id"], f"> **✗ StealPFP** :: Failed to download image (HTTP {img_r.status_code})")
                     if msg:
                         delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                     return
@@ -2571,17 +3073,17 @@ Example Usage:
                                     data={"avatar": f"data:image/{ext};base64,{b64}"})
                 if patch and patch.status_code in (200, 204):
                     msg = api.send_message(ctx["channel_id"],
-                        f"```| Steal PFP |\nStole {target_name}'s server avatar{fallback_note}```")
+                        f"> **✓ StealPFP** :: Stole **{target_name}**'s server avatar{fallback_note}")
                 else:
                     code = patch.status_code if patch else "no response"
                     msg = api.send_message(ctx["channel_id"],
-                        f"```| Steal PFP |\nFailed to set server avatar (HTTP {code})```")
+                        f"> **✗ StealPFP** :: Failed to set server avatar (HTTP {code})")
 
             else:
                 # --- steal their global avatar ---
                 user_r = api.request("GET", f"/users/{user_id}")
                 if not user_r or user_r.status_code != 200:
-                    msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\nUser not found: {user_id}```")
+                    msg = api.send_message(ctx["channel_id"], f"> **✗ StealPFP** :: User not found: {user_id}")
                     if msg:
                         delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                     return
@@ -2590,7 +3092,7 @@ Example Usage:
                 avatar_hash = user_data.get("avatar")
                 target_name = user_data.get("username", user_id)
                 if not avatar_hash:
-                    msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\n{target_name} has no avatar```")
+                    msg = api.send_message(ctx["channel_id"], f"> **✗ StealPFP** :: **{target_name}** has no avatar")
                     if msg:
                         delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                     return
@@ -2600,7 +3102,7 @@ Example Usage:
 
                 img_r = api.session.get(avatar_url, timeout=10)
                 if img_r.status_code != 200:
-                    msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\nFailed to download image (HTTP {img_r.status_code})```")
+                    msg = api.send_message(ctx["channel_id"], f"> **✗ StealPFP** :: Failed to download image (HTTP {img_r.status_code})")
                     if msg:
                         delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                     return
@@ -2610,14 +3112,14 @@ Example Usage:
                                     data={"avatar": f"data:image/{ext};base64,{b64}"})
                 if patch and patch.status_code == 200:
                     msg = api.send_message(ctx["channel_id"],
-                        f"```| Steal PFP |\nStole {target_name}'s avatar as your global avatar```")
+                        f"> **✓ StealPFP** :: Stole **{target_name}**'s avatar")
                 else:
                     code = patch.status_code if patch else "no response"
                     msg = api.send_message(ctx["channel_id"],
-                        f"```| Steal PFP |\nFailed to set avatar (HTTP {code})```")
+                        f"> **✗ StealPFP** :: Failed to set avatar (HTTP {code})")
 
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```| Steal PFP |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"> **✗ StealPFP** :: Error: {str(e)[:80]}")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -2628,7 +3130,7 @@ Example Usage:
             deny_restricted_command(ctx, "Set Banner")
             return
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Banner |\nUsage: {bot.prefix}setbanner <image_url>\n(Nitro required for banners)```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **SetBanner** :: Usage: `{bot.prefix}setbanner <image_url>`")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2638,7 +3140,7 @@ Example Usage:
         try:
             r = api.session.get(image_url, timeout=15)
             if r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```| Set Banner |\nFailed to download image (HTTP {r.status_code})```")
+                msg = api.send_message(ctx["channel_id"], f"> **✗ SetBanner** :: Failed to download (HTTP {r.status_code})")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -2657,18 +3159,18 @@ Example Usage:
             b64 = base64.b64encode(r.content).decode()
             patch = api.request("PATCH", "/users/@me", data={"banner": f"data:image/{fmt};base64,{b64}"})
             if patch and patch.status_code == 200:
-                msg = api.send_message(ctx["channel_id"], "```| Set Banner |\nBanner updated```")
+                msg = api.send_message(ctx["channel_id"], "> **✓ SetBanner** :: Banner updated")
             else:
                 code = patch.status_code if patch else "no response"
                 try:
                     body = patch.json().get("message", "") if patch else ""
                 except Exception:
                     body = ""
-                msg = api.send_message(ctx["channel_id"], f"```| Set Banner |\nFailed: HTTP {code}{' — ' + body if body else ''}\n(Nitro required for banners)```")
+                msg = api.send_message(ctx["channel_id"], f"> **✗ SetBanner** :: Failed HTTP {code}{' — ' + body if body else ''} (Nitro required)")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```| Set Banner |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"> **✗ SetBanner** :: Error: {str(e)[:80]}")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
     
@@ -2677,7 +3179,7 @@ Example Usage:
         # Usage: +stealbanner <user_id|@mention>
         if not args:
             msg = ctx["api"].send_message(ctx["channel_id"],
-                f"```| Steal Banner |\nUsage: {bot.prefix}stealbanner <user_id>```")
+                f"> **StealBanner** :: Usage: `{bot.prefix}stealbanner <user_id>`")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2711,7 +3213,7 @@ Example Usage:
 
             if not banner_hash:
                 msg = api.send_message(ctx["channel_id"],
-                    f"```| Steal Banner |\n{target_name} has no banner (Nitro required to have a banner)```")
+                    f"> **✗ StealBanner** :: **{target_name}** has no banner")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -2722,7 +3224,7 @@ Example Usage:
             img_r = api.session.get(banner_url, timeout=10)
             if img_r.status_code != 200:
                 msg = api.send_message(ctx["channel_id"],
-                    f"```| Steal Banner |\nFailed to download banner (HTTP {img_r.status_code})```")
+                    f"> **✗ StealBanner** :: Failed to download (HTTP {img_r.status_code})")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -2732,7 +3234,7 @@ Example Usage:
                                 data={"banner": f"data:image/{ext};base64,{b64}"})
             if patch and patch.status_code == 200:
                 msg = api.send_message(ctx["channel_id"],
-                    f"```| Steal Banner |\nStole {target_name}'s banner```")
+                    f"> **✓ StealBanner** :: Stole **{target_name}**'s banner")
             else:
                 code = patch.status_code if patch else "no response"
                 try:
@@ -2740,10 +3242,10 @@ Example Usage:
                 except Exception:
                     err = ""
                 msg = api.send_message(ctx["channel_id"],
-                    f"```| Steal Banner |\nFailed (HTTP {code}){': ' + err if err else ''}```")
+                    f"> **✗ StealBanner** :: Failed (HTTP {code}){': ' + err if err else ''}")
 
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```| Steal Banner |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"> **✗ StealBanner** :: Error: {str(e)[:80]}")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -2789,7 +3291,7 @@ Example Usage:
     @bot.command(name="setpronouns", aliases=["setpronoun"])
     def setpronouns(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Pronouns |\nUsage: +setpronouns <pronouns>\nExamples: he/him, she/her, they/them```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **SetPronouns** :: Usage: `{bot.prefix}setpronouns <pronouns>`")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2804,15 +3306,15 @@ Example Usage:
             result = ctx["api"].request("PATCH", "/users/@me/profile", data=data)
             
             if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Pronouns |\n✓ Pronouns set to: {pronouns}```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ SetPronouns** :: Set to **{pronouns}**")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Pronouns |\n✗ Failed (HTTP {result.status_code if result else 'No response'})```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ SetPronouns** :: Failed (HTTP {result.status_code if result else 'No response'})")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Pronouns |\nError: {str(e)[:80]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ SetPronouns** :: Error: {str(e)[:80]}")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
@@ -2857,7 +3359,7 @@ Example Usage:
     @bot.command(name="setbio", aliases=["setaboutme"])
     def setbio(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Bio |\nUsage: +setbio <bio text>```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **SetBio** :: Usage: `{bot.prefix}setbio <bio text>`")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2872,15 +3374,15 @@ Example Usage:
             result = ctx["api"].request("PATCH", "/users/@me/profile", data=data)
             
             if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Bio |\n✓ Bio updated```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **✓ SetBio** :: Bio updated")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Bio |\n✗ Failed (HTTP {result.status_code if result else 'No response'})```")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ SetBio** :: Failed (HTTP {result.status_code if result else 'No response'})")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Bio |\nError: {str(e)[:80]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ SetBio** :: Error: {str(e)[:80]}")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
     
@@ -2922,7 +3424,7 @@ Example Usage:
             deny_restricted_command(ctx, "Set Display Name")
             return
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Display Name |\nUsage: {bot.prefix}setname <display name>```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **SetName** :: Usage: `{bot.prefix}setname <display name>`")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2932,18 +3434,18 @@ Example Usage:
         try:
             patch = api.request("PATCH", "/users/@me", data={"global_name": display_name})
             if patch and patch.status_code == 200:
-                msg = api.send_message(ctx["channel_id"], f"```| Set Display Name |\nDisplay name set to: {display_name}```")
+                msg = api.send_message(ctx["channel_id"], f"> **✓ SetName** :: Display name set to **{display_name}**")
             else:
                 code = patch.status_code if patch else "no response"
                 try:
                     body = patch.json().get("message", "") if patch else ""
                 except Exception:
                     body = ""
-                msg = api.send_message(ctx["channel_id"], f"```| Set Display Name |\nFailed: HTTP {code}{' — ' + body if body else ''}```")
+                msg = api.send_message(ctx["channel_id"], f"> **✗ SetName** :: Failed HTTP {code}{' — ' + body if body else ''}")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```| Set Display Name |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"> **✗ SetName** :: Error: {str(e)[:80]}")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
     
@@ -2953,7 +3455,7 @@ Example Usage:
         # 'server' flag steals their server nickname and applies as your server nickname in this guild
         if not args:
             msg = ctx["api"].send_message(ctx["channel_id"],
-                f"```| Steal Name |\nUsage: {bot.prefix}stealname <user_id> [server]\n  (no flag) — steal display name, set as your global display name\n  server    — steal server nickname, set as your nickname in this server```")
+                f"> **StealName** :: Usage: `{bot.prefix}stealname <user_id> [server]`")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -2967,13 +3469,13 @@ Example Usage:
         try:
             if server_mode:
                 if not guild_id:
-                    msg = api.send_message(ctx["channel_id"], "```| Steal Name |\nMust be used in a server for server mode```")
+                    msg = api.send_message(ctx["channel_id"], "> **✗ StealName** :: Must be in a server for server mode")
                     if msg:
                         delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                     return
                 member_r = api.request("GET", f"/guilds/{guild_id}/members/{user_id}")
                 if not member_r or member_r.status_code != 200:
-                    msg = api.send_message(ctx["channel_id"], f"```| Steal Name |\nCould not fetch member {user_id} in this server```")
+                    msg = api.send_message(ctx["channel_id"], f"> **✗ StealName** :: Could not find member {user_id} in this server")
                     if msg:
                         delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                     return
@@ -2982,7 +3484,7 @@ Example Usage:
                 target_name = (member_data.get("user") or {}).get("username", user_id)
                 if not nick:
                     msg = api.send_message(ctx["channel_id"],
-                        f"```| Steal Name |\n{target_name} has no server nickname```")
+                        f"> **✗ StealName** :: **{target_name}** has no server nickname")
                     if msg:
                         delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                     return
@@ -2990,15 +3492,15 @@ Example Usage:
                                     data={"nick": nick})
                 if patch and patch.status_code in (200, 204):
                     msg = api.send_message(ctx["channel_id"],
-                        f"```| Steal Name |\nSet server nickname to: {nick} (from {target_name})```")
+                        f"> **✓ StealName** :: Set nickname to **{nick}** (from {target_name})")
                 else:
                     code = patch.status_code if patch else "no response"
                     msg = api.send_message(ctx["channel_id"],
-                        f"```| Steal Name |\nFailed to set nickname (HTTP {code})```")
+                        f"> **✗ StealName** :: Failed to set nickname (HTTP {code})")
             else:
                 user_r = api.request("GET", f"/users/{user_id}")
                 if not user_r or user_r.status_code != 200:
-                    msg = api.send_message(ctx["channel_id"], f"```| Steal Name |\nUser not found: {user_id}```")
+                    msg = api.send_message(ctx["channel_id"], f"> **✗ StealName** :: User not found: {user_id}")
                     if msg:
                         delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                     return
@@ -3007,21 +3509,21 @@ Example Usage:
                 target_name = user_data.get("username", user_id)
                 if not global_name:
                     msg = api.send_message(ctx["channel_id"],
-                        f"```| Steal Name |\n{target_name} has no display name set```")
+                        f"> **✗ StealName** :: **{target_name}** has no display name set")
                     if msg:
                         delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                     return
                 patch = api.request("PATCH", "/users/@me", data={"global_name": global_name})
                 if patch and patch.status_code == 200:
                     msg = api.send_message(ctx["channel_id"],
-                        f"```| Steal Name |\nSet display name to: {global_name} (from {target_name})```")
+                        f"> **✓ StealName** :: Set display name to **{global_name}** (from {target_name})")
                 else:
                     code = patch.status_code if patch else "no response"
                     msg = api.send_message(ctx["channel_id"],
-                        f"```| Steal Name |\nFailed to set display name (HTTP {code})```")
+                        f"> **✗ StealName** :: Failed to set display name (HTTP {code})")
 
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```| Steal Name |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"> **✗ StealName** :: Error: {str(e)[:80]}")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -3036,7 +3538,7 @@ Example Usage:
     @bot.command(name="setstatus", aliases=["customstatus"])
     def setstatus(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "` Set Status |\nPlease provide a status\nFormat: +setstatus [emoji,] status text\nExample: +setstatus 🎮 Gaming now\nExample: +setstatus <:pepe:123456789>, Custom status```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **SetStatus** :: Usage: `{bot.prefix}setstatus [emoji,] <text>` — e.g. `{bot.prefix}setstatus 🎮, Gaming now`")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -3054,7 +3556,7 @@ Example Usage:
             text_part = parts[1].strip() if len(parts) > 1 else ""
             
             if not text_part:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Status |\nPlease provide status text after comma```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ SetStatus** :: Provide status text after the comma")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -3070,7 +3572,7 @@ Example Usage:
                 emoji_name = emoji_part
             
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Status |\nInvalid emoji format\nUse standard emoji or <:name:id>```")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ SetStatus** :: Invalid emoji — use standard emoji or `<:name:id>`")
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 return
@@ -3078,7 +3580,7 @@ Example Usage:
             message = text_part
         
         if not message:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Status |\nPlease provide status text```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ SetStatus** :: Please provide status text")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -3095,24 +3597,24 @@ Example Usage:
             result = ctx["api"].request("PATCH", "/users/@me/settings", data=data)
             
             if result and result.status_code == 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Status **updated**.")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **✓ SetStatus** :: Status updated")
             elif result and result.status_code == 429:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Status **rate limited**.")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ SetStatus** :: Rate limited")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Status **failed**.")
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ SetStatus** :: Failed to set status")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Status **error**.")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ SetStatus** :: Error: {str(e)[:80]}")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="stealstatus", aliases=["copystatus"])
     def stealstatus(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Steal Status |\nPlease provide a user ID```")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ StealStatus** :: Please provide a user ID")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -3129,13 +3631,13 @@ Example Usage:
             
             # Note: Custom status is not publicly available through Discord API
             # It can only be set on your own account via /users/@me/settings
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Steal Status |\nUser: {username}\nCustom status is private and cannot be retrieved```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ StealStatus** :: **{username}**'s custom status is private — cannot be retrieved")
             
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
                 
         except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Steal Status |\nError: {str(e)[:80]}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ StealStatus** :: Error: {str(e)[:80]}")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -3147,7 +3649,7 @@ Example Usage:
     def stealserverpfp_cmd(ctx, args):
         if not args:
             msg = ctx["api"].send_message(ctx["channel_id"],
-                f"```| Steal Server PFP |\nUsage: {bot.prefix}stealserverpfp <user_id|@mention>\nSteals their server-specific avatar and sets it as YOUR server avatar in this server```")
+                f"> **StealServerPFP** :: Usage: `{bot.prefix}stealserverpfp <user_id>`")
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -3158,7 +3660,7 @@ Example Usage:
         api = ctx["api"]
 
         if not guild_id:
-            msg = api.send_message(ctx["channel_id"], "```| Steal Server PFP |\nMust be used inside a server```")
+            msg = api.send_message(ctx["channel_id"], "> **✗ StealServerPFP** :: Must be used inside a server")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
             return
@@ -3166,7 +3668,7 @@ Example Usage:
         try:
             member_r = api.request("GET", f"/guilds/{guild_id}/members/{user_id}")
             if not member_r or member_r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```| Steal Server PFP |\nCould not find member {user_id} in this server```")
+                msg = api.send_message(ctx["channel_id"], f"> **✗ StealServerPFP** :: Could not find member {user_id} in this server")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -3178,7 +3680,7 @@ Example Usage:
 
             if not avatar_hash:
                 msg = api.send_message(ctx["channel_id"],
-                    f"```| Steal Server PFP |\n{target_name} has no server-specific avatar in this server\nTip: use {bot.prefix}stealpfp to steal their global avatar```")
+                    f"> **✗ StealServerPFP** :: **{target_name}** has no server avatar — try `{bot.prefix}stealpfp`")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -3188,7 +3690,7 @@ Example Usage:
 
             img_r = api.session.get(img_url, timeout=10)
             if img_r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"```| Steal Server PFP |\nFailed to download (HTTP {img_r.status_code})```")
+                msg = api.send_message(ctx["channel_id"], f"> **✗ StealServerPFP** :: Failed to download (HTTP {img_r.status_code})")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -3198,7 +3700,7 @@ Example Usage:
                                 data={"avatar": f"data:image/{ext};base64,{b64}"})
             if patch and patch.status_code in (200, 204):
                 msg = api.send_message(ctx["channel_id"],
-                    f"```| Steal Server PFP |\nApplied {target_name}'s server avatar as YOUR server avatar in this server```")
+                    f"> **✓ StealServerPFP** :: Applied **{target_name}**'s avatar as your server avatar")
             else:
                 code = patch.status_code if patch else "no response"
                 try:
@@ -3206,9 +3708,9 @@ Example Usage:
                 except Exception:
                     err = ""
                 msg = api.send_message(ctx["channel_id"],
-                    f"```| Steal Server PFP |\nFailed (HTTP {code}){': ' + err if err else ''}\nNote: server avatars require Nitro```")
+                    f"> **✗ StealServerPFP** :: Failed (HTTP {code}){': ' + err if err else ''} (Nitro required)")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```| Steal Server PFP |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"> **✗ StealServerPFP** :: Error: {str(e)[:80]}")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -3416,6 +3918,7 @@ Example Usage:
     def show_help(ctx, args):
         import formatter as fmt
         p = bot.prefix  # live prefix — auto-reflects config changes
+        aria_version = "1.0.0"
 
         def help_page(title, *lines):
             return {"title": title, "lines": list(lines)}
@@ -3433,9 +3936,9 @@ Example Usage:
                     out.append("")
                 else:
                     out.append(str(line))
-            page_sfx = f"  [{current_page}/{total_pages}]" if total_pages > 1 else ""
-            nav = f"\n{p}help {page_name.lower()} {current_page + 1}" if current_page < total_pages else ""
-            return f"```| {title} |{page_sfx}\n" + "\n".join(out) + nav + "```"
+            page_sfx = f"  [{current_page}/{total_pages}]"
+            footer = f"\n\n{p}help {page_name.lower()} [{current_page}-{total_pages}]"
+            return f"```| Aria :: v{aria_version} :: {title}{page_sfx}\n" + "\n".join(out) + footer + "```"
 
         help_pages = {
             # ── General ──────────────────────────────────────────────────────
@@ -3552,14 +4055,14 @@ Example Usage:
                         ),
 
                         "client": help_page(
-                            f"{p}client <web|desktop|mobile>",
+                            f"{p}client <web|desktop|mobile|vr>",
                             "Switches the client platform Discord sees for this session.",
                             "",
                             {"type": "section", "text": "Aliases"},
                             "clienttype, ct",
                             "",
                             {"type": "section", "text": "Arguments"},
-                            ("type", "One of web, desktop, or mobile"),
+                            ("type", "One of web, desktop, mobile, or vr"),
                         ),
 
                         "setprefix": help_page(
@@ -4019,8 +4522,43 @@ Example Usage:
                 "title": f"{p}help Social",
                 "lines": [
                     ("block <user_id>", "Block user"),
-                    ("rpc <type> <args>", "Set rich presence"),
                     ("join <invite>", "Join a server via invite"),
+                ],
+            },
+
+            # ── RPC ──────────────────────────────────────────────────────────
+            "rpc": {
+                "title": f"{p}help RPC",
+                "lines": [
+                    ("rpc spotify <args>", "Song | Artist | Album | Elapsed [| Total] [| img]"),
+                    ("rpc youtube <args>", "Title | Channel | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc soundcloud <args>", "Track | Artist | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc youtube_music <args>", "Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc applemusic <args>", "Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc deezer <args>", "Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc tidal <args>", "Track | Artist/Playlist | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc twitch <args>", "Stream Title | Channel | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc kick <args>", "Stream Title | Channel | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc netflix <args>", "Title | Show/Movie | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc disneyplus <args>", "Title | Show/Movie | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc primevideo <args>", "Title | Show/Movie | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc plex <args>", "Title | Library/User | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc jellyfin <args>", "Title | Library/User | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc vscode <args>", "Workspace/Task | File/Project | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc browser <args>", "Tab/Task | Site | Elapsed [| Total] [| img] [>> Btn >> URL]"),
+                    ("rpc listening <args>", "Details | State | Name [| img] [>> Btn >> URL]"),
+                    ("rpc streaming <args>", "Details | State | Name [| img] [>> Btn >> URL]"),
+                    ("rpc playing <args>", "Details | State | Name [| img]"),
+                    ("rpc timer <args>", "Details | State | Name | Start | End [| img]"),
+                    ("rpc crunchyroll <args>", "name=<show> episode_title=<ep> elapsed_minutes=<n> total_minutes=<n> [image_url=<url>]"),
+                    ("rpc stop", "Clear all activities"),
+                    "",
+                    {"type": "section", "text": "Aliases"},
+                    "ytmusic/youtubemusic => youtube_music",
+                    "apple_music => applemusic",
+                    "disney+, disney_plus => disneyplus",
+                    "prime, prime_video, amazonprime, amazon_prime => primevideo",
+                    "chrome, web => browser",
                 ],
             },
 
@@ -4035,13 +4573,12 @@ Example Usage:
                                 "joininvite, acceptinvite",
                         ),
 
-                        "rpc": help_page(
-                                f"{p}rpc <type> <args>",
-                                "Sets a custom Rich Presence activity on your account.",
-                                "",
-                                {"type": "section", "text": "Arguments"},
-                                ("type", "Activity type (e.g. playing, watching, listening, competing)"),
-                                ("args", "Activity name / detail text"),
+                        "rpc mode": help_page(
+                            f"{p}rpc <type> <args>",
+                            "Sets a custom Rich Presence activity on your account.",
+                            "",
+                            {"type": "section", "text": "Tip"},
+                            f"Use {p}help rpc to see all RPC subcommands and formats.",
                         ),
 
             # ── Boost ────────────────────────────────────────────────────────
@@ -4674,6 +5211,7 @@ Example Usage:
                     ("queststart", "Start auto-completing quests"),
                     ("queststop", "Stop auto-completing quests"),
                     ("questrefresh", "Refresh quest data from Discord"),
+                    ("questclaim", "Claim all claimable quest rewards"),
                 ],
             },
 
@@ -4690,6 +5228,14 @@ Example Usage:
             "questrefresh": help_page(
                 f"{p}questrefresh",
                 "Fetches the latest quest data from Discord API.",
+            ),
+
+            "questclaim": help_page(
+                f"{p}questclaim",
+                "Claims all currently claimable quest rewards.",
+                "",
+                {"type": "section", "text": "Aliases"},
+                "qclaim, qc",
             ),
 
             "all": {
@@ -4793,42 +5339,48 @@ Example Usage:
 
         if not args:
             categories = [
-                ("General", f"Popular & starter commands"),
-                ("Utility", f"General Tools & Commands"),
-                ("Messaging", f"DM & Group Chat Protocols "),
-                ("Profile", f"User identity & Presence"),
-                ("Server", f"Guild settings & Configs"),
-                ("Voice", f"VC Commands"),
-                ("Social", f"Socials & Interactions"),
-                ("Boost", f"Boosts Commands"),
-                ("Backup", f"Data & config recovery"),
-                ("Moderation", f"Server & Anti-Nuke"),
-                ("Hosting", f"Auth & Account Access"),
-                ("Token", f"Session & Instance Management"),
-                ("Owner", f"Admin & Developer tools"),
-                ("AFK", f"Status & Auto-response"),
-                ("Nitro", f"Sniper and Gifts"),
-                ("AGCT", f"Anti-GC Trapping"),
-                ("Quest", f"Quest & task automation"),
+                ("Owner", "Admin"),
+                ("General", "Starter"),
+                ("Utility", "Tools"),
+                ("Messaging", "DM/GC"),
+                ("Profile", "Identity"),
+                ("Server", "Guild"),
+                ("Voice", "VC"),
+                ("Social", "Interaction"),
+                ("RPC", "Presence"),
+                ("Boost", "Boosts"),
+                ("Backup", "Recovery"),
+                ("Moderation", "Mod"),
+                ("Hosting", "Hosted"),
+                ("Token", "Session"),
+                ("AFK", "AFK"),
+                ("Nitro", "Sniper"),
+                ("AGCT", "Anti-GC"),
+                ("Quest", "Quests"),
             
             ]
-            cat_lines = "\n".join(f"{p}help {cat.lower():<16}:: {desc}" for cat, desc in categories)
+            cat_cmds = [(f"{p}help {cat}", desc) for cat, desc in categories]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```| Aria Help |\n{cat_lines}\n\n{p}help <command> for command details```",
+                "\n".join([
+                    fmt.header("Help"),
+                    fmt.command_list(cat_cmds),
+                    fmt._block(f"{fmt.CYAN}Usage{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{p}help <command>{fmt.RESET}"),
+                    fmt.footer_main(),
+                ]),
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
         
-        # Try full args as a compound key first (e.g. "boost transfer"), then fall back to args[0]
-        full_page = " ".join(args).lower()
-        
-        # Check if last argument is a page number
+        # Parse "help <category> page <n>" (preferred) and legacy "help <category> <n>"
         page_num = 1
-        if args and args[-1].isdigit() and len(args) > 1:
+        full_page = " ".join(args).lower()
+        if len(args) >= 3 and args[-2].lower() == "page" and args[-1].isdigit():
             page_num = int(args[-1])
-            # Rebuild the page key without the number
+            full_page = " ".join(args[:-2]).lower()
+        elif args and args[-1].isdigit() and len(args) > 1:
+            page_num = int(args[-1])
             full_page = " ".join(args[:-1]).lower()
         
         page = full_page if full_page in help_pages else (args[0].lower() if args else "")
@@ -4855,8 +5407,11 @@ Example Usage:
             if 'msg' in locals() and msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
         else:
-            page_options = "general utility messaging profile server voice social boost backup moderation hosting token owner afk nitro agct quest all"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Help |\nUnknown page. Available:\n{page_options}\n\n{p}help <page>```")
+            page_options = "general utility messaging profile server voice social rpc boost backup moderation hosting token owner afk nitro agct quest all"
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Aria :: v{aria_version} :: Help |\nUnknown page. Available:\n{page_options}\n\n{p}help <page>```",
+            )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -5035,13 +5590,44 @@ Example Usage:
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
+    @bot.command(name="questclaim", aliases=["qclaim", "qc"])
+    def questclaim_cmd(ctx, args):
+        quest_system.fetch_quests()
+        s = quest_system.get_summary()
+        claimable = s["claimable"]
+        if not claimable:
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Quest |\nNo claimable quests```")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+
+        claimed = 0
+        failed = 0
+        for q in claimable:
+            if quest_system.claim(q):
+                claimed += 1
+            else:
+                failed += 1
+            time.sleep(0.6)
+
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            f"```| Quest Claim |\nClaimed: {claimed} | Failed: {failed}```",
+        )
+        if msg:
+            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+
     @bot.command(name="queststart", aliases=["qstart", "qs"])
     def queststart_cmd(ctx, args):
-        quest_system.fetch_quests()
+        ok_fetch, fetch_detail = quest_system.fetch_quests()
+        if not ok_fetch:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Quest** refresh failed: {fetch_detail}.")
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
         ok, detail = quest_system.start()
-        s = quest_system.get_summary()
         if ok:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Quest **enabled**. {detail}.")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Quest enabled**. {detail}.")
         else:
             msg = ctx["api"].send_message(ctx["channel_id"], f"Quest error: {detail}.")
         if msg:
@@ -5050,7 +5636,7 @@ Example Usage:
     @bot.command(name="queststop", aliases=["qstop", "qx"])
     def queststop_cmd(ctx, args):
         ok, detail = quest_system.stop()
-        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Quest **disabled**. {detail}.")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Quest disabled**. {detail}.")
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -6054,73 +6640,6 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
             )
 
         delete_after_delay(ctx["api"], ctx["channel_id"], status_msg.get("id"))
-
-    @bot.command(name="vrrpc", aliases=["vrstatus", "vrpresence"])
-    def vrrpc_cmd(ctx, args):
-        global VR_HEADLESS_TOKEN
-
-        if not args:
-            msg = ctx["api"].send_message(
-                ctx["channel_id"],
-                "```| VR RPC |\nvrrpc on   :: Enable VR headless status loop\nvrrpc off  :: Disable VR headless status loop\nvrrpc stop :: Clear activity payload```"
-            )
-            if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-            return
-
-        if args[0].lower() == "stop":
-            bot.clear_activity()
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| VR RPC |\nCleared VR activity```")
-            if msg:
-                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
-            return
-
-        async def run_async_vr():
-            global VR_HEADLESS_TOKEN
-            if args[0].lower() == "on":
-                oauth_token = str(config.get("vr_oauth_token", "")).strip()
-                activity_name = str(config.get("vr_headless_name", "~~")).strip() or "~~"
-                platform = str(config.get("vr_headless_platform", "meta_quest")).strip() or "meta_quest"
-                interval = int(config.get("vr_headless_interval", 60) or 60)
-
-                if not oauth_token:
-                    return "```| VR Headless |\nMissing vr_oauth_token in config.json\nSet vr_oauth_token once, then use +vrrpc on```"
-
-                started, info = start_vr_headless_loop(
-                    bot,
-                    oauth_token,
-                    activity_name=activity_name,
-                    platform=platform,
-                    interval=interval,
-                )
-
-                if not started and VR_HEADLESS_LOOP["running"]:
-                    return "```| VR Headless |\nAlready enabled```"
-
-                return (
-                    "```| "
-                    "VR Headless |\n"
-                    "> Status: ✓ Enabled\n"
-                    f"> Name: {activity_name}\n"
-                    f"> Platform: {platform}\n"
-                    f"> Interval: {max(30, interval)}s\n"
-                    "```"
-                )
-
-            if args[0].lower() == "off":
-                stop_vr_headless_loop()
-                oauth_token = VR_HEADLESS_LOOP.get("oauth_token", "") or str(config.get("vr_oauth_token", "")).strip()
-                if oauth_token and VR_HEADLESS_TOKEN:
-                    clear_vr_headless_status(bot, oauth_token, VR_HEADLESS_TOKEN)
-                VR_HEADLESS_TOKEN = None
-                return "```| VR Headless |\nStatus: ✓ Disabled```"
-
-            return "```| VR RPC |\nInvalid command\nUse: vrrpc on | off | stop```"
-
-        msg_text = asyncio.run(run_async_vr())
-        msg = ctx["api"].send_message(ctx["channel_id"], msg_text)
-        if msg:
-            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="scrapesummary", aliases=["autosummary", "lastscrape"])
     def scrape_summary_cmd(ctx, args):
@@ -7860,7 +8379,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
         api = ctx["api"]
         guild_id = ctx.get("guild_id")
         if not guild_id:
-            msg = api.send_message(ctx["channel_id"], "```| Set Nick |\nMust be used in a server```")
+            msg = api.send_message(ctx["channel_id"], "> **✗ SetNick** :: Must be used in a server")
             if msg:
                 delete_after_delay(api, ctx["channel_id"], msg.get("id"))
             return
@@ -7869,9 +8388,9 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
         r = api.request("PATCH", f"/guilds/{guild_id}/members/@me", data={"nick": new_nick})
         if r and r.status_code in (200, 204):
             display = f'"{new_nick}"' if new_nick else "reset"
-            msg = api.send_message(ctx["channel_id"], f"```| Set Nick |\nNickname {display}```")
+            msg = api.send_message(ctx["channel_id"], f"> **✓ SetNick** :: Nickname **{display}**")
         else:
-            msg = api.send_message(ctx["channel_id"], f"```| Set Nick |\nFailed: HTTP {r.status_code if r else 'No response'}```")
+            msg = api.send_message(ctx["channel_id"], f"> **✗ SetNick** :: Failed: HTTP {r.status_code if r else 'No response'}")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -7895,7 +8414,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
             if not r or r.status_code not in (200, 201):
                 r = api.request("GET", f"/users/{uid}")
             if not r or r.status_code not in (200, 201):
-                msg = api.send_message(ctx["channel_id"], f"```| Avatar |\nUser not found: {uid}```")
+                msg = api.send_message(ctx["channel_id"], f"> **✗ Avatar** :: User not found: {uid}")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
@@ -7941,19 +8460,15 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
                 except Exception:
                     pass
 
-            # Build info header — URLs go OUTSIDE the code block so Discord embeds them
-            info_lines = [f"Avatar — {display}"]
+            # Build output — URLs outside so Discord embeds them
+            output = f"> **Avatar** :: {display} — `{user_id}`\n"
             if global_name:
-                info_lines.append(f"> User   :: {username} ({user_id})")
-            else:
-                info_lines.append(f"> ID     :: {user_id}")
+                pass  # username shown in info line only if different
             if guild_avatar_url:
-                info_lines.append("> Server avatar shown below global")
+                output += "> Server avatar below — global above\n"
             if banner_url:
-                info_lines.append("> Has profile banner")
-
-            # Header code block + bare URL(s) after so Discord auto-embeds the images
-            output = "```| " + " |\n".join(info_lines) + "```\n"
+                output += "> Has profile banner\n"
+            output = output.rstrip("\n") + "\n"
             if guild_avatar_url:
                 output += f"**Server:** {guild_avatar_url}\n"
             output += avatar_url
@@ -7962,7 +8477,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
             msg = api.send_message(ctx["channel_id"], output)
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"```| Avatar |\nError: {str(e)[:80]}```")
+            msg = api.send_message(ctx["channel_id"], f"> **✗ Avatar** :: Error: {str(e)[:80]}")
 
         if msg:
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
@@ -8274,23 +8789,9 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
     # Cleanup function for bot shutdown
     original_stop = bot.stop
     def new_stop():
-        global VR_HEADLESS_TOKEN
         print("[AccountData] Stopping local stats job...")
 
-        if VR_HEADLESS_LOOP["running"]:
-            stop_vr_headless_loop()
-            oauth_token = VR_HEADLESS_LOOP.get("oauth_token", "")
-            if oauth_token and VR_HEADLESS_TOKEN:
-                try:
-                    ok, info = clear_vr_headless_status(bot, oauth_token, VR_HEADLESS_TOKEN)
-                    if ok:
-                        print("[VR Headless] Session cleared on shutdown")
-                    else:
-                        print(f"[VR Headless] Failed to clear session on shutdown: {info}")
-                except Exception as e:
-                    print(f"[VR Headless] Shutdown clear error: {e}")
-
-        VR_HEADLESS_TOKEN = None
+        stop_rpc_keepalive(bot=bot, clear_activity=False)
         account_data_manager.stop_stats_job()
         account_data_manager.stop_auto_scrape()
         history_manager.stop_background_scraping()
