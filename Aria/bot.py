@@ -451,6 +451,13 @@ class DiscordBot:
             channel_id = message_data.get("channel_id", "")
             guild_id = message_data.get("guild_id")
 
+            # Persist recent messages for developer retrieval commands.
+            try:
+                if getattr(self, "db", None) and hasattr(self.db, "track_message"):
+                    self.db.track_message(message_data)
+            except Exception:
+                pass
+
             # AFK auto-clear when the owner sends any message
             if author_id == self.user_id:
                 afk_ref = getattr(self, "_afk_system_ref", None)

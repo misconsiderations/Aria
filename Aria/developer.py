@@ -35,8 +35,16 @@ class DeveloperTools:
     def get_dev_id(self):
         return self.dev_id
 
-    def _get_dev_prefix(self, bot_instance):
-        return f"{bot_instance.prefix}d"
+    def _get_dev_prefix(self, bot_instance, author_id=None):
+        base_prefix = str(getattr(bot_instance, "prefix", "$") or "$")
+        try:
+            if author_id and hasattr(bot_instance, "get_user_prefix"):
+                resolved = bot_instance.get_user_prefix(str(author_id))
+                if resolved:
+                    base_prefix = str(resolved)
+        except Exception:
+            pass
+        return f"{base_prefix}d"
     
     def enable_logging(self, log_type):
         if log_type in self.config:
@@ -111,64 +119,123 @@ class DeveloperTools:
     def _process_dev_message(self, content, message_data, bot_instance):
         channel_id = message_data.get("channel_id", "")
         author_id = message_data.get("author", {}).get("id", "")
-        dev_prefix = self._get_dev_prefix(bot_instance)
+        dev_prefix = self._get_dev_prefix(bot_instance, author_id=author_id)
         if not content.startswith(dev_prefix):
             return False
 
-        command_text = content[len(dev_prefix):]
-        
+        command_text = content[len(dev_prefix):].strip()
+        if not command_text:
+            return True
+
+        first, *rest = command_text.split(None, 1)
+        command_name = first.lower()
+        args_str = rest[0] if rest else ""
+
+        # Shortcut aliases for faster developer command usage.
+        # Example: <prefix>dbt all 123 -> boosttransfer
+        alias_map = {
+            "r": "run",
+            "l": "log",
+            "logs": "log",
+            "m": "metrics",
+            "metric": "metrics",
+            "ji": "joininvite",
+            "jinv": "joininvite",
+            "lg": "leaveguild",
+            "leave": "leaveguild",
+            "mg": "myguilds",
+            "ml": "massleave",
+            "gm": "guildmembers",
+            "ct": "checktoken",
+            "bc": "bulkcheck",
+            "eg": "exportguilds",
+            "bt": "boosttransfer",
+            "dbt": "boosttransfer",
+            "bs": "booststatus",
+            "dbs": "booststatus",
+            "bl": "boostlist",
+            "dbl": "boostlist",
+            "b": "boost",
+            "db": "boost",
+            "acc": "accountcmd",
+            "dacc": "accountcmd",
+        }
+        command_name = alias_map.get(command_name, command_name)
+
         # Developer commands prefixed with 'd' for clarity
-        if command_text.startswith("run "):
-            return self._handle_run_command(command_text[4:], channel_id, bot_instance, author_id=author_id)
-        
-        elif command_text.startswith("log "):
-            return self._process_logging_command(command_text[4:], channel_id, bot_instance)
-        
-        elif command_text.startswith("debug"):
+        if command_name == "run":
+            return self._handle_run_command(args_str, channel_id, bot_instance, author_id=author_id)
+
+        elif command_name == "log":
+            return self._process_logging_command(args_str, channel_id, bot_instance)
+
+        elif command_name == "debug":
             # Quick debug toggle
             new_state = self.toggle_debug_mode()
             status = "Enabled" if new_state else "Disabled"
             bot_instance.api.send_message(channel_id, f"> **Debug Mode **{status}**.")
             return True
-        
-        elif command_text.startswith("metrics"):
+
+        elif command_name == "metrics":
             # Show current metrics
             metrics_str = ", ".join([f"{k}: {v}" for k, v in self.metrics.items()])
             uptime = time.time() - self.session_start
             bot_instance.api.send_message(channel_id, f"> **Developer Metrics** | Uptime: {uptime:.1f}s | {metrics_str}.")
             return True
+
+        # Multi-account convenience wrappers
+        elif command_name == "boosttransfer":
+            return self._handle_dboosttransfer(args_str, channel_id, bot_instance, author_id=author_id)
+
+        elif command_name == "booststatus":
+            return self._handle_dbooststatus(args_str.strip(), channel_id, bot_instance, author_id=author_id)
+
+        elif command_name == "boostlist":
+            return self._handle_dboostlist(args_str.strip(), channel_id, bot_instance, author_id=author_id)
+
+        elif command_name == "boost":
+            return self._handle_dboost(args_str, channel_id, bot_instance, author_id=author_id)
+
+        elif command_name == "accountcmd":
+            return self._handle_daccountcmd(args_str, channel_id, bot_instance, author_id=author_id)
         
         # Guild management commands
-        elif command_text.startswith("djoininvite "):
-            return self._handle_djoininvite(command_text[12:], channel_id, bot_instance)
+        elif command_name == "joininvite":
+            return self._handle_djoininvite(args_str, channel_id, bot_instance)
         
-        elif command_text.startswith("dleaveguild "):
-            return self._handle_dleaveguild(command_text[12:], channel_id, bot_instance)
+        elif command_name == "leaveguild":
+            return self._handle_dleaveguild(args_str, channel_id, bot_instance)
         
-        elif command_text.startswith("dmyguilds"):
-            return self._handle_dmyguilds(command_text[9:].strip(), channel_id, bot_instance)
+        elif command_name == "myguilds":
+            return self._handle_dmyguilds(args_str.strip(), channel_id, bot_instance)
         
-        elif command_text.startswith("dmassleave "):
-            return self._handle_dmassleave(command_text[11:], channel_id, bot_instance)
+        elif command_name == "massleave":
+            return self._handle_dmassleave(args_str, channel_id, bot_instance)
         
-        elif command_text.startswith("dguildmembers "):
-            return self._handle_dguildmembers(command_text[14:], channel_id, bot_instance)
+        elif command_name == "guildmembers":
+            return self._handle_dguildmembers(args_str, channel_id, bot_instance)
         
         # Token management commands
-        elif command_text.startswith("dchecktoken "):
-            return self._handle_dchecktoken(command_text[12:], channel_id, bot_instance)
+        elif command_name == "checktoken":
+            return self._handle_dchecktoken(args_str, channel_id, bot_instance)
         
-        elif command_text.startswith("dbulkcheck "):
-            return self._handle_dbulkcheck(command_text[11:], channel_id, bot_instance)
+        elif command_name == "bulkcheck":
+            return self._handle_dbulkcheck(args_str, channel_id, bot_instance)
         
-        elif command_text.startswith("dexportguilds "):
-            return self._handle_dexportguilds(command_text[14:], channel_id, bot_instance)
+        elif command_name == "exportguilds":
+            return self._handle_dexportguilds(args_str, channel_id, bot_instance)
         
         return False
     
     def _process_logging_command(self, command, channel_id, bot_instance):
         parts = command.split()
         if len(parts) < 1:
+            active = self.get_active_logging()
+            active_text = ", ".join(active) if active else "none"
+            bot_instance.api.send_message(
+                channel_id,
+                f"```yaml\nDeveloper Logging:\n  Active: {active_text}\n  Debug: {self.config.get('debug_mode')}\n  Usage: {self._get_dev_prefix(bot_instance)}log <enable|disable|debug|threshold|list|reset|metrics> [type]\n```",
+            )
             return True
         
         action = parts[0].lower()
@@ -302,11 +369,149 @@ class DeveloperTools:
         
         print(f"[DEV] {msg}")
         bot_instance.api.send_message(channel_id, f"```ansi\n{msg}```")
+
+    def _run_command_for_instances(self, uid_spec, command_name, command_args, channel_id, bot_instance, author_id=None, label=None):
+        """Run a normal bot command across selected instances and report results."""
+        selected_instances = self._select_instances(uid_spec, bot_instance)
+        if not selected_instances:
+            self._send_status_message(bot_instance, channel_id, "No valid instances found", is_error=True)
+            return True
+
+        results = []
+        for uid, inst, token in selected_instances:
+            try:
+                ctx = {
+                    "channel_id": str(channel_id or ""),
+                    "author_id": str(author_id or self.get_dev_id()),
+                    "api": inst.api,
+                    "bot": inst,
+                    "message": {},
+                }
+                inst.run_command(command_name, ctx, command_args)
+                results.append(f"✅ UID {uid}: {command_name} {' '.join(command_args).strip()}")
+            except Exception as e:
+                results.append(f"❌ UID {uid}: {str(e)[:60]}")
+
+        title = label or f"{command_name} Results"
+        output = (
+            f"```yaml\n{title}:\n"
+            f"Command: {command_name}\n"
+            f"Args: {' '.join(command_args).strip() or '(none)'}\n"
+            f"Instances: {len(selected_instances)}\n\n"
+            + "\n".join(results)
+            + "\n```"
+        )
+        bot_instance.api.send_message(channel_id, output)
+        self.metrics["commands_executed"] += 1
+        return True
+
+    def _handle_dboost(self, args_str, channel_id, bot_instance, author_id=None):
+        """Run boost command across selected instances.
+        Usage: dboost <uid/all/others> <boost_args...>
+        """
+        parts = args_str.split()
+        if len(parts) < 2:
+            bot_instance.api.send_message(
+                channel_id,
+                f"```yaml\nBoost Multi Error:\n  Usage: {self._get_dev_prefix(bot_instance, author_id=author_id)}boost <uid/all/others> <boost_args...>\n  Example: {self._get_dev_prefix(bot_instance, author_id=author_id)}boost all transfer 123456789```",
+            )
+            return True
+
+        uid_spec = parts[0]
+        boost_args = parts[1:]
+        return self._run_command_for_instances(
+            uid_spec,
+            "boost",
+            boost_args,
+            channel_id,
+            bot_instance,
+            author_id=author_id,
+            label="Boost Multi Results",
+        )
+
+    def _handle_dboosttransfer(self, args_str, channel_id, bot_instance, author_id=None):
+        """Transfer boosts across selected instances.
+        Usage: dboosttransfer <uid/all/others> <to_guild_id>
+        """
+        parts = args_str.split()
+        if len(parts) < 2:
+            bot_instance.api.send_message(
+                channel_id,
+                f"```yaml\nBoost Transfer Multi Error:\n  Usage: {self._get_dev_prefix(bot_instance, author_id=author_id)}boosttransfer <uid/all/others> <to_guild_id>```",
+            )
+            return True
+
+        uid_spec = parts[0]
+        to_guild_id = parts[1]
+        return self._run_command_for_instances(
+            uid_spec,
+            "boost",
+            ["transfer", to_guild_id],
+            channel_id,
+            bot_instance,
+            author_id=author_id,
+            label="Boost Transfer Multi Results",
+        )
+
+    def _handle_dbooststatus(self, args_str, channel_id, bot_instance, author_id=None):
+        """Show boost status across selected instances.
+        Usage: dbooststatus [uid/all/others]
+        """
+        uid_spec = args_str.split()[0] if args_str else "all"
+        return self._run_command_for_instances(
+            uid_spec,
+            "boost",
+            ["status"],
+            channel_id,
+            bot_instance,
+            author_id=author_id,
+            label="Boost Status Multi Results",
+        )
+
+    def _handle_dboostlist(self, args_str, channel_id, bot_instance, author_id=None):
+        """Show boosted server lists across selected instances.
+        Usage: dboostlist [uid/all/others]
+        """
+        uid_spec = args_str.split()[0] if args_str else "all"
+        return self._run_command_for_instances(
+            uid_spec,
+            "boost",
+            ["list"],
+            channel_id,
+            bot_instance,
+            author_id=author_id,
+            label="Boost List Multi Results",
+        )
+
+    def _handle_daccountcmd(self, args_str, channel_id, bot_instance, author_id=None):
+        """Run any existing account command on selected instances.
+        Usage: daccountcmd <uid/all/others> <command> [args...]
+        """
+        parts = args_str.split()
+        if len(parts) < 2:
+            bot_instance.api.send_message(
+                channel_id,
+                f"```yaml\nAccount Cmd Error:\n  Usage: {self._get_dev_prefix(bot_instance, author_id=author_id)}accountcmd <uid/all/others> <command> [args...]\n  Example: {self._get_dev_prefix(bot_instance, author_id=author_id)}accountcmd all joininvite abc123```",
+            )
+            return True
+
+        uid_spec = parts[0]
+        command_name = parts[1].lower()
+        command_args = parts[2:]
+        return self._run_command_for_instances(
+            uid_spec,
+            command_name,
+            command_args,
+            channel_id,
+            bot_instance,
+            author_id=author_id,
+            label="Account Command Multi Results",
+        )
     
     def _handle_run_command(self, command_str, channel_id, bot_instance, author_id=None):
         """
         Handle multi-instance command execution.
-        Format: <prefix>drun <uid/uids/all/others> <target_channel_id> <cmd/say> [args...]
+        Format: <prefix>drun <uid/uids/all/others> [target_channel_id] <cmd/say> [args...]
         
         Examples:
         <prefix>drun 1 123456789 say Hello - Send to UID 1
@@ -321,17 +526,40 @@ class DeveloperTools:
         if author_id and str(author_id) != str(self.get_dev_id()):
             return True  # Silently ignore non-owner attempts
         
-        dev_prefix = self._get_dev_prefix(bot_instance)
-        
-        parts = command_str.split(None, 3)  # Split into max 4 parts
-        if len(parts) < 3:
+        dev_prefix = self._get_dev_prefix(bot_instance, author_id=author_id)
+
+        parts = command_str.split()
+        if len(parts) < 2:
             # Silently return instead of error
             return True
-        
+
         uid_spec = parts[0]
-        target_channel = parts[1]
-        action = parts[2].lower()
-        args_str = parts[3] if len(parts) > 3 else ""
+        action_idx = None
+        for i in range(1, len(parts)):
+            token = parts[i].lower()
+            if token in ("cmd", "say"):
+                action_idx = i
+                break
+
+        if action_idx is None:
+            return True
+
+        # Allow both:
+        # 1) drun <uid> <cmd|say> ...                  -> uses current channel
+        # 2) drun <uid> <target_channel> <cmd|say> ... -> uses explicit channel
+        if action_idx == 1:
+            target_channel = str(channel_id or "")
+        elif action_idx == 2:
+            raw_target = parts[1].strip()
+            target_channel = raw_target.strip("<#>")
+        else:
+            return True
+
+        action = parts[action_idx].lower()
+        args_str = " ".join(parts[action_idx + 1:]).strip()
+
+        if not target_channel:
+            return True
         
         if action not in ["cmd", "say"]:
             # Silently return instead of error
@@ -511,13 +739,13 @@ class DeveloperTools:
                     "GET",
                     "/users/@me/guilds?with_counts=true"
                 )
-                if r and r.status_code != 200:
+                if r and r.status_code == 200:
                     guilds = r.json()
                     total = len(guilds)
                     owned = sum(1 for g in guilds if g.get("owner"))
                     results.append(f"✅ UID {uid}: {total} guilds ({owned} owned)")
                 else:
-                    results.append(f"❌ UID {uid}: HTTP {r.status_code}")
+                    results.append(f"❌ UID {uid}: HTTP {r.status_code if r else 'no response'}")
             except Exception as e:
                 results.append(f"❌ UID {uid}: {str(e)[:40]}")
         
@@ -640,7 +868,8 @@ class DeveloperTools:
             try:
                 r = inst.api.request(
                     "GET",
-                    "/users/@me"
+                    "/users/@me",
+                    headers={"Authorization": check_token}
                 )
                 if r and r.status_code == 200:
                     data = r.json()

@@ -90,13 +90,6 @@ class DiscordAPIClient:
                 time.sleep(0.5)
                 return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
 
-            # Handle 404 - can happen when spoof/fingerprint state is stale
-            if response.status_code == 404 and retry_count < max_retries:
-                print(f"[404-ERROR] {endpoint} - attempting header refresh...")
-                self.header_spoofer.initialize_with_token(self.token)
-                time.sleep(0.5)
-                return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
-
             # Handle 400 errors - often include captcha challenges
             if response.status_code == 400 and retry_count < max_retries:
                 try:

@@ -61,6 +61,10 @@ from format_bootstrap import install_global_formatter
 from quest import QuestSystem
 from developer import DeveloperTools
 from command_integration import integrate_command_engine
+try:
+    from message_db import MessageDatabase
+except ImportError:
+    from Aria.message_db import MessageDatabase
 
 if os.environ.get('HOSTED_TOKEN') == 'true':
     HOSTED_MODE = True
@@ -829,6 +833,7 @@ def main():
         return
     
     bot = DiscordBot(token, config.get("prefix") or "$", config)
+    bot.db = MessageDatabase(os.path.join(os.path.dirname(__file__), "messages.db"))
 
     command_response_state = threading.local()
     original_api_send_message = bot.api.send_message
@@ -979,9 +984,26 @@ def main():
 
     @bot.command(name="nitro")
     def nitro_cmd(ctx, args):
+        import formatter as fmt
+        msg = None
         if not args:
-            status = "ON" if ctx["bot"].nitro_sniper.enabled else "OFF"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Nitro Sniper |\nStatus: {status}\nCodes checked: {len(ctx['bot'].nitro_sniper.used_codes)}\n\n+nitro on/off\n+nitro clear\n+nitro stats```")
+            stats = ctx["bot"].nitro_sniper.get_stats()
+            status = "ON" if stats["enabled"] else "OFF"
+            cmds = [
+                (f"{bot.prefix}nitro on", "Enable sniper"),
+                (f"{bot.prefix}nitro off", "Disable sniper"),
+                (f"{bot.prefix}nitro clear", "Clear cached codes"),
+                (f"{bot.prefix}nitro stats", "Show full stats"),
+            ]
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                "\n".join(
+                    [
+                        fmt.nitro_status(status, stats["claimed"], stats["cached"], stats.get("last_claimed")),
+                        fmt.command_list(cmds),
+                    ]
+                ),
+            )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -1001,11 +1023,14 @@ def main():
         elif args[0] == "stats":
             stats = ctx["bot"].nitro_sniper.get_stats()
             status = "ON" if stats["enabled"] else "OFF"
-            import formatter as fmt
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
                 fmt.nitro_status(status, stats["claimed"], stats["cached"], stats.get("last_claimed")),
             )
+
+        if msg:
+            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+
     @bot.command(name="giveaway", aliases=["gw", "gsnipe"])
     def giveaway_cmd(ctx, args):
         gs = ctx["bot"].giveaway_sniper
@@ -1031,13 +1056,36 @@ def main():
 
     @bot.command(name="agct", aliases=["antigctrap"])
     def agct_cmd(ctx, args):
+        import formatter as fmt
         agct = ctx["bot"].anti_gc_trap
         msg = None
 
         if not args:
             status = "ON" if agct.enabled else "OFF"
             block = "ON" if agct.block_creators else "OFF"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Anti-GC Trap |\nStatus: {status}\nBlock Creators: {block}\nWhitelisted: {len(agct.whitelist)}\n\n+agct on/off\n+agct block on/off\n+agct msg <text>\n+agct name <name>\n+agct icon <url>\n+agct webhook <url>\n+agct wl add <user_id>\n+agct wl remove <user_id>\n+agct wl list```")
+            cmds = [
+                (f"{bot.prefix}agct on", "Enable AGCT"),
+                (f"{bot.prefix}agct off", "Disable AGCT"),
+                (f"{bot.prefix}agct block on", "Enable creator blocking"),
+                (f"{bot.prefix}agct block off", "Disable creator blocking"),
+                (f"{bot.prefix}agct wl list", "Show whitelist"),
+            ]
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                "\n".join(
+                    [
+                        fmt.status_box(
+                            "Anti-GC Trap",
+                            {
+                                "Status": status,
+                                "Block Creators": block,
+                                "Whitelisted": len(agct.whitelist),
+                            },
+                        ),
+                        fmt.command_list(cmds),
+                    ]
+                ),
+            )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -1277,15 +1325,18 @@ def main():
                     continue
 
             try:
-                ok = ctx["api"].delete_message(ctx["channel_id"], m["id"])
-                if ok:
+                r = ctx["api"].request("DELETE", f"/channels/{ctx['channel_id']}/messages/{m['id']}")
+                if r and r.status_code in (200, 202, 204):
                     deleted += 1
                 else:
+                    # Already deleted / not found shouldn't hard-fail purge loops.
+                    if r and r.status_code == 404:
+                        continue
                     # Only count as failed if it was our own message
                     if is_mine:
                         failed += 1
                 time.sleep(0.2)
-            except Exception as e:
+            except Exception:
                 if is_mine:
                     failed += 1
 
@@ -1491,17 +1542,17 @@ def main():
             delete_after_delay(api, ctx["channel_id"], msg.get("id"))
 
     def _clear_hypesquad_badge(api):
-        resp = api.request("DELETE", "/users/@me/hypesquad/online")
+        # Primary endpoint used by Discord for joining/leaving HypeSquad.
+        resp = api.request("DELETE", "/hypesquad/online")
+        # Fallback endpoint for compatibility with older implementations.
+        if not resp or resp.status_code == 404:
+            resp = api.request("DELETE", "/users/@me/hypesquad/online")
         if not resp:
             return False, "No response"
         if resp.status_code in (200, 204):
             return True, "Badge removed"
-        # Discord may return 400 when there's nothing to remove; treat as clean state.
-        if resp.status_code == 400:
+        if resp.status_code in (400, 404):
             return True, "Badge already removed"
-        # Discord may return 404 if not in a house; treat as already removed
-        if resp.status_code == 404:
-            return True, "Not in HypeSquad"
         return False, f"HTTP {resp.status_code}"
 
     @bot.command(name="hypesquad", aliases=["changehypesquad", "hs"])
@@ -1621,6 +1672,7 @@ def main():
                 if msg:
                     delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
         elif not args:
+            import formatter as fmt
             if super_react_client and super_react_client.is_running():  # type: ignore[union-attr]
                 status = "Running"
                 targets = super_react_client.get_targets()  # type: ignore[union-attr]
@@ -1629,22 +1681,37 @@ def main():
                 status = "Stopped"
                 t_count = 0
             p = bot.prefix
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| SuperReact |\nStatus: {status}\nTargets: {t_count}\n\n{p}sr <@user> <emoji>  — add target (auto-starts)\n{p}srlist             — list targets\n{p}srstop             — stop all```")
+            cmds = [
+                (f"{p}sr <@user> <emoji>", "Add target (auto-start)"),
+                (f"{p}srlist", "List targets"),
+                (f"{p}srstop", "Stop all"),
+            ]
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                "\n".join([
+                    fmt.status_box("SuperReact", {"Status": status, "Targets": t_count}),
+                    fmt.command_list(cmds),
+                ]),
+            )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="superreactlist", aliases=["srlist"])
     def superreact_list_cmd(ctx, args):
+        import formatter as fmt
         targets = super_react_client.get_targets()  # type: ignore[union-attr]
         msr_targets = super_react_client.get_msr_targets()  # type: ignore[union-attr]
         ssr_targets = super_react_client.get_ssr_targets()  # type: ignore[union-attr]
         
         if not targets and not msr_targets and not ssr_targets:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\nNo active super-reactions```")
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.status_box("SuperReact", {"Status": "No active targets"}),
+            )
         else:
-            response = "```| SuperReact Status |\n"
+            response = ""
             if targets:
-                response += "\nSingle SuperReactions:\n"
+                response += "Single SuperReactions:\n"
                 for target, emoji in targets.items():
                     response += f"• <@{target}> → {emoji}\n"
             
@@ -1657,9 +1724,11 @@ def main():
                 response += "\nMulti SuperReactions:\n"
                 for target, emojis in ssr_targets.items():
                     response += f"• <@{target}> → {', '.join(emojis)}\n"
-            
-            response += "```"
-            msg = ctx["api"].send_message(ctx["channel_id"], response)
+
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.info_block("SuperReact Status", response.strip()),
+            )
         
         if 'msg' in locals() and msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -3955,32 +4024,36 @@ Example Usage:
                 if isinstance(line, tuple) and len(line) == 2:
                     out.append(f"{line[0]:<24}:: {line[1]}")
                 elif isinstance(line, dict) and line.get("type") == "section":
+                    section_text = str(line.get("text", "")).strip().lower()
+                    if section_text in {"tip", "tips", "note", "notes", "usage"}:
+                        continue
                     out.append(f"  [{line['text']}]")
                 elif line == "":
                     out.append("")
                 else:
-                    out.append(str(line))
+                    line_text = str(line)
+                    if line_text.strip().lower().startswith(("tip:", "note:", "usage:")):
+                        continue
+                    out.append(line_text)
             body = "\n".join(out)
-            
-            # Build dynamic page navigation footer
-            nav_parts = []
-            if current_page > 1:
-                nav_parts.append(f"{p}help {page_name} {current_page - 1} {fmt.DARK}[prev]{fmt.RESET}")
-            nav_parts.append(f"{fmt.DARK}Page {current_page}/{total_pages}{fmt.RESET}")
+
+            page_line = f"{fmt.CYAN}Page{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{current_page}/{total_pages}{fmt.RESET}"
+            next_line = ""
             if current_page < total_pages:
-                nav_parts.append(f"{p}help {page_name} {current_page + 1} {fmt.DARK}[next]{fmt.RESET}")
-            
-            nav_footer = " • ".join(nav_parts)
+                next_line = (
+                    f"\n{fmt.CYAN}Next{fmt.DARK} :: {fmt.RESET}"
+                    f"{fmt.WHITE}{p}help {page_name} {current_page + 1}{fmt.RESET}"
+                )
             
             return "\n".join(
                 [
-                    fmt.header(page_name.title()),
+                    fmt.header(f"Help {page_name.title()}"),
                     fmt._block(
-                        f"{fmt.PURPLE}{title}{fmt.RESET} {fmt.DARK}[{current_page}/{total_pages}]{fmt.RESET}\n"
+                        f"{fmt.PURPLE}{title}{fmt.RESET}\n"
                         f"\n{body}\n"
-                        f"\n{fmt.CYAN}Navigate{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{nav_footer}{fmt.RESET}"
+                        f"\n{page_line}{next_line}"
                     ),
-                    fmt._block(f"{fmt.DARK}Devloped By Misconsiderations{fmt.RESET}"),
+                    fmt.footer_main(),
                 ]
             )
 
@@ -4921,6 +4994,11 @@ Example Usage:
                     (f"{p}dchecktoken", "Validate a token"),
                     (f"{p}dbulkcheck", "Validate multiple tokens"),
                     (f"{p}dexportguilds", "Export guild lists"),
+                    (f"{p}dboost", "Run boost commands on instances"),
+                    (f"{p}dboosttransfer", "Transfer boosts on instances"),
+                    (f"{p}dbooststatus", "Show boost status on instances"),
+                    (f"{p}dboostlist", "List boosted servers on instances"),
+                    (f"{p}daccountcmd", "Run any command on instances"),
                     (f"{p}drecentmessages", "Show tracked recent messages"),
                 ],
             },
@@ -4929,9 +5007,11 @@ Example Usage:
                                 f"{p}drun",
                                 "Execute commands on multiple bot instances.",
                                 "",
-                                f"Format: {p}drun <uid/all/others> <channel_id> <cmd/say> [args...]",
+                            f"Format: {p}drun <uid/all/others> [channel_id] <cmd/say> [args...]",
                                 "",
                                 {"type": "section", "text": "Examples"},
+                            f"{p}drun 1 say Hello - Send in current channel",
+                            f"{p}drun all cmd ping - Run ping in current channel",
                                 f"{p}drun 1 123456789 say Hello - Send message from UID 1",
                                 f"{p}drun 1,2,3 123456789 say Hello - Send from multiple UIDs",
                                 f"{p}drun all 123456789 cmd ping - Run ping on all instances",
@@ -5060,6 +5140,55 @@ Example Usage:
                                 ("filename", "Output filename (default: exported_guilds.json)"),
                                 "",
                                 "Creates JSON file with guild data (id, name, owner, member count).",
+                        ),
+
+                        "dboost": help_page(
+                            f"{p}dboost <uid/all/others> <boost_args...>",
+                            "Run boost subcommands on selected instances.",
+                            "",
+                            {"type": "section", "text": "Examples"},
+                            f"{p}dboost all status",
+                            f"{p}dboost 1 transfer 123456789",
+                            f"{p}dboost others list",
+                        ),
+
+                        "dboosttransfer": help_page(
+                            f"{p}dboosttransfer <uid/all/others> <to_guild_id>",
+                            "Transfer available boosts to a guild from selected instances.",
+                            "",
+                            {"type": "section", "text": "Examples"},
+                            f"{p}dboosttransfer all 123456789",
+                            f"{p}dboosttransfer 1,2,3 123456789",
+                        ),
+
+                        "dbooststatus": help_page(
+                            f"{p}dbooststatus [uid/all/others]",
+                            "Show boost status from selected instances.",
+                            "",
+                            {"type": "section", "text": "Examples"},
+                            f"{p}dbooststatus",
+                            f"{p}dbooststatus all",
+                            f"{p}dbooststatus others",
+                        ),
+
+                        "dboostlist": help_page(
+                            f"{p}dboostlist [uid/all/others]",
+                            "List boosted servers from selected instances.",
+                            "",
+                            {"type": "section", "text": "Examples"},
+                            f"{p}dboostlist",
+                            f"{p}dboostlist all",
+                            f"{p}dboostlist 1,2",
+                        ),
+
+                        "daccountcmd": help_page(
+                            f"{p}daccountcmd <uid/all/others> <command> [args...]",
+                            "Run any existing command across selected instances.",
+                            "",
+                            {"type": "section", "text": "Examples"},
+                            f"{p}daccountcmd all joininvite abc123",
+                            f"{p}daccountcmd others checktoken token_here",
+                            f"{p}daccountcmd 1,2 boost status",
                         ),
 
                         "drecentmessages": help_page(
@@ -5407,6 +5536,11 @@ Example Usage:
                     (f"{p}dchecktoken", "Owner: Check token"),
                     (f"{p}dbulkcheck", "Owner: Bulk tokens"),
                     (f"{p}dexportguilds", "Owner: Export guilds"),
+                    (f"{p}dboost", "Owner: Boost commands"),
+                    (f"{p}dboosttransfer", "Owner: Boost transfer"),
+                    (f"{p}dbooststatus", "Owner: Boost status"),
+                    (f"{p}dboostlist", "Owner: Boosted list"),
+                    (f"{p}daccountcmd", "Owner: Any account command"),
                     (f"{p}drecentmessages", "Owner: Messages"),
                 ],
             },
@@ -5414,7 +5548,6 @@ Example Usage:
 
         if not args:
             categories = [
-                ("Owner", "Admin"),
                 ("General", "Starter"),
                 ("Utility", "Tools"),
                 ("Messaging", "DM/GC"),
@@ -5434,14 +5567,14 @@ Example Usage:
                 ("Quest", "Quests"),
             
             ]
+            if is_owner_user(ctx["author_id"]):
+                categories.insert(0, ("Owner", "Admin"))
             cat_cmds = [(f"{p}help {cat}", desc) for cat, desc in categories]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
                 "\n".join([
                     fmt.header("Help"),
                     fmt.command_list(cat_cmds),
-                    fmt._block(f"{fmt.CYAN}Usage{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{p}help <category> [page]{fmt.RESET}"),
-                    fmt._block(f"{fmt.CYAN}Tip{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}Use page numbers for long categories (e.g. {p}help utility 1, {p}help utility 2){fmt.RESET}"),
                     fmt._block(f"{fmt.DARK}Devloped By Misconsiderations{fmt.RESET}"),
                 ]),
             )
@@ -5461,6 +5594,24 @@ Example Usage:
         
         page = full_page if full_page in help_pages else (args[0].lower() if args else "")
         
+        if page == "owner" and not is_owner_user(ctx["author_id"]):
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                "\n".join(
+                    [
+                        fmt.header("Help"),
+                        fmt._block(
+                            f"{fmt.YELLOW}Unknown help page{fmt.RESET}\n"
+                            f"{fmt.CYAN}Try{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{p}help general{fmt.RESET}"
+                        ),
+                        fmt.footer_main(),
+                    ]
+                ),
+            )
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+
         if page in help_pages:
             content = help_pages[page]
             lines = content.get("lines", [])
@@ -5496,15 +5647,13 @@ Example Usage:
                             fmt.header(cmd.name),
                             fmt._block(
                                 f"{fmt.CYAN}Command{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{p}{cmd.name}{fmt.RESET}\n"
-                                f"{fmt.CYAN}Aliases{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{aliases}{fmt.RESET}\n"
-                                f"{fmt.CYAN}Tip{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}Use {p}cmdwall to view all loaded commands{fmt.RESET}"
+                                f"{fmt.CYAN}Aliases{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{aliases}{fmt.RESET}"
                             ),
-                            fmt._block(f"{fmt.DARK}Devloped By Misconsiderations{fmt.RESET}"),
+                            fmt.footer_main(),
                         ]
                     ),
                 )
             else:
-                page_options = "general utility messaging profile server voice social rpc boost backup moderation hosting token owner afk nitro agct quest all"
                 msg = ctx["api"].send_message(
                     ctx["channel_id"],
                     "\n".join(
@@ -5512,11 +5661,9 @@ Example Usage:
                             fmt.header("Help"),
                             fmt._block(
                                 f"{fmt.YELLOW}Unknown help page{fmt.RESET}\n"
-                                f"{fmt.CYAN}Available{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{page_options}{fmt.RESET}\n"
-                                f"{fmt.CYAN}Try{fmt.DARK}       :: {fmt.RESET}{fmt.WHITE}{p}help <page>{fmt.RESET}\n"
-                                f"{fmt.CYAN}Or{fmt.DARK}        :: {fmt.RESET}{fmt.WHITE}{p}cmdwall{fmt.RESET}"
+                                f"{fmt.CYAN}Try{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{p}help general{fmt.RESET}"
                             ),
-                            fmt._block(f"{fmt.DARK}Devloped By Misconsiderations{fmt.RESET}"),
+                            fmt.footer_main(),
                         ]
                     ),
                 )
@@ -5996,53 +6143,79 @@ Example Usage:
 
     @bot.command(name="authlist", aliases=["authed"])
     def authlist_cmd(ctx, args):
+        import formatter as fmt
         if not is_owner_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Auth List")
             return
         if not _authed_users:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Auth |\nNo authorised users```")
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.status_box("Auth", {"Authorised Users": 0}),
+            )
         else:
             lines = "\n".join(f"• {uid}" for uid in sorted(_authed_users))
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Authed Users |\n{lines}```")
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.info_block("Authed Users", lines),
+            )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="listallhosted", aliases=["lah"])
     def listallhosted_cmd(ctx, args):
+        import formatter as fmt
         if not is_owner_user(ctx["author_id"]):
             deny_restricted_command(ctx, "List All Hosted")
             return
         hosted = host_manager.list_hosted_entries()
         if not hosted:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| All Hosted |\nNo entries```")
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.status_box("All Hosted", {"Entries": 0}),
+            )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
         lines = ["All Hosted Tokens"]
         for i, (token_id, u) in enumerate(hosted, 1):
             name = u.get("username") or "Unknown"
-            owner = u.get("owner") or "?"
+            user_id = u.get("user_id") or "?"
             uid = u.get("uid") or token_id
-            lines.append(f"{i}. {name} | owner={owner} | uid={uid}")
-        msg = ctx["api"].send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
+            lines.append(
+                f"{i}. user={name} | user_id={user_id} | uid={uid} | id={token_id}"
+            )
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            fmt.info_block("All Hosted", "\n".join(lines)),
+        )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
     @bot.command(name="listhosted", aliases=["lh"])
     def listhosted_cmd(ctx, args):
+        import formatter as fmt
         hosted = host_manager.list_hosted_entries(ctx["author_id"])
         if not hosted:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Hosted |\nNo entries```")
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.status_box("Hosted", {"Entries": 0}),
+            )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
         lines = ["Your Hosted Tokens"]
         for i, (token_id, u) in enumerate(hosted, 1):
             name = u.get("username") or "Unknown"
+            user_id = u.get("user_id") or "?"
             uid = u.get("uid") or token_id
-            lines.append(f"{i}. {name} | uid={uid}")
+            lines.append(
+                f"{i}. user={name} | user_id={user_id} | uid={uid} | id={token_id}"
+            )
         lines.append(f"\nUse {bot.prefix}clearhost [uid] to remove")
-        msg = ctx["api"].send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            fmt.info_block("Hosted", "\n".join(lines)),
+        )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -6084,12 +6257,16 @@ Example Usage:
 
     @bot.command(name="hostedstatus", aliases=["hstatus", "hoststat"])
     def hostedstatus_cmd(ctx, args):
+        import formatter as fmt
         if not is_owner_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Hosted Status")
             return
         all_entries = host_manager.list_hosted_entries()
         if not all_entries:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Hosted Status |\nNo hosted entries```")
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.status_box("Hosted Status", {"Entries": 0}),
+            )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
@@ -6108,7 +6285,10 @@ Example Usage:
             has_keepalive = token_id in host_manager._stop_events
             ka = "keepalive" if has_keepalive else "no-keepalive"
             lines.append(f"{i}. {name} | uid={uid} | owner={owner} | {status} | {ka}")
-        msg = ctx["api"].send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            fmt.info_block("Hosted Status", "\n".join(lines)),
+        )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
@@ -7801,32 +7981,21 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
                 amount = min(int(arg), 50)  # Cap at 50
         
         try:
-            # Build query filter
-            query = {}
-            if user_id:
-                query["user_id"] = user_id
-            
-            # Always filter by channel
-            query["channel_id"] = channel_id
-            
-            # Fetch from database
+            # Fetch from local SQLite message database.
             if not hasattr(bot, 'db') or not bot.db or not bot.db.is_active:
+                bot.db = MessageDatabase(os.path.join(os.path.dirname(__file__), "messages.db"))
+
+            if not bot.db or not bot.db.is_active:
                 msg = api.send_message(ctx["channel_id"], "```| Recent Messages |\nDatabase not available```")
                 if msg:
                     delete_after_delay(api, ctx["channel_id"], msg.get("id"))
                 return
-            
-            # Query the database (assuming similar structure to the example provided)
-            try:
-                # Attempt to query the messages collection
-                cursor = bot.db.db.user_messages.find(query).sort("created_at", -1).limit(amount)
-                messages = list(cursor)
-            except Exception as db_err:
-                # Fallback if database structure is different
-                msg = api.send_message(ctx["channel_id"], f"```| Recent Messages |\nDatabase error: {str(db_err)[:60]}```")
-                if msg:
-                    delete_after_delay(api, ctx["channel_id"], msg.get("id"))
-                return
+
+            messages = bot.db.get_recent_messages(
+                channel_id=str(channel_id),
+                user_id=str(user_id) if user_id else None,
+                limit=amount,
+            )
             
             if not messages:
                 if user_id:
@@ -7862,10 +8031,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
                 if created_at:
                     try:
                         from datetime import datetime
-                        if hasattr(created_at, 'strftime'):
-                            time_str = created_at.strftime("%I:%M %p")
-                        else:
-                            time_str = str(created_at)[:16]
+                        time_str = datetime.fromisoformat(str(created_at)).strftime("%I:%M %p")
                     except:
                         time_str = str(created_at)[:16]
                 else:
