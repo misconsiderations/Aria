@@ -503,18 +503,44 @@ class DiscordBot:
         if len(parts) < 4:
             pass  # non-fatal; don't exit
 
+    def set_status(self, status: str) -> bool:
+        """Update presence status (online/idle/dnd/invisible) via gateway op 3."""
+        valid = {"online", "idle", "dnd", "invisible"}
+        if status not in valid:
+            return False
+        self._current_status = status
+        if self.identified and self.connection_active and self.ws:
+            try:
+                since = int(time.time() * 1000) if status == "idle" else 0
+                payload = {
+                    "op": 3,
+                    "d": {
+                        "since": since,
+                        "activities": [self.activity] if self.activity else [],
+                        "status": status,
+                        "afk": status == "idle",
+                    },
+                }
+                self.ws.send(json.dumps(payload))
+                return True
+            except Exception:
+                return False
+        return False
+
     def set_activity(self, activity):
         """Set or clear the current presence activity."""
         self.activity = activity
         if self.identified and self.connection_active and self.ws:
             try:
+                status = getattr(self, "_current_status", "online")
+                since = int(time.time() * 1000) if status == "idle" else 0
                 payload = {
                     "op": 3,
                     "d": {
-                        "since": 0,
+                        "since": since,
                         "activities": [activity] if activity else [],
-                        "status": getattr(self, "_current_status", "online"),
-                        "afk": False,
+                        "status": status,
+                        "afk": status == "idle",
                     },
                 }
                 self.ws.send(json.dumps(payload))

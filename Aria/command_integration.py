@@ -1,98 +1,99 @@
 """
-Integration module - Connects CommandEngine to the Discord bot
-Ensures all help output is ANSI-safe (properly wrapped in codeblocks)
+Integration module - Connects real command handlers to the Discord bot
+All commands listed here actually work.
 """
 
 import formatter as fmt
-from command_engine import CommandEngine, setup_commands_500
+from command_engine import CommandEngine
 import time
 
 
 class CommandIntegration:
-    """Integrates CommandEngine with DiscordBot"""
+    """Integrates real command handlers with DiscordBot"""
     
     def __init__(self, bot, api_client, prefix: str = ";"):
         self.bot = bot
         self.api_client = api_client
         self.engine = CommandEngine(prefix=prefix)
-        setup_commands_500(self.engine)
+        # NOTE: setup_commands_500 intentionally NOT called — it only added fake metadata
     
+    def _unique_commands(self):
+        """Return only primary-name commands (no aliases), sorted."""
+        return sorted(
+            {name: cmd for name, cmd in self.bot.commands.items() if cmd.name == name}.items()
+        )
+
     def setup_help_commands(self):
         """Register help commands with the bot"""
         
         @self.bot.command(name="help", aliases=["h", "commands"])
         def cmd_help(ctx, args):
-            """Main help command - ANSI SAFE with pagination guide"""
-            if not args:
-                # Show all categories with improved info
-                categories = self.engine.get_all_categories()
-                lines = []
-                for cat_name in sorted(categories.keys()):
-                    cat_cmds = self.engine.get_category_commands(cat_name)
-                    pages = (len(cat_cmds) + 11) // 12
-                    page_info = f" ({pages} page{'s' if pages > 1 else ''})" if pages > 1 else ""
-                    lines.append((cat_name.ljust(15), categories[cat_name] + page_info))
-                
-                msg_text = fmt.command_page(
-                    "📚 Command Categories",
-                    lines,
-                    f"Usage: +help <category> [page]\nExample: +help general 1  or  +help profile 2"
-                )
-                msg = self.api_client.send_message(ctx["channel_id"], msg_text)
-                return
-            
-            category = args[0].lower()
-            
-            # Get page number if provided
-            page = 1
-            if len(args) > 1:
-                try:
-                    page = int(args[1])
-                except (ValueError, IndexError):
-                    page = 1
-            
-            # Generate help page
-            msg_text = self.engine.help_category(category, page)
-            msg = self.api_client.send_message(ctx["channel_id"], msg_text)
+            # Overridden by main.py's help — this is a fallback only
+            unique = self._unique_commands()
+            lines = [(name, "") for name, _ in unique]
+            msg_text = fmt.command_page(
+                "Commands",
+                lines,
+                f"{len(unique)} commands available",
+            )
+            self.api_client.send_message(ctx["channel_id"], msg_text)
         
         @self.bot.command(name="helpwall", aliases=["cmdwall", "allcmds", "wallcmds"])
         def cmd_helpwall(ctx, args):
-            """Show all commands in walls - ANSI SAFE
-            
-            Automatically splits into Discord's 2000 char limit
-            """
-            self.engine.send_help_wall(ctx, self.api_client)
+            """List all real registered commands split across messages."""
+            unique = self._unique_commands()
+            prefix = self.bot.prefix
+            chunk, messages = [], []
+            for name, cmd in unique:
+                aliases = f" [{', '.join(cmd.aliases)}]" if cmd.aliases else ""
+                chunk.append(f"{fmt.CYAN}{prefix}{name}{fmt.RESET}{fmt.DARK}{aliases}{fmt.RESET}")
+                if len(chunk) >= 30:
+                    messages.append(fmt._block("\n".join(chunk)))
+                    chunk = []
+            if chunk:
+                messages.append(fmt._block("\n".join(chunk)))
+            for m in messages:
+                sent = self.api_client.send_message(ctx["channel_id"], m)
         
         @self.bot.command(name="cmdinfo")
         def cmd_cmdinfo(ctx, args):
-            """Get detailed command info - ANSI SAFE"""
+            """Show info for a real registered command."""
             if not args:
-                msg_text = fmt.error("Usage: +cmdinfo <command_name>")
+                msg_text = fmt.error(f"Usage: {self.bot.prefix}cmdinfo <command>")
                 self.api_client.send_message(ctx["channel_id"], msg_text)
                 return
-            
-            cmd_name = args[0].lower()
-            msg_text = self.engine.command_info(cmd_name)
-            self.api_client.send_message(ctx["channel_id"], msg_text)
+            name = args[0].lower()
+            cmd = self.bot.commands.get(name)
+            if not cmd:
+                self.api_client.send_message(ctx["channel_id"], fmt.error(f"Unknown command: {name}"))
+                return
+            info = {"Name": cmd.name}
+            if cmd.aliases:
+                info["Aliases"] = ", ".join(cmd.aliases)
+            info["Status"] = "Active"
+            self.api_client.send_message(ctx["channel_id"], fmt.status_box("Command Info", info))
         
         @self.bot.command(name="quickhelp")
         def cmd_quickhelp(ctx, args):
-            """Quick help with popular commands - ANSI SAFE"""
-            msg_text = self.engine.help_quick(count=20)
+            """Show a quick overview of loaded commands."""
+            unique = self._unique_commands()
+            prefix = self.bot.prefix
+            lines = [(f"{prefix}{name}", ", ".join(cmd.aliases) if cmd.aliases else "—") for name, cmd in unique[:25]]
+            msg_text = fmt.command_page(
+                "Quick Help",
+                lines,
+                f"{len(unique)} total commands — use {prefix}helpwall to see all",
+            )
             self.api_client.send_message(ctx["channel_id"], msg_text)
         
         @self.bot.command(name="categories")
         def cmd_categories(ctx, args):
-            """List all command categories - ANSI SAFE"""
-            categories = self.engine.get_all_categories()
-            lines = []
-            for cat_name in sorted(categories.keys()):
-                lines.append((cat_name.ljust(15), categories[cat_name]))
-            
-            msg_text = fmt.command_page(
-                "Command Categories",
-                lines,
-                f"Use +help <category> to view commands"
+            """Show real command count."""
+            unique = self._unique_commands()
+            real_count = len(unique)
+            msg_text = fmt.status_box(
+                "Commands",
+                {"Active Commands": str(real_count), "Tip": f"Use {self.bot.prefix}helpwall to list all"},
             )
             self.api_client.send_message(ctx["channel_id"], msg_text)
     

@@ -1306,7 +1306,7 @@ def main():
     def hypesquad_leave_cmd(ctx, args):
         resp = ctx["api"].request(
             "DELETE",
-            "/hypesquad/online"
+            "/users/@me/hypesquad"
         )
         if resp and resp.status_code == 204:
             msg = ctx["api"].send_message(ctx["channel_id"], "> **Hypesquad** left successfully")
@@ -1317,20 +1317,28 @@ def main():
 
     @bot.command(name="status", aliases=["setstatus", "changestatus"])
     def status_cmd(ctx, args):
+        import formatter as fmt
         valid = {"online", "idle", "dnd", "invisible"}
         status = (args[0].lower() if args else "")
         if status not in valid:
+            cmds = [
+                (f"{bot.prefix}status online",    "Set status to online"),
+                (f"{bot.prefix}status idle",      "Set status to idle"),
+                (f"{bot.prefix}status dnd",       "Set status to do not disturb"),
+                (f"{bot.prefix}status invisible", "Set status to invisible"),
+            ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"```| Status |\nUsage: {bot.prefix}status online/idle/dnd/invisible```",
+                fmt.header("Status") + "\n" + fmt.command_list(cmds),
             )
             if msg:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
         ok = ctx["bot"].set_status(status)
+        result = f"Set to {status}" if ok else "Saved — will apply on reconnect"
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"```| Status |\n{'Set to ' + status if ok else 'Failed (not connected)'}```",
+            fmt.status_box("Status", {"Status": result, "Value": status}),
         )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -4613,6 +4621,41 @@ Example Usage:
             ctx["channel_id"],
             f"```| Quest Enroll |\nEnrolled: {enrolled} | Failed: {failed}```",
         )
+        if msg:
+            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+
+    @bot.command(name="deco", aliases=["decoration", "profiledeco", "cleardeco", "removedeco"])
+    def deco_cmd(ctx, args):
+        import formatter as fmt
+        sub = args[0].lower() if args else ""
+        if sub != "remove":
+            cmds = [
+                (f"{bot.prefix}deco remove", "Remove avatar decoration & profile effect"),
+            ]
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.header("Decoration") + "\n" + fmt.command_list(cmds),
+            )
+            if msg:
+                delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
+            return
+        # Clear avatar decoration (type 3) and profile effect (type 4)
+        resp = ctx["api"].request(
+            "PATCH",
+            "/users/@me/profile",
+            data={"avatar_decoration_id": None, "profile_effect_id": None},
+        )
+        if resp and resp.status_code in (200, 204):
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.status_box("Decoration", {"Status": "Decoration & profile effect cleared"}),
+            )
+        else:
+            code = resp.status_code if resp else "N/A"
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.status_box("Decoration", {"Status": f"Failed (HTTP {code})"}),
+            )
         if msg:
             delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"))
 
