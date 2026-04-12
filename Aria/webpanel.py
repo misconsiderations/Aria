@@ -4,9 +4,97 @@ import json
 import os
 import threading
 import time
+import hashlib
+import secrets
+import base64
 from typing import Any, Callable, Dict, Optional
 
 from flask import Flask, jsonify, redirect, request, session, url_for
+
+
+class UserManager:
+    """Manages user accounts and authentication for multi-user dashboard."""
+    
+    def __init__(self, db_path: str = "dashboard_users.json"):
+        self.db_path = db_path
+        self.users = self._load_users()
+    
+    def _load_users(self) -> Dict[str, Any]:
+        """Load users from database."""
+        if os.path.exists(self.db_path):
+            try:
+                with open(self.db_path, "r") as f:
+                    return json.load(f)
+            except: pass
+        return {}
+    
+    def _save_users(self) -> None:
+        """Save users to database."""
+        with open(self.db_path, "w") as f:
+            json.dump(self.users, f, indent=2)
+    
+    def _hash_password(self, password: str, salt: str = None) -> tuple:
+        """Hash password with salt."""
+        if not salt:
+            salt = secrets.token_hex(16)
+        ph = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 100000)
+        return salt, ph.hex()
+    
+    def register(self, user_id: str, username: str, password: str, bot_token: str = "") -> tuple:
+        """Register new user. Returns (success, message)."""
+        if user_id in self.users:
+            return False, "User ID already exists"
+        if username in [u.get("username") for u in self.users.values()]:
+            return False, "Username already taken"
+        if len(password) < 6:
+            return False, "Password must be at least 6 characters"
+        
+        salt, pw_hash = self._hash_password(password)
+        self.users[user_id] = {
+            "username": username,
+            "password_salt": salt,
+            "password_hash": pw_hash,
+            "bot_token": bot_token,
+            "created": int(time.time()),
+            "last_login": 0,
+            "settings": {},
+        }
+        self._save_users()
+        return True, "Registration successful"
+    
+    def login(self, user_id: str, password: str) -> tuple:
+        """Login user. Returns (success, message)."""
+        if user_id not in self.users:
+            return False, "User not found"
+        user = self.users[user_id]
+        salt = user.get("password_salt", "")
+        stored_hash = user.get("password_hash", "")
+        _, input_hash = self._hash_password(password, salt)
+        if input_hash != stored_hash:
+            return False, "Invalid password"
+        self.users[user_id]["last_login"] = int(time.time())
+        self._save_users()
+        return True, "Login successful"
+    
+    def get_user(self, user_id: str) -> Optional[Dict]:
+        """Get user data."""
+        return self.users.get(user_id)
+    
+    def update_bot_token(self, user_id: str, bot_token: str) -> bool:
+        """Update user's bot token."""
+        if user_id in self.users:
+            self.users[user_id]["bot_token"] = bot_token
+            self._save_users()
+            return True
+        return False
+    
+    def update_settings(self, user_id: str, settings: Dict) -> bool:
+        """Update user settings."""
+        if user_id in self.users:
+            self.users[user_id]["settings"].update(settings)
+            self._save_users()
+            return True
+        return False
 
 
 class WebPanel:
@@ -20,6 +108,16 @@ class WebPanel:
         self.app = Flask(__name__)
         self.app.secret_key = os.getenv("ARIA_WEBPANEL_SECRET", "aria-webpanel-auth-secret")
         self._thread = None
+
+        self.dashboard_auth_path = "dashboard_authed_users.json"
+        self.dashboard_block_path = "dashboard_blocked_users.json"
+        self.panel_access_checker: Optional[Callable[[str], bool]] = None
+        self.panel_block_checker: Optional[Callable[[str], bool]] = None
+        self.owner_overview_getter: Optional[Callable[[], Dict[str, Any]]] = None
+        
+        # Initialize multi-user system
+        self.user_manager = UserManager("dashboard_users.json")
+        
         self._login_username = "Misconsideration"
         self._login_password = "Stackss123"
 
@@ -50,6 +148,193 @@ class WebPanel:
     ) -> None:
         self.activity_setter = setter
         self.activity_getter = getter
+
+    def set_access_controls(
+        self,
+        allowed_checker: Optional[Callable[[str], bool]] = None,
+        blocked_checker: Optional[Callable[[str], bool]] = None,
+    ) -> None:
+        self.panel_access_checker = allowed_checker
+        self.panel_block_checker = blocked_checker
+
+    def set_owner_overview_getter(self, getter: Optional[Callable[[], Dict[str, Any]]] = None) -> None:
+        self.owner_overview_getter = getter
+
+    def _load_id_set_file(self, path: str) -> set:
+        try:
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        return set(str(x) for x in data)
+        except Exception:
+            pass
+        return set()
+
+    def _is_panel_user_blocked(self, user_id: str) -> bool:
+        uid = str(user_id or "")
+        if not uid:
+            return True
+        if self._is_admin_session():
+            return False
+
+        if self.panel_block_checker:
+            try:
+                return bool(self.panel_block_checker(uid))
+            except Exception:
+                pass
+
+        return uid in self._load_id_set_file(self.dashboard_block_path)
+
+    def _is_panel_user_allowed(self, user_id: str) -> bool:
+        uid = str(user_id or "")
+        if not uid:
+            return False
+        if self._is_admin_session():
+            return True
+        if self._is_panel_user_blocked(uid):
+            return False
+
+        if self.panel_access_checker:
+            try:
+                return bool(self.panel_access_checker(uid))
+            except Exception:
+                pass
+
+        return uid in self._load_id_set_file(self.dashboard_auth_path)
+
+    def _owner_overview(self) -> Dict[str, Any]:
+        if self.owner_overview_getter:
+            try:
+                data = self.owner_overview_getter() or {}
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
+
+        hosted = {}
+        try:
+            if os.path.exists("hosted_users.json"):
+                with open("hosted_users.json", "r") as f:
+                    hosted = json.load(f) or {}
+        except Exception:
+            hosted = {}
+
+        hosted_list = []
+        if isinstance(hosted, dict):
+            for token_id, entry in hosted.items():
+                e = entry or {}
+                hosted_list.append(
+                    {
+                        "token_id": str(token_id),
+                        "uid": str(e.get("uid", token_id)),
+                        "owner": str(e.get("owner", "")),
+                        "username": str(e.get("username", "Unknown")),
+                        "user_id": str(e.get("user_id", "")),
+                    }
+                )
+
+        users = []
+        for uid, data in self.user_manager.users.items():
+            users.append(
+                {
+                    "user_id": uid,
+                    "username": data.get("username", ""),
+                    "last_login": int(data.get("last_login", 0)),
+                }
+            )
+
+        users.sort(key=lambda x: x.get("last_login", 0), reverse=True)
+        now = int(time.time())
+        connected = [u for u in users if now - int(u.get("last_login", 0) or 0) <= 1800]
+        authed = self._load_id_set_file(self.dashboard_auth_path)
+        blocked = self._load_id_set_file(self.dashboard_block_path)
+
+        return {
+            "total_registered": len(self.user_manager.users),
+            "total_authed": len(authed),
+            "total_blocked": len(blocked),
+            "total_hosted": len(hosted_list),
+            "connected_users": connected,
+            "connected_count": len(connected),
+            "hosted_users": hosted_list,
+            "hosted_uids": [h.get("uid", "") for h in hosted_list],
+        }
+
+    def _instance_logs_path(self) -> str:
+        return "webpanel_instance_logs.json"
+
+    def _append_instance_log(self, user_id: str, event: str, detail: str = "") -> None:
+        uid = str(user_id or "unknown")
+        entry = {
+            "ts": int(time.time()),
+            "user_id": uid,
+            "event": str(event or "event"),
+            "detail": str(detail or "")[:600],
+        }
+
+        logs = []
+        path = self._instance_logs_path()
+        try:
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    logs = json.load(f) or []
+        except Exception:
+            logs = []
+
+        if not isinstance(logs, list):
+            logs = []
+
+        logs.append(entry)
+        logs = logs[-5000:]
+
+        try:
+            with open(path, "w") as f:
+                json.dump(logs, f, indent=2)
+        except Exception:
+            pass
+
+    def _get_instance_logs(self, user_id: Optional[str] = None, limit: int = 200) -> list:
+        path = self._instance_logs_path()
+        logs = []
+        try:
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    logs = json.load(f) or []
+        except Exception:
+            logs = []
+
+        if not isinstance(logs, list):
+            return []
+
+        if user_id:
+            uid = str(user_id)
+            logs = [x for x in logs if str(x.get("user_id", "")) == uid]
+
+        return list(reversed(logs[-max(1, int(limit)):]))
+
+    def _encode_image_data_url(self, image_url: str) -> Optional[str]:
+        """Download and encode image URL into data URI for Discord profile endpoints."""
+        if not self.api or not image_url:
+            return None
+
+        try:
+            response = self.api.session.get(image_url, timeout=10)
+            if response.status_code != 200:
+                return None
+            content_type = (response.headers.get("Content-Type", "") or "").lower()
+            if "gif" in content_type:
+                ext = "gif"
+            elif "jpeg" in content_type or "jpg" in content_type:
+                ext = "jpeg"
+            elif "webp" in content_type:
+                ext = "webp"
+            else:
+                ext = "png"
+            encoded = base64.b64encode(response.content).decode()
+            return f"data:image/{ext};base64,{encoded}"
+        except Exception:
+            return None
 
     def _safe_apply_activity(
         self,
@@ -207,8 +492,119 @@ class WebPanel:
             return "unknown"
         return str(getattr(self.bot, "_client_type", "unknown"))
 
+    def _is_admin_session(self) -> bool:
+        return str(session.get("user_id", "")) == "admin"
+
+    def _activate_user_context(self, user_id: str) -> bool:
+        """Apply a user's saved bot token to the active bot/api context."""
+        if not user_id or user_id == "admin":
+            return False
+
+        user = self.user_manager.get_user(user_id)
+        if not user:
+            return False
+
+        token = str(user.get("bot_token", "")).strip()
+        if not token:
+            return False
+
+        if self.api is not None and hasattr(self.api, "token"):
+            self.api.token = token
+
+        if self.bot is not None:
+            if hasattr(self.bot, "token"):
+                self.bot.token = token
+            bot_api = getattr(self.bot, "api", None)
+            if bot_api is not None and hasattr(bot_api, "token"):
+                bot_api.token = token
+
+        return True
+
+    def _build_rpc_mode_payload(self, mode: str, payload: Dict[str, Any]) -> Dict[str, str]:
+        """Normalize UI RPC mode payloads into activity text/type/emoji."""
+        m = (mode or "").strip().lower()
+
+        track = str(payload.get("track", "")).strip()
+        artist = str(payload.get("artist", "")).strip()
+        album = str(payload.get("album", "")).strip()
+        title = str(payload.get("title", "")).strip()
+        channel = str(payload.get("channel", "")).strip()
+        episode = str(payload.get("episode", "")).strip()
+        details = str(payload.get("details", "")).strip()
+        state = str(payload.get("state", "")).strip()
+        name = str(payload.get("name", "")).strip()
+
+        apps = {
+            "spotify": ("listening", "spotify", "Spotify"),
+            "youtube_music": ("listening", "music", "YouTube Music"),
+            "applemusic": ("listening", "music", "Apple Music"),
+            "soundcloud": ("listening", "cloud", "SoundCloud"),
+            "deezer": ("listening", "music", "Deezer"),
+            "tidal": ("listening", "music", "TIDAL"),
+            "twitch": ("streaming", "live", "Twitch"),
+            "kick": ("streaming", "live", "Kick"),
+            "youtube": ("watching", "play", "YouTube"),
+            "netflix": ("watching", "tv", "Netflix"),
+            "disneyplus": ("watching", "sparkles", "Disney+"),
+            "primevideo": ("watching", "film", "Prime Video"),
+            "plex": ("watching", "film", "Plex"),
+            "jellyfin": ("watching", "film", "Jellyfin"),
+            "crunchyroll": ("watching", "tv", "Crunchyroll"),
+            "vscode": ("playing", "code", "VS Code"),
+            "browser": ("playing", "globe", "Browser"),
+            "vrchat": ("playing", "vr", "VRChat"),
+            "beat": ("playing", "notes", "Beat Saber"),
+            "chill": ("custom", "sparkles", "VR Chill"),
+            "world": ("competing", "tools", "World Builder"),
+        }
+
+        if m in {"playing", "streaming", "listening", "watching", "competing"}:
+            text = details or title or track or name or "Active"
+            if state:
+                text = f"{text} | {state}"
+            return {"text": text, "emoji": "", "activity_type": m}
+
+        if m in apps:
+            activity_type, emoji, app_label = apps[m]
+            if m in {"spotify", "youtube_music", "applemusic", "soundcloud", "deezer", "tidal"}:
+                main = track or title or "Unknown Track"
+                by = artist or state or "Unknown Artist"
+                extra = f" ({album})" if album else ""
+                return {
+                    "text": f"{app_label}: {main} - {by}{extra}",
+                    "emoji": emoji,
+                    "activity_type": activity_type,
+                }
+            if m in {"twitch", "kick", "youtube"}:
+                main = title or details or "Live"
+                ch = channel or state or "Channel"
+                return {
+                    "text": f"{app_label}: {main} ({ch})",
+                    "emoji": emoji,
+                    "activity_type": activity_type,
+                }
+            if m in {"netflix", "disneyplus", "primevideo", "plex", "jellyfin", "crunchyroll"}:
+                main = title or details or "Watching"
+                ep = episode or state
+                suffix = f" - {ep}" if ep else ""
+                return {
+                    "text": f"{app_label}: {main}{suffix}",
+                    "emoji": emoji,
+                    "activity_type": activity_type,
+                }
+
+            main = title or details or name or app_label
+            return {
+                "text": f"{app_label}: {main}",
+                "emoji": emoji,
+                "activity_type": activity_type,
+            }
+
+        fallback_text = details or title or track or name or "Custom Activity"
+        return {"text": fallback_text, "emoji": "", "activity_type": "custom"}
+
     def _rpc_catalog(self) -> Dict[str, Any]:
-        # Web panel catalog for quick reference and future route wiring.
+        # Web panel catalog used by UI and API clients.
         return {
             "presets": [
                 {"id": "vrchat", "label": "VRChat", "activity_type": "playing"},
@@ -217,13 +613,11 @@ class WebPanel:
                 {"id": "world", "label": "World Builder", "activity_type": "competing"},
             ],
             "advanced": [
-                "spotify",
-                "youtube",
-                "soundcloud",
-                "crunchyroll",
-                "twitch",
-                "roblox",
-                "vrchat",
+                "spotify", "youtube_music", "applemusic", "soundcloud", "deezer", "tidal",
+                "twitch", "kick", "youtube",
+                "netflix", "disneyplus", "primevideo", "plex", "jellyfin", "crunchyroll",
+                "vscode", "browser", "playing", "streaming", "listening", "watching", "competing",
+                "vrchat", "beat", "chill", "world",
             ],
         }
 
@@ -249,10 +643,23 @@ class WebPanel:
             path = request.path or "/"
             if path.startswith("/static") or path == "/favicon.ico":
                 return None
-            if path in {"/login", "/logout"}:
+            if path in {"/", "/home", "/tos", "/privacy", "/login", "/logout", "/access-pending", "/api/public/stats"}:
                 return None
+
             if session.get("webpanel_authenticated"):
-                return None
+                user_id = str(session.get("user_id") or "")
+                if self._is_panel_user_allowed(user_id):
+                    return None
+
+                if path.startswith("/api/"):
+                    return jsonify(
+                        {
+                            "ok": False,
+                            "error": "Dashboard access denied. Contact @misconsiderations for authorisation.",
+                        }
+                    ), 403
+
+                return redirect(url_for("access_pending"))
 
             if path.startswith("/api/"):
                 return jsonify({"ok": False, "error": "Authentication required"}), 401
@@ -262,27 +669,274 @@ class WebPanel:
         @self.app.route("/login", methods=["GET", "POST"])
         def login() -> Any:
             error = ""
-            next_path = request.args.get("next", "/")
+            next_path = request.args.get("next", "/dashboard")
+            mode = request.args.get("mode", "login")  # login or register
 
             if request.method == "POST":
-                username = str(request.form.get("username", "")).strip()
+                user_input = str(request.form.get("user_id", "")).strip()
                 password = str(request.form.get("password", "")).strip()
-                next_path = str(request.form.get("next", "/") or "/")
+                next_path = str(request.form.get("next", "/dashboard") or "/dashboard")
+                
+                if mode == "register":
+                    # Registration mode
+                    username = str(request.form.get("username", "")).strip()
+                    bot_token = str(request.form.get("bot_token", "")).strip()
+                    
+                    if not user_input or not username or not password:
+                        error = "User ID, username, and password are required"
+                    else:
+                        ok, msg = self.user_manager.register(user_input, username, password, bot_token)
+                        if ok:
+                            session["user_id"] = user_input
+                            session["webpanel_authenticated"] = True
+                            self._activate_user_context(user_input)
+                            self._append_instance_log(user_input, "register", "registered via dashboard")
+                            return redirect(next_path if next_path.startswith("/") else "/dashboard")
+                        error = msg
+                else:
+                    # Login mode
+                    # Try multi-user login first
+                    if user_input and password:
+                        ok, msg = self.user_manager.login(user_input, password)
+                        if ok:
+                            session["user_id"] = user_input
+                            session["webpanel_authenticated"] = True
+                            self._activate_user_context(user_input)
+                            self._append_instance_log(user_input, "login", "logged in via dashboard")
+                            return redirect(next_path if next_path.startswith("/") else "/dashboard")
+                    
+                    # Fallback to admin single-user auth for backwards compatibility
+                    if user_input == self._login_username and password == self._login_password:
+                        session["user_id"] = "admin"
+                        session["webpanel_authenticated"] = True
+                        self._append_instance_log("admin", "login", "admin login")
+                        return redirect(next_path if next_path.startswith("/") else "/dashboard")
+                    
+                    error = "Invalid user ID or password"
 
-                if username == self._login_username and password == self._login_password:
-                    session["webpanel_authenticated"] = True
-                    return redirect(next_path if next_path.startswith("/") else "/")
+            return self._render_login(error=error, next_path=next_path, mode=mode)
 
-                error = "Invalid username or password"
-
-            return self._render_login(error=error, next_path=next_path)
+        @self.app.route("/register", methods=["GET", "POST"])
+        def register() -> Any:
+            # Redirect to login with register mode
+            return redirect(url_for("login", mode="register"))
 
         @self.app.get("/logout")
         def logout() -> Any:
+            self._append_instance_log(str(session.get("user_id") or "unknown"), "logout", "logged out")
+            session.pop("user_id", None)
             session.pop("webpanel_authenticated", None)
             return redirect(url_for("login"))
 
+        @self.app.get("/access-pending")
+        def access_pending() -> str:
+            return self._render_access_pending()
+
+        @self.app.get("/api/user/profile")
+        def user_profile() -> Any:
+            """Get current user's profile."""
+            user_id = session.get("user_id")
+            if user_id == "admin":
+                return jsonify({
+                    "ok": True,
+                    "user_id": "admin",
+                    "username": "Admin",
+                    "created": 0,
+                    "last_login": int(time.time()),
+                    "bot_token": "managed by runtime",
+                    "settings": {},
+                    "is_admin": True,
+                })
+
+            user = self.user_manager.get_user(user_id) if user_id else None
+            if not user:
+                return jsonify({"ok": False, "error": "User not found"}), 404
+            return jsonify({
+                "ok": True,
+                "user_id": user_id,
+                "username": user.get("username", ""),
+                "created": user.get("created", 0),
+                "last_login": user.get("last_login", 0),
+                "bot_token": "***" if user.get("bot_token") else "not set",
+                "settings": user.get("settings", {}),
+                "is_admin": False,
+            })
+
+        @self.app.post("/api/user/token")
+        def set_user_token() -> Any:
+            """Update user's bot token."""
+            user_id = session.get("user_id")
+            if not user_id:
+                return jsonify({"ok": False, "error": "Not authenticated"}), 401
+            
+            payload = request.get_json(silent=True) or {}
+            bot_token = str(payload.get("bot_token", "")).strip()
+            
+            if not bot_token:
+                return jsonify({"ok": False, "error": "bot_token is required"}), 400
+            
+            if self.user_manager.update_bot_token(user_id, bot_token):
+                self._activate_user_context(user_id)
+                self._append_instance_log(str(user_id), "token_update", "updated user bot token")
+                return jsonify({"ok": True, "message": "Token updated"})
+            return jsonify({"ok": False, "error": "Failed to update token"}), 500
+
+        @self.app.post("/api/user/settings")
+        def user_settings() -> Any:
+            """Update user settings."""
+            user_id = session.get("user_id")
+            if not user_id:
+                return jsonify({"ok": False, "error": "Not authenticated"}), 401
+            
+            payload = request.get_json(silent=True) or {}
+            if self.user_manager.update_settings(user_id, payload):
+                self._append_instance_log(str(user_id), "settings_update", "updated dashboard settings")
+                return jsonify({"ok": True, "message": "Settings updated"})
+            return jsonify({"ok": False, "error": "Failed to update settings"}), 500
+
+        @self.app.get("/api/user/instance_logs")
+        def user_instance_logs() -> Any:
+            user_id = str(session.get("user_id") or "")
+            if not user_id:
+                return jsonify({"ok": False, "error": "Not authenticated"}), 401
+            return jsonify({"ok": True, "logs": self._get_instance_logs(user_id=user_id, limit=200)})
+
+        @self.app.get("/api/admin/instance_logs")
+        def admin_instance_logs() -> Any:
+            if not self._is_admin_session():
+                return jsonify({"ok": False, "error": "Admin access required"}), 403
+            return jsonify({"ok": True, "logs": self._get_instance_logs(user_id=None, limit=1000)})
+
+        @self.app.post("/api/profile/update")
+        def update_discord_profile() -> Any:
+            user_id = str(session.get("user_id") or "")
+            if not user_id:
+                return jsonify({"ok": False, "error": "Not authenticated"}), 401
+            if not self.api:
+                return jsonify({"ok": False, "error": "Discord API not available"}), 400
+
+            payload = request.get_json(silent=True) or {}
+            user_patch = {}
+            profile_patch = {}
+
+            global_name = str(payload.get("global_name", "")).strip()
+            bio = str(payload.get("bio", "")).strip()
+            pronouns = str(payload.get("pronouns", "")).strip()
+            avatar_url = str(payload.get("avatar_url", "")).strip()
+            banner_url = str(payload.get("banner_url", "")).strip()
+            deco_id = str(payload.get("avatar_decoration_id", "")).strip()
+            effect_id = str(payload.get("profile_effect_id", "")).strip()
+
+            if global_name:
+                user_patch["global_name"] = global_name
+            if bio:
+                profile_patch["bio"] = bio
+            if pronouns:
+                profile_patch["pronouns"] = pronouns
+            if deco_id:
+                profile_patch["avatar_decoration_id"] = deco_id
+            if effect_id:
+                profile_patch["profile_effect_id"] = effect_id
+
+            if avatar_url:
+                encoded_avatar = self._encode_image_data_url(avatar_url)
+                if not encoded_avatar:
+                    return jsonify({"ok": False, "error": "Failed to encode avatar image URL"}), 400
+                user_patch["avatar"] = encoded_avatar
+
+            if banner_url:
+                encoded_banner = self._encode_image_data_url(banner_url)
+                if not encoded_banner:
+                    return jsonify({"ok": False, "error": "Failed to encode banner image URL"}), 400
+                user_patch["banner"] = encoded_banner
+
+            if not user_patch and not profile_patch:
+                return jsonify({"ok": False, "error": "No profile fields provided"}), 400
+
+            results = {}
+            if user_patch:
+                resp = self.api.request("PATCH", "/users/@me", data=user_patch)
+                results["users_me"] = resp.status_code if resp is not None else None
+
+            if profile_patch:
+                resp = self.api.request("PATCH", "/users/@me/profile", data=profile_patch)
+                results["users_me_profile"] = resp.status_code if resp is not None else None
+
+            ok = any(code in (200, 201, 204) for code in results.values() if code is not None)
+            self._append_instance_log(user_id, "profile_update", f"fields={','.join(list(user_patch.keys()) + list(profile_patch.keys()))}")
+            return jsonify({"ok": ok, "results": results, "message": "Profile update attempted"})
+
+        @self.app.get("/api/admin/users")
+        def admin_users() -> Any:
+            if not self._is_admin_session():
+                return jsonify({"ok": False, "error": "Admin access required"}), 403
+
+            users = []
+            for uid, data in self.user_manager.users.items():
+                users.append(
+                    {
+                        "user_id": uid,
+                        "username": data.get("username", ""),
+                        "created": int(data.get("created", 0)),
+                        "last_login": int(data.get("last_login", 0)),
+                        "has_token": bool(str(data.get("bot_token", "")).strip()),
+                    }
+                )
+
+            users.sort(key=lambda u: u["created"], reverse=True)
+            return jsonify({"ok": True, "users": users, "count": len(users)})
+
+        @self.app.get("/api/admin/overview")
+        def admin_overview() -> Any:
+            if not self._is_admin_session():
+                return jsonify({"ok": False, "error": "Admin access required"}), 403
+            return jsonify({"ok": True, "overview": self._owner_overview()})
+
+        @self.app.post("/api/admin/users/delete")
+        def admin_delete_user() -> Any:
+            if not self._is_admin_session():
+                return jsonify({"ok": False, "error": "Admin access required"}), 403
+
+            payload = request.get_json(silent=True) or {}
+            user_id = str(payload.get("user_id", "")).strip()
+            if not user_id:
+                return jsonify({"ok": False, "error": "user_id is required"}), 400
+
+            if user_id not in self.user_manager.users:
+                return jsonify({"ok": False, "error": "User not found"}), 404
+
+            del self.user_manager.users[user_id]
+            self.user_manager._save_users()
+            return jsonify({"ok": True, "message": f"Deleted user {user_id}"})
+
         @self.app.get("/")
+        @self.app.get("/home")
+        def public_home() -> str:
+            return self._render_public_home()
+
+        @self.app.get("/tos")
+        def tos() -> str:
+            return self._render_tos_page()
+
+        @self.app.get("/privacy")
+        def privacy() -> str:
+            return self._render_privacy_page()
+
+        @self.app.get("/api/public/stats")
+        def public_stats() -> Any:
+            overview = self._owner_overview()
+            return jsonify(
+                {
+                    "ok": True,
+                    "stats": {
+                        "total_hosted": int(overview.get("total_hosted", 0)),
+                        "connected_count": int(overview.get("connected_count", 0)),
+                        "total_registered": int(overview.get("total_registered", 0)),
+                    },
+                }
+            )
+
+        @self.app.get("/dashboard")
         def index() -> str:
             return self._render_index()
 
@@ -302,12 +956,21 @@ class WebPanel:
 
         @self.app.get("/api/rpc/preview")
         def rpc_preview() -> Any:
+            uid = str(session.get("user_id") or "")
+            last_mode = str(self.last_command.get("mode", "none"))
+            updated = int(self.last_command.get("timestamp", int(time.time())))
             return jsonify(
                 {
                     "ok": True,
                     "activity": self._current_activity(),
                     "last_command": self.last_command,
-              "last_transport": self._last_transport,
+                    "last_transport": self._last_transport,
+                    "preview_ids": {
+                        "session_user_id": uid or "guest",
+                        "mode_id": last_mode,
+                        "command_ts": updated,
+                        "transport_id": str(self._last_transport),
+                    },
                 }
             )
 
@@ -325,6 +988,7 @@ class WebPanel:
                 activity_type = "custom"
 
             ok = self._safe_apply_activity(text, emoji=emoji, activity_type=activity_type, mode="custom")
+            self._append_instance_log(str(session.get("user_id") or "unknown"), "rpc_apply", f"type={activity_type}")
             return jsonify({"ok": ok, "activity": self._current_activity(), "last_command": self.last_command})
 
         @self.app.post("/api/rpc/preset")
@@ -351,9 +1015,40 @@ class WebPanel:
             )
             return jsonify({"ok": ok, "activity": self._current_activity(), "last_command": self.last_command})
 
+        @self.app.post("/api/rpc/mode")
+        def rpc_mode() -> Any:
+            payload = request.get_json(silent=True) or {}
+            mode = str(payload.get("mode", "")).strip().lower()
+            if not mode:
+                return jsonify({"ok": False, "error": "mode is required"}), 400
+
+            rpc_payload = self._build_rpc_mode_payload(mode, payload)
+            text = str(rpc_payload.get("text", "")).strip()
+            emoji = str(rpc_payload.get("emoji", "")).strip()
+            activity_type = str(rpc_payload.get("activity_type", "custom")).strip().lower() or "custom"
+
+            if not text:
+                return jsonify({"ok": False, "error": "generated activity text is empty"}), 400
+
+            if activity_type not in {"custom", "playing", "streaming", "listening", "watching", "competing"}:
+                activity_type = "custom"
+
+            ok = self._safe_apply_activity(text, emoji=emoji, activity_type=activity_type, mode=f"mode:{mode}")
+            self._append_instance_log(str(session.get("user_id") or "unknown"), "rpc_mode", mode)
+            return jsonify(
+                {
+                    "ok": ok,
+                    "mode": mode,
+                    "applied": {"text": text, "emoji": emoji, "activity_type": activity_type},
+                    "activity": self._current_activity(),
+                    "last_command": self.last_command,
+                }
+            )
+
         @self.app.post("/api/rpc/clear")
         def rpc_clear() -> Any:
             ok = self._safe_apply_activity("", emoji="", activity_type="custom", mode="clear")
+            self._append_instance_log(str(session.get("user_id") or "unknown"), "rpc_clear", "cleared activity")
             return jsonify({"ok": ok, "activity": self._current_activity(), "last_command": self.last_command})
 
         @self.app.get("/api/rpc/catalog")
@@ -565,6 +1260,7 @@ class WebPanel:
                 if delay > 0:
                     import time
                     time.sleep(delay)
+                self._append_instance_log(str(session.get("user_id") or "unknown"), "send_message", f"type={command_type}")
                 
                 return jsonify({"ok": True, "message": f"{command_type.title()} command executed successfully"})
                 
@@ -612,742 +1308,1683 @@ class WebPanel:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aria Super Control Panel</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>Aria Premium Dashboard</title>
     <style>
-        .discord-dark { background-color: #2c2f33; }
-        .discord-blurple { color: #5865f2; }
-        .discord-green { color: #57f287; }
-        .discord-yellow { color: #fee75c; }
-        .discord-red { color: #ed4245; }
-        .hidden { display: none; }
-        .section { display: block; }
-        .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        :root {
+            --primary: #ec4899;
+            --secondary: #8b5cf6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #0f172a;
+            --darker: #020617;
+            --text: #e5e7eb;
+            --text-muted: #9ca3af;
+            --border: #334155;
+        }
+        body {
+            background: linear-gradient(135deg, var(--dark) 0%, #1e1b4b 50%, var(--dark) 100%);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            min-height: 100vh;
+        }
+        .navbar {
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .navbar-brand {
+            font-size: 1.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .navbar-user {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .user-badge {
+            background: rgba(236, 72, 153, 0.1);
+            border: 1px solid var(--primary);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid var(--border);
+            overflow-x: auto;
+        }
+        .tab-btn {
+            padding: 0.75rem 1.5rem;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-weight: 600;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        .tab-btn.active {
+            color: var(--primary);
+            border-color: var(--primary);
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .section {
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            backdrop-filter: blur(10px);
+        }
+        .section-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: var(--primary);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1rem;
+        }
+        .card {
+            background: rgba(30, 27, 75, 0.5);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.25rem;
+            transition: all 0.3s;
+        }
+        .card:hover {
+            border-color: var(--primary);
+            background: rgba(30, 27, 75, 0.8);
+        }
+        .card-icon {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        .card-title {
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        .card-value {
+            font-size: 1.5rem;
+            color: var(--primary);
+            font-weight: 600;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.75rem;
+            background: #0b1220;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-family: inherit;
+            transition: all 0.3s;
+        }
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            border-color: var(--primary);
+            background: #0f172a;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.1);
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.95rem;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(236, 72, 153, 0.3);
+        }
+        .btn-secondary {
+            background: var(--border);
+            color: var(--text);
+        }
+        .btn-secondary:hover {
+            background: #475569;
+        }
+        .btn-group {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            background: rgba(236, 72, 153, 0.2);
+            border: 1px solid var(--primary);
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .status-online {
+            color: var(--success);
+        }
+        .status-offline {
+            color: var(--danger);
+        }
+        .rpc-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.75rem;
+        }
+        .rpc-btn {
+            padding: 0.75rem;
+            background: rgba(139, 92, 246, 0.1);
+            border: 1px solid var(--secondary);
+            border-radius: 8px;
+            color: var(--secondary);
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.3s;
+            text-align: center;
+        }
+        .rpc-btn:hover {
+            background: rgba(139, 92, 246, 0.3);
+            transform: translateY(-2px);
+        }
+        .profile-card {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+        .profile-info {
+            display: grid;
+            gap: 0.75rem;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .info-label {
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .info-value {
+            color: var(--text);
+            font-weight: 600;
+        }
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+        .alert-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--danger);
+            color: var(--danger);
+        }
+        @media (max-width: 768px) {
+            .navbar { padding: 1rem; }
+            .container { padding: 1rem; }
+            .tabs { flex-wrap: wrap; }
+        }
     </style>
 </head>
-<body class="bg-gradient-to-br from-discord-dark via-gray-900 to-black text-white min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <header class="flex justify-between items-center mb-8">
-            <h1 class="text-5xl font-bold bg-gradient-to-r from-discord-blurple via-discord-green to-discord-yellow bg-clip-text text-transparent animate-pulse">
-                Aria Super Control Panel
-            </h1>
-            <div class="flex items-center space-x-4">
-                <span class="text-xl font-semibold">Aria Bot</span>
-                <div class="w-3 h-3 bg-discord-green rounded-full animate-pulse"></div>
+<body>
+    <div class="navbar">
+        <div class="navbar-brand">🎮 ARIA Dashboard</div>
+        <div class="navbar-user">
+            <div class="user-badge">
+                <span id="user-display">Loading...</span>
             </div>
-        </header>
-        
-        <nav class="mb-8">
-            <div class="flex space-x-4">
-                <button onclick="showSection('dashboard')" class="bg-discord-blurple hover:bg-blue-600 px-6 py-3 rounded-lg transition">Dashboard</button>
-                <button onclick="showSection('analytics')" class="bg-discord-green hover:bg-green-600 px-6 py-3 rounded-lg transition">Analytics</button>
-                <button onclick="showSection('commands')" class="bg-discord-yellow hover:bg-yellow-600 px-6 py-3 rounded-lg transition">Commands</button>
-                <button onclick="showSection('logs')" class="bg-gray-500 hover:bg-gray-600 px-6 py-3 rounded-lg transition">Logs</button>
-                <button onclick="showSection('settings')" class="bg-gray-600 hover:bg-gray-700 px-6 py-3 rounded-lg transition">Settings</button>
-            </div>
-        </nav>
-        
-        <div id="dashboard" class="section">
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <!-- System Stats -->
-                <div class="bg-gray-800 rounded-xl p-6 shadow-2xl border border-gray-700">
-                    <h3 class="text-xl font-semibold mb-4 text-discord-blurple">System Stats</h3>
-                    <canvas id="statsChart" width="200" height="200"></canvas>
-                    <button onclick="loadStats()" class="mt-4 bg-discord-blurple hover:bg-blue-600 px-4 py-2 rounded-lg transition w-full">Refresh</button>
+            <a href="/logout" style="color: var(--text-muted); text-decoration: none;">Logout</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
+            <button class="tab-btn" onclick="switchTab('rpc')">RPC Control</button>
+            <button class="tab-btn" onclick="switchTab('commands')">Commands</button>
+            <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
+            <button class="tab-btn" onclick="switchTab('profile')">Profile</button>
+            <button class="tab-btn" id="admin-tab-btn" onclick="switchTab('admin')" style="display:none;">Admin</button>
+        </div>
+
+        <!-- Dashboard Tab -->
+        <div id="dashboard" class="tab-content active">
+            <div class="grid">
+                <div class="card">
+                    <div class="card-icon">📊</div>
+                    <div class="card-title">Bot Status</div>
+                    <div class="card-value status-online">🟢 Online</div>
                 </div>
-                
-                <!-- Activity Control -->
-                <div class="bg-gray-800 rounded-xl p-6 shadow-2xl border border-gray-700">
-                    <h3 class="text-xl font-semibold mb-4 text-discord-green">Activity Control</h3>
-                    <form id="activityForm" class="space-y-4">
-                        <select id="activityType" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
-                            <option value="custom">Custom Status</option>
-                            <option value="playing">Playing Game</option>
-                            <option value="listening">Listening</option>
-                            <option value="streaming">Streaming</option>
-                            <option value="watching">Watching</option>
-                            <option value="competing">Competing</option>
+                <div class="card">
+                    <div class="card-icon">⏱️</div>
+                    <div class="card-title">Uptime</div>
+                    <div class="card-value" id="uptime-display">Loading...</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">📨</div>
+                    <div class="card-title">Commands Executed</div>
+                    <div class="card-value" id="commands-count">0</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🎮</div>
+                    <div class="card-title">Current Activity</div>
+                    <div class="card-value" id="current-activity">None</div>
+                </div>
+            </div>
+
+            <div class="section" style="margin-top: 1.5rem;">
+                <div class="section-title">Quick Actions</div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="clearActivity()">Clear Activity</button>
+                    <button class="btn btn-secondary" onclick="refreshDashboard()">Refresh Stats</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- RPC Control Tab -->
+        <div id="rpc" class="tab-content">
+            <div class="section">
+                <div class="section-title">🎵 Music Platforms</div>
+                <div class="rpc-grid">
+                    <button class="rpc-btn" onclick="setRpcMode('spotify')">Spotify</button>
+                    <button class="rpc-btn" onclick="setRpcMode('youtube_music')">YouTube Music</button>
+                    <button class="rpc-btn" onclick="setRpcMode('applemusic')">Apple Music</button>
+                    <button class="rpc-btn" onclick="setRpcMode('soundcloud')">SoundCloud</button>
+                    <button class="rpc-btn" onclick="setRpcMode('deezer')">Deezer</button>
+                    <button class="rpc-btn" onclick="setRpcMode('tidal')">TIDAL</button>
+                </div>
+
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label>Song Details</label>
+                    <div class="form-row">
+                        <input type="text" id="music-track" placeholder="Track Name">
+                        <input type="text" id="music-artist" placeholder="Artist">
+                        <input type="text" id="music-album" placeholder="Album">
+                    </div>
+                    <div class="form-row" style="margin-top: 0.5rem;">
+                        <input type="number" id="music-elapsed" placeholder="Elapsed (min)" step="0.1" min="0">
+                        <input type="number" id="music-total" placeholder="Total (min)" step="0.1" min="0">
+                    </div>
+                    <button class="btn btn-primary" onclick="applyMusicRpc()" style="margin-top: 0.5rem;">Apply Music RPC</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">🎮 Streaming & Gaming</div>
+                <div class="rpc-grid">
+                    <button class="rpc-btn" onclick="setRpcMode('twitch')">Twitch</button>
+                    <button class="rpc-btn" onclick="setRpcMode('kick')">Kick</button>
+                    <button class="rpc-btn" onclick="setRpcMode('youtube')">YouTube</button>
+                    <button class="rpc-btn" onclick="setRpcMode('playing')">Playing</button>
+                    <button class="rpc-btn" onclick="setRpcMode('streaming')">Streaming</button>
+                    <button class="rpc-btn" onclick="setRpcMode('competing')">Competing</button>
+                </div>
+
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label>Stream/Game Details</label>
+                    <div class="form-row">
+                        <input type="text" id="stream-title" placeholder="Game/Stream Title">
+                        <input type="text" id="stream-channel" placeholder="Channel">
+                    </div>
+                    <button class="btn btn-primary" onclick="applyStreamRpc()" style="margin-top: 0.5rem;">Apply Stream RPC</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">🎬 Video Platforms</div>
+                <div class="rpc-grid">
+                    <button class="rpc-btn" onclick="setRpcMode('netflix')">Netflix</button>
+                    <button class="rpc-btn" onclick="setRpcMode('disneyplus')">Disney+</button>
+                    <button class="rpc-btn" onclick="setRpcMode('primevideo')">Prime Video</button>
+                    <button class="rpc-btn" onclick="setRpcMode('plex')">Plex</button>
+                    <button class="rpc-btn" onclick="setRpcMode('jellyfin')">Jellyfin</button>
+                    <button class="rpc-btn" onclick="setRpcMode('crunchyroll')">Crunchyroll</button>
+                </div>
+
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label>Video Details</label>
+                    <div class="form-row">
+                        <input type="text" id="video-title" placeholder="Show/Movie Title">
+                        <input type="text" id="video-episode" placeholder="Episode" />
+                    </div>
+                    <button class="btn btn-primary" onclick="applyVideoRpc()" style="margin-top: 0.5rem;">Apply Video RPC</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">💻 Coding & Other</div>
+                <div class="rpc-grid">
+                    <button class="rpc-btn" onclick="setRpcMode('vscode')">VS Code</button>
+                    <button class="rpc-btn" onclick="setRpcMode('browser')">Browser</button>
+                    <button class="rpc-btn" onclick="setRpcMode('listening')">Listening</button>
+                    <button class="rpc-btn" onclick="setRpcMode('watching')">Watching</button>
+                </div>
+
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label>Custom Activity Text</label>
+                    <input type="text" id="custom-text" placeholder="Activity text...">
+                    <button class="btn btn-primary" onclick="applyCustomRpc()" style="margin-top: 0.5rem;">Apply Custom</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">🥽 VR Mode</div>
+                <div class="form-row">
+                    <input type="text" id="vr-name" placeholder="VR App Name" value="VR">
+                    <input type="text" id="vr-details" placeholder="Details" value="In VR">
+                </div>
+                <div class="form-row" style="margin-top: 0.5rem;">
+                    <input type="text" id="vr-state" placeholder="State" value="Meta Quest">
+                    <input type="text" id="vr-image" placeholder="Large Image URL">
+                </div>
+                <div class="form-group" style="margin-top: 0.5rem;">
+                    <label>
+                        <input type="checkbox" id="vr-icon-only"> Icon Only Mode
+                    </label>
+                </div>
+                <button class="btn btn-primary" onclick="applyVrRpc()" style="width: 100%;">Apply VR RPC</button>
+            </div>
+
+            <div class="section">
+                <div class="section-title">📋 Live Preview</div>
+                <div class="profile-info" id="rpc-preview">
+                    <div class="info-row">
+                        <span class="info-label">Activity:</span>
+                        <span class="info-value" id="preview-activity">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Type:</span>
+                        <span class="info-value" id="preview-type">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Status:</span>
+                        <span class="info-value" id="preview-status">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Session User ID:</span>
+                        <span class="info-value" id="preview-user-id">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Mode ID:</span>
+                        <span class="info-value" id="preview-mode-id">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Transport ID:</span>
+                        <span class="info-value" id="preview-transport-id">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Command Timestamp:</span>
+                        <span class="info-value" id="preview-command-ts">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Commands Tab -->
+        <div id="commands" class="tab-content">
+            <div class="section">
+                <div class="section-title">Send Command</div>
+                <div class="form-row">
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label>Command Type</label>
+                        <select id="cmd-type" onchange="updateCommandFields()">
+                            <option value="message">Send Message</option>
+                            <option value="reaction">Add Reaction</option>
+                            <option value="typing">Start Typing</option>
+                            <option value="presence">Update Presence</option>
                         </select>
-                        <input type="text" id="activityText" placeholder="Activity text" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white" required>
-                        <input type="text" id="activityEmoji" placeholder="Emoji (optional)" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
-                        <button type="submit" class="w-full bg-discord-green hover:bg-green-600 px-4 py-2 rounded-lg transition">Set Activity</button>
-                    </form>
-                </div>
-                
-                <!-- Recent Logs -->
-                <div class="bg-gray-800 rounded-xl p-6 shadow-2xl border border-gray-700">
-                    <h3 class="text-xl font-semibold mb-4 text-discord-yellow">Recent Logs</h3>
-                    <div id="logs" class="bg-gray-900 rounded p-3 max-h-40 overflow-y-auto text-sm font-mono">
-                        <p>Loading logs...</p>
                     </div>
-                    <button onclick="loadLogs()" class="mt-4 bg-discord-yellow hover:bg-yellow-600 px-4 py-2 rounded-lg transition w-full text-black font-semibold">Refresh Logs</button>
                 </div>
-                
-                <!-- Command History -->
-                <div class="bg-gray-800 rounded-xl p-6 shadow-2xl border border-gray-700">
-                    <h3 class="text-xl font-semibold mb-4 text-discord-red">Command History</h3>
-                    <div id="commandHistory" class="space-y-2 max-h-40 overflow-y-auto">
-                        <p>Loading...</p>
-                    </div>
-                    <button onclick="loadCommandHistory()" class="mt-4 bg-discord-red hover:bg-red-600 px-4 py-2 rounded-lg transition w-full">Refresh</button>
+
+                <div class="form-group">
+                    <label>Channel ID</label>
+                    <input type="text" id="cmd-channel" placeholder="Channel ID">
                 </div>
+
+                <div id="cmd-message-field" class="form-group">
+                    <label>Message Content</label>
+                    <textarea id="cmd-content" placeholder="Enter message..." rows="3"></textarea>
+                </div>
+
+                <div id="cmd-reaction-field" class="form-group" style="display: none;">
+                    <label>Emoji</label>
+                    <input type="text" id="cmd-emoji" placeholder="emoji name or Unicode">
+                </div>
+
+                <div class="form-group">
+                    <label>Delay (seconds)</label>
+                    <input type="number" id="cmd-delay" placeholder="0" min="0" step="0.1">
+                </div>
+
+                <button class="btn btn-primary" onclick="sendCommand()" style="width: 100%;">Send</button>
+                <div id="cmd-result" style="margin-top: 1rem;"></div>
             </div>
-            
-            <!-- Quick Actions -->
-            <div class="bg-gray-800 rounded-xl p-6 shadow-2xl border border-gray-700">
-                <h3 class="text-2xl font-semibold mb-6 text-center">Quick Actions</h3>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <button onclick="restartBot()" class="bg-red-600 hover:bg-red-700 px-4 py-3 rounded-lg transition transform hover:scale-105">Restart Bot</button>
-                    <button onclick="clearActivity()" class="bg-gray-600 hover:bg-gray-700 px-4 py-3 rounded-lg transition transform hover:scale-105">Clear Activity</button>
-                    <button onclick="backupData()" class="bg-blue-600 hover:bg-blue-700 px-4 py-3 rounded-lg transition transform hover:scale-105">Backup Data</button>
-                    <button onclick="sendTestMessage()" class="bg-purple-600 hover:bg-purple-700 px-4 py-3 rounded-lg transition transform hover:scale-105">Test Message</button>
+
+            <div class="section">
+                <div class="section-title">Command History</div>
+                <div id="cmd-history" style="max-height: 300px; overflow-y: auto; font-size: 0.9rem; color: var(--text-muted);">
+                    No commands sent yet
                 </div>
             </div>
         </div>
-        
-        <div id="analytics" class="section hidden">
-            <div class="bg-gray-800 rounded-xl p-6 shadow-2xl border border-gray-700">
-                <h2 class="text-3xl font-semibold mb-6 text-discord-green">Analytics Dashboard</h2>
-                <div id="analyticsData" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div class="bg-gray-700 p-4 rounded">
-                        <h3 class="text-lg font-semibold mb-2">Messages Sent</h3>
-                        <p class="text-2xl" id="messagesSent">-</p>
+
+        <!-- Settings Tab -->
+        <div id="settings" class="tab-content">
+            <div class="section">
+                <div class="section-title">Bot Configuration</div>
+                <form id="settings-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Bot Token</label>
+                            <input type="password" id="bot-token" placeholder="Your bot token">
+                        </div>
+                        <div class="form-group">
+                            <label>Command Prefix</label>
+                            <input type="text" id="prefix" placeholder="e.g., !" value="!">
+                        </div>
                     </div>
-                    <div class="bg-gray-700 p-4 rounded">
-                        <h3 class="text-lg font-semibold mb-2">Commands Executed</h3>
-                        <p class="text-2xl" id="commandsExecuted">-</p>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Rate Limit Delay</label>
+                            <input type="number" id="rate-limit" placeholder="0.1" step="0.1" min="0.1" value="0.1">
+                        </div>
+                        <div class="form-group">
+                            <label>RPC Name</label>
+                            <input type="text" id="rpc-name" placeholder="Your RPC Name">
+                        </div>
                     </div>
-                    <div class="bg-gray-700 p-4 rounded">
-                        <h3 class="text-lg font-semibold mb-2">Uptime (Hours)</h3>
-                        <p class="text-2xl" id="uptimeHours">-</p>
+
+                    <div class="form-group">
+                        <label>User Agent</label>
+                        <input type="text" id="user-agent" placeholder="User agent string">
                     </div>
-                    <div class="bg-gray-700 p-4 rounded">
-                        <h3 class="text-lg font-semibold mb-2">Errors</h3>
-                        <p class="text-2xl" id="errorsCount">-</p>
-                    </div>
-                </div>
-                <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="bg-gray-700 p-4 rounded">
-                        <h3 class="text-lg font-semibold mb-2">Additional Stats</h3>
-                        <p>Guilds Joined: <span id="guildsJoined">-</span></p>
-                        <p>Nitro Claimed: <span id="nitroClaimed">-</span></p>
-                        <p>Giveaways Won: <span id="giveawaysWon">-</span></p>
-                        <p>Boosts Used: <span id="boostsUsed">-</span></p>
-                    </div>
-                    <canvas id="analyticsChart" width="300" height="200"></canvas>
-                </div>
-                <button onclick="loadAnalytics()" class="mt-6 bg-discord-green hover:bg-green-600 px-6 py-3 rounded-lg transition">Refresh Analytics</button>
-            </div>
-        </div>
-        
-        <div id="commands" class="section hidden">
-            <div class="bg-gray-800 rounded-xl p-6 shadow-2xl border border-gray-700">
-                <h2 class="text-3xl font-semibold mb-6 text-discord-yellow">Send Commands</h2>
-                <form id="commandForm" class="space-y-4">
-                    <input type="text" id="channelId" placeholder="Channel ID" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white" required>
-                    <input type="text" id="commandText" placeholder="Message/Command" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white" required>
-                    <button type="submit" class="w-full bg-discord-yellow hover:bg-yellow-600 px-4 py-2 rounded-lg transition text-black font-semibold">Send Message</button>
-                </form>
-                <div id="commandResult" class="mt-4 p-3 bg-gray-900 rounded text-sm"></div>
-                
-                <div class="mt-6">
-                    <h3 class="text-xl font-semibold mb-4">Quick Commands</h3>
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <button onclick="quickCommand('ping')" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition">Ping</button>
-                        <button onclick="quickCommand('uptime')" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg transition">Uptime</button>
-                        <button onclick="quickCommand('stats')" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg transition">Stats</button>
-                        <button onclick="quickCommand('help')" class="bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded-lg transition text-black">Help</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div id="logs" class="section hidden">
-            <div class="bg-gray-800 rounded-xl p-6 shadow-2xl border border-gray-700">
-                <h2 class="text-3xl font-semibold mb-6 text-gray-300">System Logs</h2>
-                <div id="fullLogs" class="bg-gray-900 rounded p-4 max-h-96 overflow-y-auto text-sm font-mono">
-                    <p>Loading logs...</p>
-                </div>
-                <div class="mt-4 flex space-x-4">
-                    <button onclick="loadLogs()" class="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg transition">Refresh Logs</button>
-                    <button onclick="clearLogs()" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition">Clear Logs</button>
-                    <button onclick="exportLogs()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition">Export Logs</button>
-                </div>
-            </div>
-        </div>
-        
-        <div id="settings" class="section hidden">
-            <div class="bg-gray-800 rounded-xl p-6 shadow-2xl border border-gray-700">
-                <h2 class="text-3xl font-semibold mb-6 text-gray-300">Bot Settings</h2>
-                <form id="settingsForm" class="space-y-4">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <input type="text" id="prefix" placeholder="Command Prefix" class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
-                        <input type="number" id="rateLimitDelay" placeholder="Rate Limit Delay" step="0.1" class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
-                        <input type="text" id="userAgent" placeholder="User Agent" class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
-                        <input type="text" id="rpcName" placeholder="RPC Name" class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
-                    </div>
-                    <div class="space-y-4">
-                        <label class="flex items-center">
-                            <input type="checkbox" id="captchaEnabled" class="mr-2">
-                            <span>Enable Captcha Solving</span>
+
+                    <div style="margin-top: 1rem;">
+                        <label>
+                            <input type="checkbox" id="captcha-enabled"> Enable Captcha Solving
                         </label>
-                        <input type="password" id="captchaApiKey" placeholder="2Captcha API Key" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
-                        <select id="captchaService" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white">
-                            <option value="2captcha">2Captcha</option>
-                            <option value="anticaptcha">AntiCaptcha</option>
-                            <option value="capmonster">CapMonster</option>
-                        </select>
                     </div>
-                    <button type="submit" class="w-full bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-lg transition">Save Settings</button>
+
+                    <div class="form-row" style="margin-top: 0.5rem;">
+                        <div class="form-group">
+                            <label>Captcha API Key</label>
+                            <input type="password" id="captcha-key" placeholder="2Captcha API Key">
+                        </div>
+                        <div class="form-group">
+                            <label>Captcha Service</label>
+                            <select id="captcha-service">
+                                <option value="2captcha">2Captcha</option>
+                                <option value="anticaptcha">AntiCaptcha</option>
+                                <option value="capmonster">CapMonster</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" onclick="saveSettings(); return false;" style="width: 100%; margin-top: 1rem;">Save Settings</button>
                 </form>
-                <div id="settingsResult" class="mt-4 p-3 bg-gray-900 rounded text-sm"></div>
+                <div id="settings-result" style="margin-top: 1rem;"></div>
+            </div>
+        </div>
+
+        <!-- Profile Tab -->
+        <div id="profile" class="tab-content">
+            <div class="section">
+                <div class="section-title">User Profile</div>
+                <div class="profile-info">
+                    <div class="info-row">
+                        <span class="info-label">Username:</span>
+                        <span class="info-value" id="profile-username">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">User ID:</span>
+                        <span class="info-value" id="profile-userid">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Member Since:</span>
+                        <span class="info-value" id="profile-created">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Last Login:</span>
+                        <span class="info-value" id="profile-lastlogin">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Account Status:</span>
+                        <span class="info-value status-online">🟢 Active</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Subscription & Limits</div>
+                <div class="grid">
+                    <div class="card">
+                        <div class="card-title">Tier</div>
+                        <div class="card-value" style="font-size: 1.2rem;">🎖️ Premium</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">Bot Instances</div>
+                        <div class="card-value" style="font-size: 1.2rem;">1/1</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">API Calls/Hour</div>
+                        <div class="card-value" style="font-size: 1.2rem;">1000/1000</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Account Actions</div>
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="changePassword()">Change Password</button>
+                    <button class="btn btn-secondary" onclick="downloadData()">Download Data</button>
+                    <button class="btn btn-primary" onclick="logout()">Logout</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Discord Profile Editor</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Global Display Name</label>
+                        <input type="text" id="profile-global-name" placeholder="Global display name">
+                    </div>
+                    <div class="form-group">
+                        <label>Pronouns</label>
+                        <input type="text" id="profile-pronouns" placeholder="e.g. she/her">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Bio</label>
+                    <textarea id="profile-bio" placeholder="Profile bio" rows="3"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Avatar URL</label>
+                        <input type="text" id="profile-avatar-url" placeholder="https://...">
+                    </div>
+                    <div class="form-group">
+                        <label>Banner URL</label>
+                        <input type="text" id="profile-banner-url" placeholder="https://...">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Avatar Decoration ID</label>
+                        <input type="text" id="profile-decoration-id" placeholder="Decoration ID">
+                    </div>
+                    <div class="form-group">
+                        <label>Profile Effect ID</label>
+                        <input type="text" id="profile-effect-id" placeholder="Effect ID">
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="saveDiscordProfile()" style="width: 100%;">Apply Profile Changes</button>
+                <div id="profile-edit-result" style="margin-top: 1rem;"></div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">My Instance Logs</div>
+                <div class="btn-group" style="margin-bottom: 1rem;">
+                    <button class="btn btn-secondary" onclick="loadUserInstanceLogs()">Refresh My Logs</button>
+                </div>
+                <div id="user-instance-logs" style="display: grid; gap: 0.5rem; font-size: 0.9rem;"></div>
+            </div>
+        </div>
+
+        <!-- Admin Tab -->
+        <div id="admin" class="tab-content">
+            <div class="section">
+                <div class="section-title">Owner Overview</div>
+                <div id="admin-overview" class="grid" style="margin-bottom: 1rem;"></div>
+                <div id="admin-uids" class="profile-info" style="margin-top: 0.5rem;"></div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Admin User Management</div>
+                <div class="btn-group" style="margin-bottom: 1rem;">
+                    <button class="btn btn-secondary" onclick="refreshAdminPanel()">Refresh Owner Panel</button>
+                </div>
+                <div id="admin-users" style="display: grid; gap: 0.75rem;"></div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">All Instance Logs</div>
+                <div id="admin-instance-logs" style="display: grid; gap: 0.5rem; font-size: 0.9rem;"></div>
             </div>
         </div>
     </div>
-}
-.h2 {
-  margin: 0 0 0.6rem;
-  font-size: 1.05rem;
-  font-family: \"Space Grotesk\", \"IBM Plex Sans\", sans-serif;
-}
-.row {
-  display: grid;
-  gap: 0.65rem;
-  margin-bottom: 0.65rem;
-}
-.input, select {
-  width: 100%;
-  border: 1px solid var(--line);
-  background: #fff;
-  border-radius: 10px;
-  padding: 0.6rem 0.72rem;
-  font: inherit;
-}
-.btns {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-button {
-  border: 0;
-  border-radius: 10px;
-  padding: 0.58rem 0.9rem;
-  font: inherit;
-  cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease;
-}
-button:hover { transform: translateY(-1px); filter: brightness(0.97); }
-.b-accent { background: var(--accent); color: #fff; }
-.b-muted { background: #e8ecef; color: #12202b; }
-.b-warm { background: var(--accent-2); color: #fff; }
-.preset-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
-}
-@media (max-width: 640px) {
-  .preset-grid { grid-template-columns: 1fr; }
-}
-.preview {
-  border: 1px dashed var(--line);
-  background: #fffdfa;
-  border-radius: 12px;
-  padding: 0.85rem;
-}
-.kv {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: 0.35rem 0.65rem;
-  font-size: 0.95rem;
-}
-.tag {
-  display: inline-block;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  background: #e7f4f7;
-  color: #0b5563;
-  font-size: 0.8rem;
-}
-.ok { color: var(--ok); font-weight: 600; }
-.note { font-size: 0.88rem; opacity: 0.8; }
-.json {
-  margin-top: 0.65rem;
-  max-height: 180px;
-  overflow: auto;
-  background: #f6f8fb;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 0.55rem;
-  font-size: 0.82rem;
-}
-</style>
+
+    <script>
+        let selectedRpcMode = 'spotify';
+        let isAdminUser = false;
+
+        async function apiJson(url, options = {}) {
+            const response = await fetch(url, options);
+            const data = await response.json();
+            if (!response.ok || data.ok === false) {
+                throw new Error(data.error || 'Request failed');
+            }
+            return data;
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            const target = (window.event && window.event.target) ? window.event.target : document.querySelector('.tab-btn');
+            if (target) {
+                target.classList.add('active');
+            }
+            if (tabName === 'admin' && isAdminUser) {
+                refreshAdminPanel();
+            }
+        }
+
+        function markRpcSelection(mode) {
+            selectedRpcMode = mode;
+            document.querySelectorAll('.rpc-btn').forEach(btn => btn.style.boxShadow = 'none');
+            const activeBtn = Array.from(document.querySelectorAll('.rpc-btn')).find(btn => (btn.getAttribute('onclick') || '').includes(`setRpcMode('${mode}')`));
+            if (activeBtn) {
+                activeBtn.style.boxShadow = '0 0 0 2px var(--primary) inset';
+            }
+        }
+
+        function setRpcMode(mode) {
+            markRpcSelection(mode);
+            showAlert('RPC mode selected: ' + mode, 'success');
+        }
+
+        async function applyRpcMode(payload) {
+            try {
+                const data = await apiJson('/api/rpc/mode', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                });
+                showAlert(data.ok ? `Applied ${payload.mode} RPC` : 'Failed to apply RPC', data.ok ? 'success' : 'error');
+                await refreshRpcPreview();
+            } catch (e) {
+                showAlert(e.message || 'Failed to apply RPC', 'error');
+            }
+        }
+
+        function applyMusicRpc() {
+            applyRpcMode({
+                mode: selectedRpcMode,
+                track: document.getElementById('music-track').value,
+                artist: document.getElementById('music-artist').value,
+                album: document.getElementById('music-album').value,
+            });
+        }
+
+        function applyStreamRpc() {
+            applyRpcMode({
+                mode: selectedRpcMode,
+                title: document.getElementById('stream-title').value,
+                channel: document.getElementById('stream-channel').value,
+            });
+        }
+
+        function applyVideoRpc() {
+            applyRpcMode({
+                mode: selectedRpcMode,
+                title: document.getElementById('video-title').value,
+                episode: document.getElementById('video-episode').value,
+            });
+        }
+
+        async function applyCustomRpc() {
+            const text = document.getElementById('custom-text').value.trim();
+            if (!text) {
+                showAlert('Custom text is required', 'error');
+                return;
+            }
+            try {
+                await apiJson('/api/rpc/apply', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({text, activity_type: selectedRpcMode}),
+                });
+                showAlert('Custom RPC applied', 'success');
+                await refreshRpcPreview();
+            } catch (e) {
+                showAlert(e.message || 'Failed to apply custom RPC', 'error');
+            }
+        }
+
+        function applyVrRpc() {
+            applyRpcMode({
+                mode: 'vrchat',
+                title: document.getElementById('vr-name').value,
+                details: document.getElementById('vr-details').value,
+                state: document.getElementById('vr-state').value,
+            });
+        }
+
+        function updateCommandFields() {
+            const type = document.getElementById('cmd-type').value;
+            document.getElementById('cmd-message-field').style.display = type === 'message' ? 'block' : 'none';
+            document.getElementById('cmd-reaction-field').style.display = type === 'reaction' ? 'block' : 'none';
+        }
+
+        async function sendCommand() {
+            const payload = {
+                type: document.getElementById('cmd-type').value,
+                channel_id: document.getElementById('cmd-channel').value,
+                content: document.getElementById('cmd-content').value,
+                emoji: document.getElementById('cmd-emoji').value,
+                delay: parseFloat(document.getElementById('cmd-delay').value || '0') || 0,
+            };
+
+            try {
+                const data = await apiJson('/api/send_message', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                });
+                document.getElementById('cmd-result').innerHTML = `<div class="alert alert-success">${data.message || 'Command executed'}</div>`;
+                showAlert('Command sent', 'success');
+                loadCommandHistory();
+            } catch (e) {
+                document.getElementById('cmd-result').innerHTML = `<div class="alert alert-error">${e.message || 'Command failed'}</div>`;
+                showAlert(e.message || 'Command failed', 'error');
+            }
+        }
+
+        async function clearActivity() {
+            try {
+                await apiJson('/api/rpc/clear', {method: 'POST'});
+                showAlert('Activity cleared', 'success');
+                await refreshRpcPreview();
+            } catch (e) {
+                showAlert(e.message || 'Failed to clear activity', 'error');
+            }
+        }
+
+        async function refreshRpcPreview() {
+            try {
+                const data = await apiJson('/api/rpc/preview');
+                const activity = data.activity || {};
+                const last = data.last_command || {};
+                const ids = data.preview_ids || {};
+                document.getElementById('preview-activity').textContent = activity.text || 'None';
+                document.getElementById('preview-type').textContent = activity.activity_type || '-';
+                document.getElementById('preview-status').textContent = last.result || '-';
+                document.getElementById('preview-user-id').textContent = ids.session_user_id || '-';
+                document.getElementById('preview-mode-id').textContent = ids.mode_id || '-';
+                document.getElementById('preview-transport-id').textContent = ids.transport_id || '-';
+                document.getElementById('preview-command-ts').textContent = ids.command_ts ? new Date(ids.command_ts * 1000).toLocaleString() : '-';
+                document.getElementById('current-activity').textContent = activity.text || 'None';
+            } catch (_) {
+            }
+        }
+
+        async function refreshDashboard() {
+            try {
+                const status = await apiJson('/status');
+                const activity = status.current_activity || {};
+                document.getElementById('current-activity').textContent = activity.text || 'None';
+            } catch (_) {
+            }
+
+            try {
+                const analytics = await apiJson('/api/analytics');
+                const stats = analytics.system_stats || {};
+                document.getElementById('uptime-display').textContent = `${stats.uptime || 0}h`;
+                document.getElementById('commands-count').textContent = String(stats.messages_sent || 0);
+            } catch (_) {
+            }
+
+            await refreshRpcPreview();
+        }
+
+        async function saveSettings() {
+            const settings = {
+                prefix: document.getElementById('prefix').value,
+                rate_limit_delay: parseFloat(document.getElementById('rate-limit').value),
+                user_agent: document.getElementById('user-agent').value,
+                rpc_name: document.getElementById('rpc-name').value,
+                captcha_enabled: document.getElementById('captcha-enabled').checked,
+                captcha_api_key: document.getElementById('captcha-key').value,
+                captcha_service: document.getElementById('captcha-service').value,
+            };
+
+            const token = document.getElementById('bot-token').value.trim();
+            try {
+                if (token) {
+                    await apiJson('/api/user/token', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({bot_token: token}),
+                    });
+                }
+
+                const data = await apiJson('/api/settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(settings),
+                });
+
+                const resultEl = document.getElementById('settings-result');
+                resultEl.innerHTML = `<div class="alert alert-success">${data.message || 'Settings saved'}</div>`;
+                showAlert('Settings saved', 'success');
+            } catch (e) {
+                const resultEl = document.getElementById('settings-result');
+                resultEl.innerHTML = `<div class="alert alert-error">${e.message || 'Failed to save settings'}</div>`;
+                showAlert(e.message || 'Failed to save settings', 'error');
+            }
+        }
+
+        function changePassword() {
+            showAlert('Password reset endpoint can be added next', 'success');
+        }
+
+        function downloadData() {
+            showAlert('Data export feature coming soon', 'success');
+        }
+
+        function logout() {
+            if (confirm('Are you sure you want to logout?')) {
+                window.location.href = '/logout';
+            }
+        }
+
+        function showAlert(message, type = 'success') {
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
+            const alert = document.createElement('div');
+            alert.className = `alert ${alertClass}`;
+            alert.textContent = message;
+            alert.style.position = 'fixed';
+            alert.style.top = '80px';
+            alert.style.right = '20px';
+            alert.style.zIndex = '1000';
+            alert.style.minWidth = '300px';
+            document.body.appendChild(alert);
+            setTimeout(() => alert.remove(), 3000);
+        }
+
+        async function loadUserProfile() {
+            try {
+                const user = await apiJson('/api/user/profile');
+                isAdminUser = !!user.is_admin;
+
+                document.getElementById('user-display').textContent = user.username || user.user_id || 'User';
+                document.getElementById('profile-username').textContent = user.username || '-';
+                document.getElementById('profile-userid').textContent = user.user_id || '-';
+                document.getElementById('profile-created').textContent = user.created ? new Date(user.created * 1000).toLocaleDateString() : '-';
+                document.getElementById('profile-lastlogin').textContent = user.last_login ? new Date(user.last_login * 1000).toLocaleString() : 'Now';
+
+                if (isAdminUser) {
+                    document.getElementById('admin-tab-btn').style.display = 'inline-block';
+                    refreshAdminPanel();
+                }
+            } catch (_) {
+                document.getElementById('user-display').textContent = 'User';
+            }
+        }
+
+        async function loadCommandHistory() {
+            try {
+                const data = await apiJson('/api/command_history');
+                const rows = (data.history || []).slice().reverse();
+                const el = document.getElementById('cmd-history');
+                if (!rows.length) {
+                    el.textContent = 'No commands yet';
+                    return;
+                }
+                el.innerHTML = rows.map(item => `<div style="padding: 6px 0; border-bottom: 1px solid var(--border);">${item.timestamp || ''} :: ${item.command || ''} :: ${item.result || ''}</div>`).join('');
+            } catch (_) {
+            }
+        }
+
+        async function loadAdminUsers() {
+            if (!isAdminUser) {
+                return;
+            }
+            const container = document.getElementById('admin-users');
+            container.innerHTML = 'Loading users...';
+            try {
+                const data = await apiJson('/api/admin/users');
+                const users = data.users || [];
+                if (!users.length) {
+                    container.innerHTML = '<div class="card">No users found</div>';
+                    return;
+                }
+
+                container.innerHTML = users.map(u => {
+                    const created = u.created ? new Date(u.created * 1000).toLocaleDateString() : '-';
+                    const last = u.last_login ? new Date(u.last_login * 1000).toLocaleString() : '-';
+                    const token = u.has_token ? 'set' : 'missing';
+                    return `<div class="card"><div class="card-title">${u.username || u.user_id}</div><div style="color: var(--text-muted); font-size: 0.9rem;">ID: ${u.user_id} | Created: ${created} | Last Login: ${last} | Token: ${token}</div><div style="margin-top: 0.75rem;"><button class="btn btn-secondary" onclick="deleteUser('${u.user_id}')">Delete</button></div></div>`;
+                }).join('');
+            } catch (e) {
+                container.innerHTML = `<div class="alert alert-error">${e.message || 'Failed to load users'}</div>`;
+            }
+        }
+
+        async function loadAdminOverview() {
+            if (!isAdminUser) {
+                return;
+            }
+            try {
+                const data = await apiJson('/api/admin/overview');
+                const overview = data.overview || {};
+                const cards = [
+                    {label: 'Total Registered', value: overview.total_registered || 0},
+                    {label: 'Total Hosted', value: overview.total_hosted || 0},
+                    {label: 'Connected Users', value: overview.connected_count || 0},
+                    {label: 'Authed UIDs', value: overview.total_authed || 0},
+                ];
+
+                document.getElementById('admin-overview').innerHTML = cards.map(c => `<div class="card"><div class="card-title">${c.label}</div><div class="card-value">${c.value}</div></div>`).join('');
+
+                const uidList = overview.hosted_uids || [];
+                const users = overview.connected_users || [];
+                const uidRows = [];
+                uidRows.push(`<div class="info-row"><span class="info-label">Hosted UIDs</span><span class="info-value">${uidList.length || 0}</span></div>`);
+                uidRows.push(`<div class="info-row"><span class="info-label">UID List</span><span class="info-value">${uidList.join(', ') || '-'}</span></div>`);
+                uidRows.push(`<div class="info-row"><span class="info-label">Connected User IDs</span><span class="info-value">${users.map(u => u.user_id).join(', ') || '-'}</span></div>`);
+                document.getElementById('admin-uids').innerHTML = uidRows.join('');
+            } catch (e) {
+                document.getElementById('admin-overview').innerHTML = `<div class="alert alert-error">${e.message || 'Failed to load owner overview'}</div>`;
+            }
+        }
+
+        async function loadUserInstanceLogs() {
+            try {
+                const data = await apiJson('/api/user/instance_logs');
+                const logs = data.logs || [];
+                const box = document.getElementById('user-instance-logs');
+                if (!logs.length) {
+                    box.innerHTML = '<div class="card">No instance logs yet</div>';
+                    return;
+                }
+                box.innerHTML = logs.slice(0, 120).map(x => {
+                    const t = x.ts ? new Date(x.ts * 1000).toLocaleString() : '-';
+                    return `<div class="card"><div style="font-weight:700;">${x.event || '-'}</div><div style="color:var(--text-muted);">${t} :: ${x.detail || ''}</div></div>`;
+                }).join('');
+            } catch (e) {
+                document.getElementById('user-instance-logs').innerHTML = `<div class="alert alert-error">${e.message || 'Failed to load logs'}</div>`;
+            }
+        }
+
+        async function loadAdminInstanceLogs() {
+            if (!isAdminUser) {
+                return;
+            }
+            try {
+                const data = await apiJson('/api/admin/instance_logs');
+                const logs = data.logs || [];
+                const box = document.getElementById('admin-instance-logs');
+                if (!logs.length) {
+                    box.innerHTML = '<div class="card">No instance logs yet</div>';
+                    return;
+                }
+                box.innerHTML = logs.slice(0, 200).map(x => {
+                    const t = x.ts ? new Date(x.ts * 1000).toLocaleString() : '-';
+                    return `<div class="card"><div style="font-weight:700;">${x.user_id || 'unknown'} :: ${x.event || '-'}</div><div style="color:var(--text-muted);">${t} :: ${x.detail || ''}</div></div>`;
+                }).join('');
+            } catch (e) {
+                document.getElementById('admin-instance-logs').innerHTML = `<div class="alert alert-error">${e.message || 'Failed to load all logs'}</div>`;
+            }
+        }
+
+        async function refreshAdminPanel() {
+            if (!isAdminUser) {
+                return;
+            }
+            await Promise.all([loadAdminOverview(), loadAdminUsers(), loadAdminInstanceLogs()]);
+        }
+
+        async function saveDiscordProfile() {
+            const payload = {
+                global_name: document.getElementById('profile-global-name').value,
+                pronouns: document.getElementById('profile-pronouns').value,
+                bio: document.getElementById('profile-bio').value,
+                avatar_url: document.getElementById('profile-avatar-url').value,
+                banner_url: document.getElementById('profile-banner-url').value,
+                avatar_decoration_id: document.getElementById('profile-decoration-id').value,
+                profile_effect_id: document.getElementById('profile-effect-id').value,
+            };
+
+            try {
+                const data = await apiJson('/api/profile/update', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                });
+                document.getElementById('profile-edit-result').innerHTML = `<div class="alert alert-success">${data.message || 'Profile update sent'}</div>`;
+                showAlert('Profile update sent', 'success');
+                loadUserInstanceLogs();
+            } catch (e) {
+                document.getElementById('profile-edit-result').innerHTML = `<div class="alert alert-error">${e.message || 'Profile update failed'}</div>`;
+                showAlert(e.message || 'Profile update failed', 'error');
+            }
+        }
+
+        async function deleteUser(userId) {
+            if (!confirm(`Delete user ${userId}?`)) {
+                return;
+            }
+            try {
+                await apiJson('/api/admin/users/delete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({user_id: userId}),
+                });
+                showAlert(`Deleted ${userId}`, 'success');
+                loadAdminUsers();
+            } catch (e) {
+                showAlert(e.message || 'Delete failed', 'error');
+            }
+        }
+
+        updateCommandFields();
+        markRpcSelection(selectedRpcMode);
+        loadUserProfile();
+        refreshDashboard();
+        loadCommandHistory();
+        loadUserInstanceLogs();
+        setInterval(refreshRpcPreview, 5000);
+    </script>
+</body>
+</html>"""
+
+        def _render_public_home(self) -> str:
+                return """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aria - Premium Discord Hosting</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            min-height: 100vh;
+            color: #e5e7eb;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: radial-gradient(circle at 10% 10%, #1e1b4b 0%, #0f172a 52%, #020617 100%);
+        }
+        .top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px 24px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(6px);
+            position: sticky;
+            top: 0;
+        }
+        .brand {
+            font-weight: 900;
+            font-size: 1.3rem;
+            background: linear-gradient(135deg, #ec4899, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .nav { display: flex; gap: 10px; flex-wrap: wrap; }
+        .nav a {
+            text-decoration: none;
+            color: #e5e7eb;
+            background: #334155;
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 0.92rem;
+        }
+        .hero {
+            max-width: 1160px;
+            margin: 0 auto;
+            padding: 44px 24px 24px;
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 26px;
+        }
+        .title {
+            font-size: clamp(1.9rem, 5vw, 3rem);
+            font-weight: 900;
+            margin-bottom: 12px;
+        }
+        .subtitle {
+            color: #cbd5e1;
+            line-height: 1.6;
+            margin-bottom: 18px;
+        }
+        .cta { display: flex; gap: 10px; flex-wrap: wrap; }
+        .cta a {
+            text-decoration: none;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-weight: 800;
+            color: #fff;
+        }
+        .cta .primary { background: linear-gradient(135deg, #ec4899, #8b5cf6); }
+        .cta .muted { background: #334155; }
+        .panel {
+            background: rgba(15, 23, 42, 0.94);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            border-radius: 14px;
+            padding: 18px;
+        }
+        .stats {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        }
+        .stat {
+            background: rgba(30, 27, 75, 0.55);
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 12px;
+        }
+        .k { color: #94a3b8; font-size: 0.85rem; margin-bottom: 4px; }
+        .v { color: #f472b6; font-size: 1.55rem; font-weight: 900; }
+        .content {
+            max-width: 1160px;
+            margin: 0 auto;
+            padding: 0 24px 30px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 14px;
+        }
+        .card {
+            background: rgba(15, 23, 42, 0.94);
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .card h3 { color: #f9a8d4; margin-bottom: 8px; }
+        .card p { color: #cbd5e1; line-height: 1.55; font-size: 0.95rem; }
+        .footer {
+            max-width: 1160px;
+            margin: 0 auto;
+            padding: 0 24px 30px;
+            color: #94a3b8;
+            font-size: 0.92rem;
+        }
+        @media (max-width: 900px) {
+            .hero { grid-template-columns: 1fr; }
+        }
+    </style>
 </head>
 <body>
-  <div class=\"wrap\">
-    <div class=\"hero\">
-      <h1 class=\"h1\">Aria RPC Dashboard</h1>
-      <p class=\"sub\">Apply VR-style presence presets, set custom activity, and watch live preview updates.</p>
+    <div class="top">
+        <div class="brand">ARIA - Premium Discord Hosting</div>
+        <div class="nav">
+            <a href="/login">Dashboard Login</a>
+            <a href="/tos">TOS</a>
+            <a href="/privacy">Privacy</a>
+        </div>
     </div>
 
-    <div class=\"grid\">
-      <section class=\"card left\">
-        <h2 class=\"h2\">Quick Presets</h2>
-        <div class=\"preset-grid\">
-          <button class=\"b-accent\" onclick=\"applyPreset('vrchat')\">VRChat</button>
-          <button class=\"b-accent\" onclick=\"applyPreset('beat')\">Beat Saber</button>
-          <button class=\"b-warm\" onclick=\"applyPreset('chill')\">VR Chill</button>
-          <button class=\"b-warm\" onclick=\"applyPreset('world')\">World Builder</button>
+    <section class="hero">
+        <div>
+            <div class="title">Aria Premium Discord Hosting</div>
+            <p class="subtitle">
+                Multi-user selfbot hosting with per-user dashboard access, RPC automation, owner moderation,
+                and managed instance operations. Track connected users, hosted IDs, and live status in one panel.
+            </p>
+            <div class="cta">
+                <a class="primary" href="/login">Open Dashboard</a>
+                <a class="muted" href="/access-pending">Authorisation Info</a>
+            </div>
         </div>
 
-        <h2 class=\"h2\" style=\"margin-top:1rem;\">Custom RPC</h2>
-        <div class=\"row\">
-          <input id=\"text\" class=\"input\" placeholder=\"Status text (required)\" />
-          <input id=\"emoji\" class=\"input\" placeholder=\"Emoji name (optional)\" />
-          <select id=\"atype\">
-            <option value=\"custom\">custom</option>
-            <option value=\"playing\">playing</option>
-            <option value=\"streaming\">streaming</option>
-            <option value=\"listening\">listening</option>
-            <option value=\"watching\">watching</option>
-            <option value=\"competing\">competing</option>
-          </select>
+        <div class="panel">
+            <h3 style="margin-bottom: 12px; color: #f9a8d4;">Live Instance Stats</h3>
+            <div id="public-stats" class="stats">
+                <div class="stat"><div class="k">Hosted Instances</div><div class="v">-</div></div>
+                <div class="stat"><div class="k">Connected Users</div><div class="v">-</div></div>
+                <div class="stat"><div class="k">Registered Accounts</div><div class="v">-</div></div>
+            </div>
         </div>
-        <div class=\"btns\">
-          <button class=\"b-accent\" onclick=\"applyCustom()\">Apply Custom</button>
-          <button class=\"b-muted\" onclick=\"clearRpc()\">Clear</button>
-          <button class=\"b-muted\" onclick=\"refreshPreview()\">Refresh</button>
-        </div>
-        <p class=\"note\">This panel only updates activity through your running bot process hooks.</p>
-      </section>
+    </section>
 
-      <section class=\"card right\">
-        <h2 class=\"h2\">Live Preview <span class=\"tag\">auto-refresh</span></h2>
-        <div class=\"preview\">
-          <div class=\"kv\">
-            <div>Text</div><div id=\"pv-text\">-</div>
-            <div>Emoji</div><div id=\"pv-emoji\">-</div>
-            <div>Type</div><div id=\"pv-type\">-</div>
-            <div>Updated</div><div id=\"pv-updated\">-</div>
-            <div>Last cmd</div><div id=\"pv-cmd\">-</div>
-            <div>Result</div><div id=\"pv-result\">-</div>
-            <div>Transport</div><div id=\"pv-transport\">-</div>
-          </div>
-          <pre class=\"json\" id=\"pv-json\">{}</pre>
+    <section class="content">
+        <div class="card">
+            <h3>Managed Instances</h3>
+            <p>Each hosted user can keep their own token context and settings, with owner visibility over active and hosted UIDs.</p>
         </div>
-        <p id=\"msg\" class=\"note\"></p>
-      </section>
+        <div class="card">
+            <h3>Live RPC Control</h3>
+            <p>Premium RPC dashboard includes live preview and mode/transport IDs so you can verify exactly what is applied in real time.</p>
+        </div>
+        <div class="card">
+            <h3>Owner Tools</h3>
+            <p>Admin panel shows connected users, hosted totals, user management, and cross-instance activity logs for moderation.</p>
+        </div>
+        <div class="card">
+            <h3>Policy & Privacy</h3>
+            <p>Review terms of service and privacy policy before onboarding users. Access controls and authorisation gating are enforced.</p>
+        </div>
+    </section>
+
+    <div class="footer">
+        Aria Premium Panel | Hosting access managed by owner/admin authorisation.
     </div>
 
-    <div class=\"card\" style=\"margin-top: 2rem;\">
-      <h2 class=\"h2\">Bot Settings</h2>
-      <form id=\"settingsForm\">
-        <div class=\"row\" style=\"margin-bottom: 1rem;\">
-          <input id=\"prefix\" class=\"input\" placeholder=\"Command Prefix\" style=\"width: 100px;\" />
-          <input id=\"rateLimitDelay\" type=\"number\" step=\"0.1\" class=\"input\" placeholder=\"Rate Limit Delay\" style=\"width: 120px;\" />
-          <input id=\"userAgent\" class=\"input\" placeholder=\"User Agent\" />
-        </div>
-        <div class=\"row\" style=\"margin-bottom: 1rem;\">
-          <input id=\"rpcName\" class=\"input\" placeholder=\"RPC Name\" />
-        </div>
-        <div class=\"row\" style=\"margin-bottom: 1rem;\">
-          <label style=\"display: flex; align-items: center;\">
-            <input id=\"captchaEnabled\" type=\"checkbox\" style=\"margin-right: 0.5rem;\" />
-            Enable Captcha Solving
-          </label>
-        </div>
-        <div class=\"row\" style=\"margin-bottom: 1rem;\">
-          <input id=\"captchaApiKey\" class=\"input\" placeholder=\"2Captcha API Key\" type=\"password\" />
-          <select id=\"captchaService\" style=\"margin-left: 0.5rem;\">
-            <option value=\"2captcha\">2Captcha</option>
-            <option value=\"anticaptcha\">AntiCaptcha</option>
-            <option value=\"capmonster\">CapMonster</option>
-          </select>
-        </div>
-        <div class=\"btns\">
-          <button type=\"submit\" class=\"b-accent\">Save Settings</button>
-        </div>
-      </form>
-      <p id=\"settingsMsg\" class=\"note\"></p>
-    </div>
-
-    <!-- Analytics Tab -->
-    <div class=\"card\" style=\"margin-top: 2rem;\">
-      <h2 class=\"h2\">Analytics Dashboard</h2>
-      <div class=\"row\" style=\"margin-bottom: 1rem;\">
-        <button id=\"refreshAnalytics\" class=\"b\">Refresh Analytics</button>
-      </div>
-      <div class=\"row\">
-        <div style=\"width: 50%;\">
-          <h3>Commands Executed</h3>
-          <canvas id=\"commandsChart\" width=\"400\" height=\"200\"></canvas>
-        </div>
-        <div style=\"width: 50%;\">
-          <h3>Rate Limits Hit</h3>
-          <canvas id=\"rateLimitChart\" width=\"400\" height=\"200\"></canvas>
-        </div>
-      </div>
-      <div class=\"row\" style=\"margin-top: 1rem;\">
-        <div style=\"width: 50%;\">
-          <h3>Recent Commands</h3>
-          <div id=\"recentCommands\" class=\"json\" style=\"max-height: 200px; overflow-y: auto;\"></div>
-        </div>
-        <div style=\"width: 50%;\">
-          <h3>System Stats</h3>
-          <div id=\"systemStats\" class=\"json\" style=\"max-height: 200px; overflow-y: auto;\"></div>
-        </div>
-      </div>
-      <p id=\"analyticsMsg\" class=\"note\"></p>
-    </div>
-
-    <!-- Commands Tab -->
-    <div class=\"card\" style=\"margin-top: 2rem;\">
-      <h2 class=\"h2\">Send Command</h2>
-      <form id=\"commandForm\">
-        <div class=\"row\" style=\"margin-bottom: 1rem;\">
-          <select id=\"commandType\" class=\"input\" style=\"width: 150px;\">
-            <option value=\"message\">Send Message</option>
-            <option value=\"reaction\">Add Reaction</option>
-            <option value=\"typing\">Start Typing</option>
-            <option value=\"presence\">Update Presence</option>
-          </select>
-          <input id=\"channelId\" class=\"input\" placeholder=\"Channel ID\" style=\"flex: 1; margin-left: 0.5rem;\" />
-        </div>
-        <div class=\"row\" style=\"margin-bottom: 1rem;\">
-          <input id=\"commandContent\" class=\"input\" placeholder=\"Content/Message\" style=\"flex: 1;\" />
-        </div>
-        <div class=\"row\" style=\"margin-bottom: 1rem;\">
-          <input id=\"emoji\" class=\"input\" placeholder=\"Emoji (for reactions)\" style=\"width: 150px;\" />
-          <input id=\"delay\" type=\"number\" step=\"0.1\" class=\"input\" placeholder=\"Delay (seconds)\" style=\"width: 120px; margin-left: 0.5rem;\" />
-        </div>
-        <div class=\"btns\">
-          <button type=\"submit\" class=\"b-accent\">Send Command</button>
-        </div>
-      </form>
-      <p id=\"commandMsg\" class=\"note\"></p>
-      <div style=\"margin-top: 1rem;\">
-        <h3>Command History</h3>
-        <div id=\"commandHistory\" class=\"json\" style=\"max-height: 200px; overflow-y: auto;\"></div>
-      </div>
-    </div>
-
-    <!-- Backup Controls -->
-    <div class=\"card\" style=\"margin-top: 2rem;\">
-      <h2 class=\"h2\">Backup & Restore</h2>
-      <div class=\"btns\" style=\"margin-bottom: 1rem;\">
-        <button id=\"createBackup\" class=\"b\">Create Backup</button>
-        <button id=\"restoreBackup\" class=\"b\">Restore from Backup</button>
-      </div>
-      <p id=\"backupMsg\" class=\"note\"></p>
-    </div>
-  </div>
-
-<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
-<script>
-async function postJSON(path, body) {
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body || {})
-  });
-  const data = await res.json().catch(() => ({}));
-  return { res, data };
-}
-
-function setMsg(text, ok) {
-  const el = document.getElementById('msg');
-  el.textContent = text || '';
-  el.className = ok ? 'ok' : 'note';
-}
-
-function stamp(ts) {
-  if (!ts) return '-';
-  const d = new Date(ts * 1000);
-  return d.toLocaleString();
-}
-
-function fillPreview(payload) {
-  const a = (payload && payload.activity) || {};
-  const c = (payload && payload.last_command) || {};
-  document.getElementById('pv-text').textContent = a.text || '-';
-  document.getElementById('pv-emoji').textContent = a.emoji || '-';
-  document.getElementById('pv-type').textContent = a.activity_type || '-';
-  document.getElementById('pv-updated').textContent = stamp(a.updated);
-  document.getElementById('pv-cmd').textContent = c.mode || '-';
-  document.getElementById('pv-result').textContent = c.result || '-';
-  document.getElementById('pv-transport').textContent = c.transport || payload.last_transport || '-';
-  document.getElementById('pv-json').textContent = JSON.stringify(c.requested_payload || {}, null, 2);
-}
-
-async function applyPreset(name) {
-  const { data } = await postJSON('/api/rpc/preset', { preset: name });
-  fillPreview(data);
-  setMsg(data.ok ? 'Preset applied.' : ('Failed: ' + (data.error || 'unknown error')), !!data.ok);
-}
-
-async function applyCustom() {
-  const text = document.getElementById('text').value.trim();
-  const emoji = document.getElementById('emoji').value.trim();
-  const activity_type = document.getElementById('atype').value;
-  const { data } = await postJSON('/api/rpc/apply', { text, emoji, activity_type });
-  fillPreview(data);
-  setMsg(data.ok ? 'Custom activity applied.' : ('Failed: ' + (data.error || 'unknown error')), !!data.ok);
-}
-
-async function clearRpc() {
-  const { data } = await postJSON('/api/rpc/clear', {});
-  fillPreview(data);
-  setMsg(data.ok ? 'Activity cleared.' : ('Failed to clear activity.'), !!data.ok);
-}
-
-async function refreshPreview() {
-  const res = await fetch('/api/rpc/preview');
-  const data = await res.json().catch(() => ({}));
-  fillPreview(data);
-}
-
-setInterval(refreshPreview, 2500);
-refreshPreview();
-
-// Settings form handler
-document.getElementById('settingsForm').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  const settings = {
-    prefix: document.getElementById('prefix').value,
-    rate_limit_delay: parseFloat(document.getElementById('rateLimitDelay').value) || 0.1,
-    user_agent: document.getElementById('userAgent').value,
-    rpc_name: document.getElementById('rpcName').value,
-    captcha_enabled: document.getElementById('captchaEnabled').checked,
-    captcha_api_key: document.getElementById('captchaApiKey').value,
-    captcha_service: document.getElementById('captchaService').value
-  };
-
-  try {
-    const response = await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings)
-    });
-    const result = await response.json();
-    document.getElementById('settingsMsg').textContent = result.message || 'Settings saved';
-    document.getElementById('settingsMsg').style.color = result.ok ? 'var(--ok)' : '#dc2626';
-  } catch (error) {
-    document.getElementById('settingsMsg').textContent = 'Failed to save settings';
-    document.getElementById('settingsMsg').style.color = '#dc2626';
-  }
-});
-
-// Analytics functions
-let commandsChart, rateLimitChart;
-
-async function loadAnalytics() {
-  try {
-    const response = await fetch('/api/analytics');
-    const data = await response.json();
-    
-    // Update charts
-    if (commandsChart) commandsChart.destroy();
-    if (rateLimitChart) rateLimitChart.destroy();
-    
-    commandsChart = new Chart(document.getElementById('commandsChart'), {
-      type: 'line',
-      data: {
-        labels: data.commands.labels || [],
-        datasets: [{
-          label: 'Commands Executed',
-          data: data.commands.data || [],
-          borderColor: 'rgb(75, 192, 192)',
-          tension: 0.1
-        }]
-      }
-    });
-    
-    rateLimitChart = new Chart(document.getElementById('rateLimitChart'), {
-      type: 'bar',
-      data: {
-        labels: data.rate_limits.labels || [],
-        datasets: [{
-          label: 'Rate Limits Hit',
-          data: data.rate_limits.data || [],
-          backgroundColor: 'rgba(255, 99, 132, 0.2)',
-          borderColor: 'rgba(255, 99, 132, 1)',
-          borderWidth: 1
-        }]
-      }
-    });
-    
-    // Update recent commands
-    document.getElementById('recentCommands').textContent = JSON.stringify(data.recent_commands || [], null, 2);
-    
-    // Update system stats
-    document.getElementById('systemStats').textContent = JSON.stringify(data.system_stats || {}, null, 2);
-    
-    document.getElementById('analyticsMsg').textContent = 'Analytics updated';
-    document.getElementById('analyticsMsg').style.color = 'var(--ok)';
-  } catch (error) {
-    document.getElementById('analyticsMsg').textContent = 'Failed to load analytics';
-    document.getElementById('analyticsMsg').style.color = '#dc2626';
-  }
-}
-
-document.getElementById('refreshAnalytics').addEventListener('click', loadAnalytics);
-loadAnalytics(); // Load on page load
-
-// Command form handler
-document.getElementById('commandForm').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  const commandData = {
-    type: document.getElementById('commandType').value,
-    channel_id: document.getElementById('channelId').value,
-    content: document.getElementById('commandContent').value,
-    emoji: document.getElementById('emoji').value,
-    delay: parseFloat(document.getElementById('delay').value) || 0
-  };
-
-  try {
-    const response = await fetch('/api/send_message', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(commandData)
-    });
-    const result = await response.json();
-    document.getElementById('commandMsg').textContent = result.message || 'Command sent';
-    document.getElementById('commandMsg').style.color = result.ok ? 'var(--ok)' : '#dc2626';
-    
-    // Refresh command history
-    loadCommandHistory();
-  } catch (error) {
-    document.getElementById('commandMsg').textContent = 'Failed to send command';
-    document.getElementById('commandMsg').style.color = '#dc2626';
-  }
-});
-
-async function loadCommandHistory() {
-  try {
-    const response = await fetch('/api/command_history');
-    const data = await response.json();
-    document.getElementById('commandHistory').textContent = JSON.stringify(data.history || [], null, 2);
-  } catch (error) {
-    document.getElementById('commandHistory').textContent = 'Failed to load history';
-  }
-}
-
-loadCommandHistory();
-
-// Backup functions
-document.getElementById('createBackup').addEventListener('click', async function() {
-  try {
-    const response = await fetch('/api/backup', { method: 'POST' });
-    const result = await response.json();
-    document.getElementById('backupMsg').textContent = result.message || 'Backup created';
-    document.getElementById('backupMsg').style.color = result.ok ? 'var(--ok)' : '#dc2626';
-  } catch (error) {
-    document.getElementById('backupMsg').textContent = 'Failed to create backup';
-    document.getElementById('backupMsg').style.color = '#dc2626';
-  }
-});
-
-document.getElementById('restoreBackup').addEventListener('click', async function() {
-  if (!confirm('Are you sure you want to restore from backup? This will overwrite current data.')) return;
-  
-  try {
-    const response = await fetch('/api/restore', { method: 'POST' });
-    const result = await response.json();
-    document.getElementById('backupMsg').textContent = result.message || 'Backup restored';
-    document.getElementById('backupMsg').style.color = result.ok ? 'var(--ok)' : '#dc2626';
-  } catch (error) {
-    document.getElementById('backupMsg').textContent = 'Failed to restore backup';
-    document.getElementById('backupMsg').style.color = '#dc2626';
-  }
-});
-</script>
+    <script>
+        fetch('/api/public/stats').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const s = data.stats || {};
+            const box = document.getElementById('public-stats');
+            box.innerHTML = `
+                <div class="stat"><div class="k">Hosted Instances</div><div class="v">${s.total_hosted ?? 0}</div></div>
+                <div class="stat"><div class="k">Connected Users</div><div class="v">${s.connected_count ?? 0}</div></div>
+                <div class="stat"><div class="k">Registered Accounts</div><div class="v">${s.total_registered ?? 0}</div></div>
+            `;
+        }).catch(() => {});
+    </script>
 </body>
-</html>
-"""
+</html>"""
 
-    def _render_login(self, error: str = "", next_path: str = "/") -> str:
-        safe_next = next_path if isinstance(next_path, str) and next_path.startswith("/") else "/"
+        def _render_tos_page(self) -> str:
+                return """<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Aria - Terms of Service</title>
+<style>
+body{background:#0f172a;color:#e5e7eb;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:24px;line-height:1.65}
+.wrap{max-width:900px;margin:0 auto;background:#111827;border:1px solid #334155;border-radius:14px;padding:24px}
+h1{color:#f472b6;margin-bottom:14px} h2{color:#a78bfa;margin-top:16px;margin-bottom:8px}
+a{color:#93c5fd;text-decoration:none}
+</style></head><body><div class="wrap">
+<h1>Terms of Service</h1>
+<p>By using Aria Premium Discord Hosting, you agree to follow owner/admin rules, access policies, and platform restrictions.</p>
+<h2>Account Access</h2>
+<p>Dashboard access may be approved, denied, or revoked by owner/admin at any time.</p>
+<h2>Usage Responsibility</h2>
+<p>Users are responsible for their own Discord account behavior, token safety, and command usage.</p>
+<h2>Service Changes</h2>
+<p>Features, plans, access limits, and instance controls can be modified without prior notice.</p>
+<p><a href="/home">Back to Home</a></p>
+</div></body></html>"""
+
+        def _render_privacy_page(self) -> str:
+                return """<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Aria - Privacy Policy</title>
+<style>
+body{background:#020617;color:#e5e7eb;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:24px;line-height:1.65}
+.wrap{max-width:900px;margin:0 auto;background:#111827;border:1px solid #334155;border-radius:14px;padding:24px}
+h1{color:#f472b6;margin-bottom:14px} h2{color:#a78bfa;margin-top:16px;margin-bottom:8px}
+a{color:#93c5fd;text-decoration:none}
+</style></head><body><div class="wrap">
+<h1>Privacy Policy</h1>
+<p>Aria stores account and dashboard operational data required for hosting and moderation (for example user IDs, settings, and instance logs).</p>
+<h2>Data Collected</h2>
+<p>Login account metadata, hosted-user records, instance activity logs, and dashboard settings.</p>
+<h2>Data Access</h2>
+<p>Owner/admin accounts can view operational logs and hosted account summaries for management and abuse prevention.</p>
+<h2>Data Retention</h2>
+<p>Logs may be retained for stability/security; removal is at owner/admin discretion.</p>
+<p><a href="/home">Back to Home</a></p>
+</div></body></html>"""
+
+    def _render_access_pending(self) -> str:
+        return """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aria Dashboard - Access Pending</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: radial-gradient(circle at 20% 20%, #1e1b4b, #0f172a 55%, #020617 100%);
+            color: #e5e7eb;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            padding: 24px;
+        }
+        .card {
+            width: min(680px, 100%);
+            background: rgba(15, 23, 42, 0.96);
+            border: 1px solid rgba(236, 72, 153, 0.35);
+            border-radius: 16px;
+            padding: 28px;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+        }
+        h1 {
+            color: #ec4899;
+            font-size: 30px;
+            margin-bottom: 8px;
+        }
+        p {
+            color: #cbd5e1;
+            line-height: 1.55;
+            margin-bottom: 14px;
+        }
+        .note {
+            background: rgba(139, 92, 246, 0.12);
+            border: 1px solid rgba(139, 92, 246, 0.35);
+            border-radius: 10px;
+            padding: 12px;
+            margin-top: 10px;
+            color: #e2e8f0;
+        }
+        .actions {
+            margin-top: 18px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        a {
+            text-decoration: none;
+            padding: 10px 14px;
+            border-radius: 10px;
+            color: #fff;
+            font-weight: 700;
+        }
+        .btn-primary { background: linear-gradient(135deg, #ec4899, #8b5cf6); }
+        .btn-muted { background: #334155; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Access Pending</h1>
+        <p>Your account is logged in but is not authorised to open the full dashboard yet.</p>
+        <p>If you are a newly created user, ask an owner/admin to run auth/whitelist for your Discord user ID.</p>
+        <div class="note">Contact @misconsiderations to be authorised for panel access.</div>
+        <div class="actions">
+            <a class="btn-primary" href="/logout">Log Out</a>
+            <a class="btn-muted" href="/home">Back to Home</a>
+        </div>
+    </div>
+</body>
+</html>"""
+
+    def _render_login(self, error: str = "", next_path: str = "/dashboard", mode: str = "login") -> str:
+        safe_next = next_path if isinstance(next_path, str) and next_path.startswith("/") else "/dashboard"
         error_html = (
             f"<p style='color:#fca5a5;margin:0 0 12px 0;font-size:14px;'>{error}</p>"
             if error
             else ""
         )
-        return f"""<!DOCTYPE html>
+        
+        is_register = mode == "register"
+        title = "Create Account" if is_register else "Sign In"
+        subtitle = "Join Aria Dashboard" if is_register else "Access your bot dashboard"
+        button_text = "Create Account" if is_register else "Sign In"
+        toggle_text = "Sign In" if is_register else "Create Account"
+        toggle_link = "/login?mode=login" if is_register else "/login?mode=register"
+        
+        bot_token_field = (
+            '<input type="password" name="bot_token" placeholder="Bot Token (optional)" autocomplete="off" />'
+            if is_register else ""
+        )
+        
+        username_field = (
+            '<input type="text" name="username" placeholder="Username" autocomplete="username" required />'
+            if is_register else ""
+        )
+        
+        toggle_text_prefix = "" if is_register else "Don't have an account? "
+        
+        html = f"""<!DOCTYPE html>
 <html lang=\"en\">
 <head>
   <meta charset=\"UTF-8\" />
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
-  <title>Aria WebPanel Login</title>
+  <title>Aria Dashboard - {title}</title>
   <style>
+    * {{
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }}
     :root {{
       color-scheme: dark;
     }}
     body {{
-      margin: 0;
       min-height: 100vh;
       display: grid;
       place-items: center;
-      background: radial-gradient(circle at 20% 20%, #1f2937 0%, #0f172a 45%, #020617 100%);
-      font-family: "Segoe UI", "Inter", sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
       color: #e5e7eb;
     }}
+    .container {{
+      display: flex;
+      gap: 40px;
+      width: min(900px, calc(100vw - 32px));
+      align-items: center;
+    }}
+    .branding {{
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }}
+    .logo {{
+      font-size: 48px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #ec4899, #8b5cf6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }}
+    .features {{
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }}
+    .feature {{
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }}
+    .check {{
+      color: #10b981;
+      margin-top: 2px;
+    }}
     .card {{
-      width: min(420px, calc(100vw - 32px));
-      background: rgba(15, 23, 42, 0.9);
-      border: 1px solid rgba(148, 163, 184, 0.35);
-      border-radius: 14px;
-      padding: 22px;
-      box-shadow: 0 14px 40px rgba(2, 6, 23, 0.45);
+      flex: 0 0 380px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 20px 60px rgba(2, 6, 23, 0.6);
+      backdrop-filter: blur(10px);
     }}
     h1 {{
-      margin: 0 0 8px;
-      font-size: 24px;
+      margin: 0 0 6px;
+      font-size: 28px;
+      background: linear-gradient(135deg, #ec4899, #8b5cf6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }}
-    p {{
-      margin: 0 0 16px;
+    .subtitle {{
+      margin: 0 0 24px;
       color: #94a3b8;
       font-size: 14px;
     }}
     input {{
       width: 100%;
-      box-sizing: border-box;
-      margin: 0 0 12px;
-      padding: 10px 12px;
+      margin: 0 0 14px;
+      padding: 12px 14px;
       border-radius: 10px;
       border: 1px solid #334155;
       background: #0b1220;
       color: #e5e7eb;
-      outline: none;
+      font-size: 14px;
+      transition: all 0.2s;
     }}
     input:focus {{
-      border-color: #6366f1;
+      border-color: #8b5cf6;
+      outline: none;
+      background: #0f172a;
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
     }}
     button {{
       width: 100%;
       border: 0;
       border-radius: 10px;
-      padding: 10px 12px;
+      padding: 12px 14px;
       font-weight: 600;
       cursor: pointer;
-      background: linear-gradient(90deg, #4f46e5, #06b6d4);
+      background: linear-gradient(135deg, #ec4899, #8b5cf6);
       color: #fff;
+      font-size: 15px;
+      margin-top: 8px;
+      transition: all 0.2s;
+    }}
+    button:hover {{
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(139, 92, 246, 0.4);
+    }}
+    button:active {{
+      transform: translateY(0);
+    }}
+    .toggle {{
+      text-align: center;
+      margin-top: 16px;
+      font-size: 13px;
+      color: #94a3b8;
+    }}
+    .toggle a {{
+      color: #8b5cf6;
+      text-decoration: none;
+      font-weight: 600;
+      transition: color 0.2s;
+    }}
+    .toggle a:hover {{
+      color: #ec4899;
+    }}
+    .error {{
+      color: #fca5a5;
+      margin: 0 0 16px;
+      font-size: 13px;
+      padding: 10px 12px;
+      background: rgba(252, 165, 165, 0.1);
+      border-radius: 8px;
+      border-left: 2px solid #fc8181;
+    }}
+    @media (max-width: 768px) {{
+      .container {{
+        flex-direction: column;
+        gap: 24px;
+      }}
+      .branding {{
+        display: none;
+      }}
+      .card {{
+        flex: 1;
+        width: 100%;
+      }}
     }}
   </style>
 </head>
 <body>
-  <form class=\"card\" method=\"post\" action=\"/login\">
-    <h1>Aria WebPanel</h1>
-    <p>Sign in to continue.</p>
-    {error_html}
-    <input type=\"text\" name=\"username\" placeholder=\"Username\" autocomplete=\"username\" required />
-    <input type=\"password\" name=\"password\" placeholder=\"Password\" autocomplete=\"current-password\" required />
-    <input type=\"hidden\" name=\"next\" value=\"{safe_next}\" />
-    <button type=\"submit\">Login</button>
-  </form>
+  <div class="container">
+    <div class="branding">
+      <div class="logo">ARIA</div>
+      <div class="features">
+        <div class="feature">
+          <span class="check">✓</span>
+          <span>Advanced RPC & activity control</span>
+        </div>
+        <div class="feature">
+          <span class="check">✓</span>
+          <span>Multi-user dashboard access</span>
+        </div>
+        <div class="feature">
+          <span class="check">✓</span>
+          <span>Real-time bot analytics</span>
+        </div>
+        <div class="feature">
+          <span class="check">✓</span>
+          <span>Premium bot features</span>
+        </div>
+      </div>
+    </div>
+    
+    <form class="card" method="post" action="/login?mode={mode}">
+      <h1>{title}</h1>
+      <p class="subtitle">{subtitle}</p>
+      {error_html if error_html else '<div style="height: 6px;"></div>'}
+      
+      <input type="text" name="user_id" placeholder="User ID" autocomplete="username" required />
+      {bot_token_field}
+      {username_field}
+      <input type="password" name="password" placeholder="Password" autocomplete="current-password" required />
+      <input type="hidden" name="next" value="{safe_next}" />
+      
+      <button type="submit">{button_text}</button>
+      
+      <div class="toggle">
+        {toggle_text_prefix}<a href="{toggle_link}">{toggle_text}</a>
+      </div>
+    </form>
+  </div>
 </body>
 </html>
 """
+        return html
 
     def run(self) -> None:
         self.app.run(host=self.host, port=self.port, debug=False, use_reloader=False)

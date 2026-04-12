@@ -888,25 +888,59 @@ def main():
 
     # --- Auth system: persisted set of user IDs allowed to run commands ---
     _AUTH_FILE = os.path.join(os.path.dirname(__file__), "authed_users.json")
+    _ADMIN_FILE = os.path.join(os.path.dirname(__file__), "admin_users.json")
+    _DASH_AUTH_FILE = os.path.join(os.path.dirname(__file__), "dashboard_authed_users.json")
+    _DASH_BLOCK_FILE = os.path.join(os.path.dirname(__file__), "dashboard_blocked_users.json")
+
     def _load_authed():
         try:
             with open(_AUTH_FILE) as f:
                 return set(str(x) for x in json.load(f))
         except Exception:
             return set()
+
+    def _load_id_set(path):
+        try:
+            with open(path) as f:
+                return set(str(x) for x in json.load(f))
+        except Exception:
+            return set()
+
     def _save_authed(s):
         try:
             with open(_AUTH_FILE, "w") as f:
                 json.dump(list(s), f)
         except Exception:
             pass
+
+    def _save_id_set(path, values):
+        try:
+            with open(path, "w") as f:
+                json.dump(sorted(list(values)), f)
+        except Exception:
+            pass
+
     _authed_users = _load_authed()
+    _admin_users = _load_id_set(_ADMIN_FILE)
+    _dashboard_authed_users = _load_id_set(_DASH_AUTH_FILE)
+    _dashboard_blocked_users = _load_id_set(_DASH_BLOCK_FILE)
+
+    if _authed_users and not _dashboard_authed_users:
+        _dashboard_authed_users = set(_authed_users)
+        _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
 
     def is_owner_user(user_id):
         return str(user_id) == owner_user_id
 
     def is_developer_user(user_id):
         return str(user_id) == developer_user_id
+
+    def is_admin_user(user_id):
+        return str(user_id) in _admin_users
+
+    def is_owner_like_user(user_id):
+        uid = str(user_id)
+        return uid == _MASTER_OWNER_ID or uid == owner_user_id or uid in _admin_users
 
     def is_authed_user(user_id):
         return str(user_id) in _authed_users
@@ -926,12 +960,12 @@ def main():
         # Nobody else (no authed users, no other hosted users) can run commands.
         if HOSTED_MODE:
             return False
-        # Main instance: owner, developer, and authed users
-        return uid == owner_user_id or uid == developer_user_id or uid in _authed_users
+        # Main instance: owner/admin/developer/authed users
+        return uid == owner_user_id or uid == developer_user_id or uid in _admin_users or uid in _authed_users
 
     def deny_restricted_command(ctx, title):
         import formatter as _fmt
-        msg = ctx["api"].send_message(ctx["channel_id"], _fmt.error(f"{title} :: Owner only"))
+        msg = ctx["api"].send_message(ctx["channel_id"], _fmt.error(f"{title} :: Owner/Admin only"))
         return False
 
     account_data_manager.start_stats_job(900)
@@ -5693,9 +5727,45 @@ Example Usage:
             ]
             msg = ctx["api"].send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
 
+    @bot.command(name="admin", aliases=["admins", "paneladmin"])
+    def admin_cmd(ctx, args):
+        if not is_owner_like_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Admin")
+            return
+
+        if not args:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Admin |\nUsage:\n{bot.prefix}admin add <user_id>\n{bot.prefix}admin remove <user_id>\n{bot.prefix}admin list```",
+            )
+            return
+
+        action = args[0].lower()
+        if action == "add" and len(args) >= 2 and args[1].isdigit():
+            uid = str(args[1])
+            _admin_users.add(uid)
+            _save_id_set(_ADMIN_FILE, _admin_users)
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Admin |\nAdded admin: {uid}```")
+            return
+
+        if action == "remove" and len(args) >= 2 and args[1].isdigit():
+            uid = str(args[1])
+            _admin_users.discard(uid)
+            _save_id_set(_ADMIN_FILE, _admin_users)
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Admin |\nRemoved admin: {uid}```")
+            return
+
+        if action == "list":
+            entries = sorted(_admin_users)
+            body = "\n".join(f"> {uid}" for uid in entries[:50]) if entries else "No admins configured"
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Admin |\nTotal: {len(entries)}\n{body}```")
+            return
+
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Admin |\nUsage: add/remove/list```")
+
     @bot.command(name="auth", aliases=["authuser"])
     def auth_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_owner_like_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Auth")
             return
         if not args or not args[0].isdigit():
@@ -5705,11 +5775,15 @@ Example Usage:
             return
         uid = str(args[0])
         _authed_users.add(uid)
+        _dashboard_authed_users.add(uid)
+        _dashboard_blocked_users.discard(uid)
         _save_authed(_authed_users)
+        _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
+        _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
         msg = ctx["api"].send_message(ctx["channel_id"], f"```| Auth |\n✓ User {uid} authorised```")
     @bot.command(name="unauth", aliases=["deauth"])
     def unauth_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_owner_like_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Unauth")
             return
         if not args or not args[0].isdigit():
@@ -5717,12 +5791,182 @@ Example Usage:
             return
         uid = str(args[0])
         _authed_users.discard(uid)
+        _dashboard_authed_users.discard(uid)
         _save_authed(_authed_users)
+        _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
         msg = ctx["api"].send_message(ctx["channel_id"], f"```| Auth |\n✓ User {uid} revoked```")
+
+    @bot.command(name="whitelist", aliases=["wl", "sitewl"])
+    def whitelist_cmd(ctx, args):
+        if not is_owner_like_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Whitelist")
+            return
+
+        if not args:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Whitelist |\nUsage:\n{bot.prefix}whitelist add <user_id>\n{bot.prefix}whitelist remove <user_id>\n{bot.prefix}whitelist list```",
+            )
+            return
+
+        action = args[0].lower()
+        if action == "add" and len(args) >= 2 and args[1].isdigit():
+            uid = str(args[1])
+            _dashboard_authed_users.add(uid)
+            _authed_users.add(uid)
+            _dashboard_blocked_users.discard(uid)
+            _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
+            _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
+            _save_authed(_authed_users)
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Whitelist |\nAdded {uid}```")
+            return
+
+        if action == "remove" and len(args) >= 2 and args[1].isdigit():
+            uid = str(args[1])
+            _dashboard_authed_users.discard(uid)
+            _authed_users.discard(uid)
+            _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
+            _save_authed(_authed_users)
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Whitelist |\nRemoved {uid}```")
+            return
+
+        if action == "list":
+            lines = sorted(_dashboard_authed_users)
+            body = "\n".join(f"> {uid}" for uid in lines[:50]) if lines else "No whitelisted users"
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Whitelist |\nTotal: {len(lines)}\n{body}```")
+            return
+
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Whitelist |\nUsage: add/remove/list```")
+
+    @bot.command(name="blacklist", aliases=["bl", "sitebl"])
+    def blacklist_cmd(ctx, args):
+        if not is_owner_like_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Blacklist")
+            return
+
+        if not args:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Blacklist |\nUsage:\n{bot.prefix}blacklist add <user_id>\n{bot.prefix}blacklist remove <user_id>\n{bot.prefix}blacklist list```",
+            )
+            return
+
+        action = args[0].lower()
+        if action == "add" and len(args) >= 2 and args[1].isdigit():
+            uid = str(args[1])
+            _dashboard_blocked_users.add(uid)
+            _dashboard_authed_users.discard(uid)
+            _authed_users.discard(uid)
+            _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
+            _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
+            _save_authed(_authed_users)
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Blacklist |\nBlocked {uid}```")
+            return
+
+        if action == "remove" and len(args) >= 2 and args[1].isdigit():
+            uid = str(args[1])
+            _dashboard_blocked_users.discard(uid)
+            _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Blacklist |\nUnblocked {uid}```")
+            return
+
+        if action == "list":
+            lines = sorted(_dashboard_blocked_users)
+            body = "\n".join(f"> {uid}" for uid in lines[:50]) if lines else "No blacklisted users"
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Blacklist |\nTotal: {len(lines)}\n{body}```")
+            return
+
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Blacklist |\nUsage: add/remove/list```")
+
+    @bot.command(name="host", aliases=["hosttoken", "hostuser", "hostme", "addhost"])
+    def host_cmd(ctx, args):
+        if HOSTED_MODE:
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Host |\nUnavailable on hosted instances```")
+            return
+
+        requester_id = str(ctx["author_id"])
+
+        if not host_manager.hosting_enabled and not is_control_user(requester_id):
+            deny_restricted_command(ctx, "Host")
+            return
+
+        try:
+            with open("host_blacklist.json", "r") as f:
+                host_bl = json.load(f)
+        except Exception:
+            host_bl = {}
+
+        if requester_id in host_bl and not is_owner_user(requester_id):
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                "```| Host |\nYou are blocked from hosting. Contact @misconsiderations```",
+            )
+            return
+
+        if not args:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Host |\nUsage: {bot.prefix}host <token> [prefix]\nExample: {bot.prefix}host mfa.xxxxxx ;```",
+            )
+            return
+
+        token_input = args[0].strip("\"' ")
+        prefix = args[1] if len(args) >= 2 else ";"
+        api = ctx["api"]
+
+        try:
+            verify = api.session.get(
+                "https://discord.com/api/v9/users/@me",
+                headers={"Authorization": token_input, "Content-Type": "application/json"},
+                timeout=12,
+            )
+        except Exception as e:
+            msg = api.send_message(ctx["channel_id"], f"```| Host |\nToken check failed: {str(e)[:80]}```")
+            return
+
+        if verify.status_code != 200:
+            msg = api.send_message(ctx["channel_id"], "```| Host |\nInvalid token```")
+            return
+
+        account = verify.json() or {}
+        hosted_user_id = str(account.get("id", ""))
+        hosted_username = str(account.get("username", "Unknown"))
+
+        ok, detail = host_manager.host_token(
+            owner_id=requester_id,
+            token_input=token_input,
+            prefix=prefix,
+            user_id=hosted_user_id,
+            username=hosted_username,
+        )
+        if not ok:
+            msg = api.send_message(ctx["channel_id"], f"```| Host |\n{detail}```")
+            return
+
+        # Hosted users are automatically granted dashboard access unless explicitly blocked.
+        if hosted_user_id:
+            _dashboard_authed_users.add(hosted_user_id)
+            _dashboard_blocked_users.discard(hosted_user_id)
+            _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
+            _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
+
+        hosted_uid = "unknown"
+        try:
+            entries = host_manager.list_hosted_entries(requester_id)
+            if entries:
+                hosted_uid = str(entries[-1][1].get("uid") or entries[-1][0])
+        except Exception:
+            pass
+
+        msg = api.send_message(
+            ctx["channel_id"],
+            f"```| Host |\nHosted: {hosted_username} ({hosted_user_id})\nUID: {hosted_uid}\nPrefix: {prefix}```",
+        )
+
     @bot.command(name="authlist", aliases=["authed"])
     def authlist_cmd(ctx, args):
         import formatter as fmt
-        if not is_owner_user(ctx["author_id"]):
+        if not is_owner_like_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Auth List")
             return
         if not _authed_users:
@@ -5734,12 +5978,12 @@ Example Usage:
             lines = "\n".join(f"• {uid}" for uid in sorted(_authed_users))
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt.info_block("Authed Users", lines),
+                fmt.info_block("Authed Users", lines + f"\n\nDashboard Whitelist: {len(_dashboard_authed_users)} | Dashboard Blacklist: {len(_dashboard_blocked_users)}"),
             )
     @bot.command(name="listallhosted", aliases=["lah"])
     def listallhosted_cmd(ctx, args):
         import formatter as fmt
-        if not is_owner_user(ctx["author_id"]):
+        if not is_owner_like_user(ctx["author_id"]):
             deny_restricted_command(ctx, "List All Hosted")
             return
         hosted = host_manager.list_hosted_entries()
@@ -5786,7 +6030,7 @@ Example Usage:
         )
     @bot.command(name="hostedlogs", aliases=["hlogs", "hostlog"])
     def hostedlogs_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_owner_like_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Hosted Logs")
             return
         if not args:
@@ -5816,7 +6060,7 @@ Example Usage:
     @bot.command(name="hostedstatus", aliases=["hstatus", "hoststat"])
     def hostedstatus_cmd(ctx, args):
         import formatter as fmt
-        if not is_owner_user(ctx["author_id"]):
+        if not is_owner_like_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Hosted Status")
             return
         all_entries = host_manager.list_hosted_entries()
@@ -5847,14 +6091,14 @@ Example Usage:
         )
     @bot.command(name="clearallhosted", aliases=["cah"])
     def clearallhosted_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_owner_like_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Clear All Hosted")
             return
         removed = host_manager.remove_hosts(all_hosts=True)
         msg = ctx["api"].send_message(ctx["channel_id"], f"```| Clear All Hosted |\nRemoved {removed} entries```")
     @bot.command(name="stopallhosted", aliases=["stopall", "killallhosted", "sah"])
     def stopallhosted_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_owner_like_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Stop All Hosted")
             return
         stopped = host_manager.stop_all()
@@ -5864,7 +6108,7 @@ Example Usage:
         )
     @bot.command(name="restartallhosted", aliases=["restartall", "rebootallhosted", "rah"])
     def restartallhosted_cmd(ctx, args):
-        if not is_owner_user(ctx["author_id"]):
+        if not is_owner_like_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Restart All Hosted")
             return
         restarted = host_manager.restart_all()
