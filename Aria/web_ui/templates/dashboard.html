@@ -3,13 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aria — Dashboard</title>
+    <title>Aria x Stackss.lol — Dashboard</title>
+    <link rel="icon" type="image/png" href="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012">
+    <link rel="apple-touch-icon" href="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
+    <div class="mascot-watermark" aria-hidden="true">
+        <img src="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012" alt="" loading="lazy" onerror="this.style.display='none'">
+    </div>
     <nav class="sidebar">
         <div class="sidebar-logo">
             <span class="logo-text">Aria</span>
+            <span class="logo-domain">Stackss.lol</span>
             <span class="logo-badge">v2</span>
         </div>
         <ul class="sidebar-nav">
@@ -364,7 +370,7 @@
             <div class="section-header">
                 <div>
                     <div class="section-title">Live Logs</div>
-                    <div class="section-sub">Console output — last 100 lines</div>
+                    <div class="section-sub">Clean runtime feed with command/sniper/gateway tracking</div>
                 </div>
             </div>
             <div class="log-toolbar">
@@ -372,8 +378,79 @@
                 <span class="log-count" id="logLineCount"></span>
                 <button class="btn btn-ghost" onclick="loadLogs()" style="margin-left:auto">↺ Refresh</button>
             </div>
+
+            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(170px,1fr));margin-bottom:16px">
+                <div class="card">
+                    <div class="card-icon">👤</div>
+                    <div class="card-label">Connected User</div>
+                    <div class="card-value plain" id="logsConnectedUser">—</div>
+                    <div class="card-sub" id="logsConnectedUserId">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🔢</div>
+                    <div class="card-label">Commands Total</div>
+                    <div class="card-value" id="logsCommandTotal">0</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">⚙️</div>
+                    <div class="card-label">Command Events</div>
+                    <div class="card-value" id="logsCommandEvents">0</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🎯</div>
+                    <div class="card-label">Sniper Events</div>
+                    <div class="card-value" id="logsSniperEvents">0</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🌐</div>
+                    <div class="card-label">Gateway Events</div>
+                    <div class="card-value" id="logsGatewayEvents">0</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">⛔</div>
+                    <div class="card-label">Errors</div>
+                    <div class="card-value" id="logsErrorEvents">0</div>
+                </div>
+            </div>
+
+            <div class="table-card" style="margin-bottom:14px">
+                <div class="table-header">
+                    <span class="table-title">Command Execution Feed</span>
+                    <span class="table-badge">latest 50</span>
+                </div>
+                <div class="history-feed" id="commandExecFeed">
+                    <div class="log-loading">No command execution logs yet.</div>
+                </div>
+            </div>
+
+            <div class="table-card" style="margin-bottom:14px">
+                <div class="table-header">
+                    <span class="table-title">Sniper Feed (Nitro/Giveaway)</span>
+                    <span class="table-badge">latest 50</span>
+                </div>
+                <div class="history-feed" id="sniperFeed">
+                    <div class="log-loading">No sniper logs yet.</div>
+                </div>
+            </div>
+
+            <div class="table-card" style="margin-bottom:14px">
+                <div class="table-header">
+                    <span class="table-title">Gateway + Error Feed</span>
+                    <span class="table-badge">latest 50 each</span>
+                </div>
+                <div class="history-feed" id="gatewayFeed">
+                    <div class="log-loading">No gateway/error logs yet.</div>
+                </div>
+            </div>
+
+            <div class="table-card">
+                <div class="table-header">
+                    <span class="table-title">Raw Log Tail</span>
+                    <span class="table-badge">debug</span>
+                </div>
             <div class="log-container" id="logContainer">
                 <div class="log-loading">Fetching logs…</div>
+            </div>
             </div>
         </section>
 

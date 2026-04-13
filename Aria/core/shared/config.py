@@ -12,4 +12,3 @@ class ConfigContainer:
 
 # Global instance
 container = ConfigContainer()
-<parameter name="filePath">/workspaces/Aria/Aria/core/shared/config.py

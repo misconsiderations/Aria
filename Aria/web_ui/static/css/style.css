@@ -38,6 +38,24 @@ body::before {
         radial-gradient(ellipse 30% 30% at 50% 60%,  rgba(6,182,212,.05)  0%, transparent 55%);
 }
 
+.mascot-watermark {
+    position: fixed;
+    right: 18px;
+    bottom: 0;
+    width: clamp(220px, 28vw, 420px);
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.16;
+    filter: saturate(1.05) contrast(1.02);
+}
+
+.mascot-watermark img {
+    width: 100%;
+    height: auto;
+    display: block;
+    object-fit: contain;
+}
+
 /* ════════════════════════════════════════════════════════════
    SIDEBAR
 ════════════════════════════════════════════════════════════ */
@@ -55,12 +73,24 @@ body::before {
     display: flex; align-items: center; gap: 10px;
     padding: 22px 20px 18px;
     border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
 }
 .logo-text {
     font-size: 1.3rem; font-weight: 900; letter-spacing: -0.5px;
     background: linear-gradient(135deg, var(--pink), var(--violet));
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     background-clip: text;
+}
+.logo-domain {
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .6px;
+    color: #fda4af;
+    background: rgba(236,72,153,.13);
+    border: 1px solid rgba(236,72,153,.25);
+    border-radius: 999px;
+    padding: 2px 8px;
+    line-height: 1.2;
 }
 .logo-badge {
     font-size: .6rem; font-weight: 800; letter-spacing: 1.5px;
@@ -69,6 +99,24 @@ body::before {
     border: 1px solid rgba(139,92,246,.3);
     padding: 2px 6px; border-radius: 4px;
     margin-left: auto;
+}
+
+@media (max-width: 900px) {
+    .mascot-watermark {
+        width: clamp(180px, 40vw, 260px);
+        opacity: 0.11;
+    }
+}
+
+@media (max-width: 700px) {
+    .mascot-watermark {
+        width: 180px;
+        opacity: 0.08;
+        right: 2px;
+    }
+    .logo-domain {
+        display: none;
+    }
 }
 
 .sidebar-nav { list-style: none; padding: 10px 10px; flex: 1; overflow-y: auto; }

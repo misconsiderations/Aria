@@ -163,7 +163,24 @@ def upload_image_to_discord(api, image_url):
         return None
 
 def upload_n_get_asset_key(bot, image_url):
-    """Return an mp:attachments/ key for any image URL (CDN fast-path or upload)."""
+    """Return a Discord media-proxy key for any image URL.
+
+    Priority:
+    1. Discord CDN/media URLs -> mp:attachments/ (fast path, no upload needed)
+    2. Any HTTPS URL -> mp:https/ (Discord proxies it directly — no upload required)
+    3. Fallback -> try uploading via DM to get an attachment key
+    """
+    if not image_url:
+        return None
+    # Fast path: already a Discord CDN URL
+    m = _CDN_RE.search(image_url)
+    if m:
+        ch, att, fn = m.groups()
+        return f"mp:attachments/{ch}/{att}/{fn}"
+    # Direct proxy: any external HTTPS image — Discord accepts mp:https/<host/path>
+    if image_url.startswith("https://"):
+        return "mp:https/" + image_url[len("https://"):]
+    # Last resort: try uploading via DM attachment (HTTP or unknown scheme)
     return upload_image_to_discord(bot.api, image_url)
 
 def send_spotify_with_spoofing(bot, song_name, artist, album, duration_minutes=3.5, current_position_minutes: float = 0.0, image_url=None):
@@ -943,6 +960,77 @@ def main():
         return msg
 
     bot.api.send_message = managed_send_message
+
+    # Optional real slash bot launcher (separate bot token / process).
+    slash_bot_process = None
+
+    def _get_slash_bot_token():
+        return (os.getenv("DISCORD_BOT_TOKEN") or config.get("discord_bot_token") or "").strip()
+
+    def _get_slash_sync_guild_id():
+        return (os.getenv("DISCORD_SLASH_GUILD_ID") or config.get("discord_slash_guild_id") or "").strip()
+
+    def _slashbot_status_text():
+        if slash_bot_process and slash_bot_process.poll() is None:
+            return f"running (pid {slash_bot_process.pid})"
+        return "stopped"
+
+    def _start_slash_bot(force=False):
+        nonlocal slash_bot_process
+        if HOSTED_MODE:
+            return False, "Disabled in hosted mode"
+        if slash_bot_process and slash_bot_process.poll() is None and not force:
+            return True, f"Already running (pid {slash_bot_process.pid})"
+
+        bot_token = _get_slash_bot_token()
+        if not bot_token:
+            return False, "No bot token configured (set DISCORD_BOT_TOKEN or discord_bot_token)"
+
+        env = os.environ.copy()
+        env.setdefault("DISCORD_BOT_TOKEN", bot_token)
+        guild_sync_id = _get_slash_sync_guild_id()
+        if guild_sync_id:
+            env.setdefault("DISCORD_SLASH_GUILD_ID", guild_sync_id)
+
+        try:
+            import subprocess
+            slash_path = os.path.join(os.path.dirname(__file__), "slash_bot.py")
+            slash_bot_process = subprocess.Popen(
+                [sys.executable, slash_path],
+                cwd=os.path.dirname(__file__),
+                env=env,
+                stdout=None,
+                stderr=None,
+            )
+            return True, f"Started slash bot (pid {slash_bot_process.pid})"
+        except Exception as e:
+            return False, f"Failed to start slash bot: {e}"
+
+    def _stop_slash_bot():
+        nonlocal slash_bot_process
+        if not slash_bot_process or slash_bot_process.poll() is not None:
+            slash_bot_process = None
+            return True, "Already stopped"
+
+        try:
+            slash_bot_process.terminate()
+            slash_bot_process.wait(timeout=8)
+            msg = "Stopped"
+        except Exception:
+            try:
+                slash_bot_process.kill()
+                msg = "Killed"
+            except Exception as e:
+                return False, f"Failed to stop slash bot: {e}"
+        finally:
+            slash_bot_process = None
+
+        return True, msg
+
+    auto_start_slash = bool(config.get("auto_start_slash_bot", True))
+    if auto_start_slash:
+        ok, info = _start_slash_bot()
+        print(f"[SlashBot] {info}")
 
     # Integrate enhanced command engine (500+ commands, ANSI-safe help)
     try:
@@ -1900,6 +1988,13 @@ def main():
             )
             return
 
+        # Convenience bridge: allow "join vc <channel_id>" and "join voice <channel_id>"
+        # so users can use either style and still hit the VC join logic.
+        if args[0].lower() in {"vc", "voice", "joinvc", "vcjoin", "joinvoice", "joincall"}:
+            vc_args = args[1:]
+            vc(ctx, vc_args)
+            return
+
         invite = args[0]
         # Strip full URLs down to just the code
         if "/" in invite:
@@ -2024,7 +2119,7 @@ def main():
         else:
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Hypesquad** :: {note}")
     @bot.command(name="status", aliases=["changestatus"])
-    def status_cmd(ctx, args):
+    def status_cmd_v2(ctx, args):
         import formatter as fmt
         valid = {"online", "idle", "dnd", "invisible"}
         status = (args[0].lower() if args else "")
@@ -2049,13 +2144,14 @@ def main():
             deny_restricted_command(ctx, "Client")
             return
         import formatter as fmt
-        valid = {"web", "desktop", "mobile", "vr"}
+        valid = {"web", "desktop", "mobile", "vr", "off"}
         ctype = (args[0].lower() if args else "")
         labels = {
             "web":     "Web (Chrome/Linux)",
             "desktop": "Desktop (Discord Client/Windows)",
             "mobile":  "Android (Discord Android)",
             "vr":      "VR (Meta Quest 3)",
+            "off":     "Mobile (VR disconnected)",
         }
         if ctype not in valid:
             current = getattr(ctx["bot"], "_client_type", "mobile")
@@ -2064,6 +2160,7 @@ def main():
                 (f"{bot.prefix}client desktop", "Desktop app client"),
                 (f"{bot.prefix}client mobile", "Android mobile client"),
                 (f"{bot.prefix}client vr", "Meta Quest VR client"),
+                (f"{bot.prefix}client off", "Disconnect VR and switch to mobile"),
             ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
@@ -2071,11 +2168,60 @@ def main():
                 fmt._block(f"{fmt.CYAN}Current{fmt.DARK} :: {fmt.RESET}{fmt.WHITE}{labels.get(current, current)}{fmt.RESET}"),
             )
             return
+        if ctype == "off":
+            ctype = "mobile"
         ok = ctx["bot"].set_client_type(ctype)
         if ok:
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Client** :: Switched to **{labels[ctype]}** — reconnecting...")
         else:
             msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Client** :: Failed to switch client type")
+
+    @bot.command(name="vr", aliases=["vrrpc", "vrmode"])
+    def vr_cmd(ctx, args):
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "VR")
+            return
+
+        action = (args[0].lower() if args else "status")
+        current = getattr(ctx["bot"], "_client_type", "mobile")
+        is_vr = current == "vr"
+
+        if action in {"off", "disable", "disconnect", "stop"}:
+            ok = ctx["bot"].set_client_type("mobile")
+            if ok:
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    "> **✓ VR** :: Disconnected VR client mode and switched to **mobile** — reconnecting...",
+                )
+            else:
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ VR** :: Failed to disconnect VR client mode")
+            return
+
+        if action in {"on", "enable", "connect", "start"}:
+            ok = ctx["bot"].set_client_type("vr")
+            if ok:
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    "> **✓ VR** :: Enabled **VR (Meta Quest 3)** client mode — reconnecting...",
+                )
+            else:
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ VR** :: Failed to enable VR client mode")
+            return
+
+        if action in {"status", "state", "check"}:
+            status_text = "ON" if is_vr else "OFF"
+            mode_label = "VR (Meta Quest 3)" if is_vr else f"{current}"
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"> **VR Status** :: **{status_text}** · Current client: **{mode_label}**\n"
+                f"> Use `{bot.prefix}vr on` or `{bot.prefix}vr off`",
+            )
+            return
+
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            f"> **VR** :: Usage: `{bot.prefix}vr on` · `{bot.prefix}vr off` · `{bot.prefix}vr status`",
+        )
     @bot.command(name="clientsave", aliases=["saveclient", "persistclient"])
     def clientsave_cmd(ctx, args):
         _save_client_state(ctx["bot"])
@@ -4581,7 +4727,1003 @@ Example Usage:
         bot._mimic_sent_messages.clear()
         msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Mimic** :: Stopped.")
 
-    # ─── ANTINUKE COMMANDS ──────────────────────────────────────────────────
+    # ─── UTILITY / TEXT TRANSFORM COMMANDS ─────────────────────────────────
+
+    @bot.command(name="mock", aliases=["spongebob"])
+    def mock_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Mock** :: Usage: `{bot.prefix}mock <text>`")
+            return
+        text = " ".join(args)
+        result = "".join(c.upper() if i % 2 == 0 else c.lower() for i, c in enumerate(text))
+        msg = ctx["api"].send_message(ctx["channel_id"], result)
+
+    @bot.command(name="clap")
+    def clap_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Clap** :: Usage: `{bot.prefix}clap <text>`")
+            return
+        result = " 👏 ".join(args) + " 👏"
+        msg = ctx["api"].send_message(ctx["channel_id"], result)
+
+    @bot.command(name="aesthetic", aliases=["vaporwave", "wide"])
+    def aesthetic_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Aesthetic** :: Usage: `{bot.prefix}aesthetic <text>`")
+            return
+        text = " ".join(args)
+        result = "".join(chr(ord(c) + 0xFEE0) if 0x21 <= ord(c) <= 0x7E else c for c in text)
+        msg = ctx["api"].send_message(ctx["channel_id"], result)
+
+    @bot.command(name="reverse", aliases=["rev"])
+    def reverse_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Reverse** :: Usage: `{bot.prefix}reverse <text>`")
+            return
+        text = " ".join(args)
+        msg = ctx["api"].send_message(ctx["channel_id"], text[::-1])
+
+    @bot.command(name="big", aliases=["regional"])
+    def big_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Big** :: Usage: `{bot.prefix}big <text>`")
+            return
+        text = " ".join(args).lower()
+        mapping = {**{chr(ord('a') + i): f":regional_indicator_{chr(ord('a') + i)}: " for i in range(26)},
+                   **{str(d): f"{d}\u20e3 " for d in range(10)}, " ": "   "}
+        result = "".join(mapping.get(c, c) for c in text)
+        msg = ctx["api"].send_message(ctx["channel_id"], result)
+
+    @bot.command(name="spoiler", aliases=["hide"])
+    def spoiler_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Spoiler** :: Usage: `{bot.prefix}spoiler <text>`")
+            return
+        text = " ".join(args)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"||{text}||")
+
+    @bot.command(name="codeblock", aliases=["code", "cb"])
+    def codeblock_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Codeblock** :: Usage: `{bot.prefix}codeblock [lang] <text>`")
+            return
+        lang = ""
+        text_parts = args
+        known_langs = {"python", "py", "js", "javascript", "ts", "typescript", "json", "bash", "sh", "html", "css", "c", "cpp", "java", "go", "rust", "lua"}
+        if args[0].lower() in known_langs:
+            lang = args[0].lower()
+            text_parts = args[1:]
+        text = " ".join(text_parts)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```{lang}\n{text}\n```")
+
+    @bot.command(name="b64encode", aliases=["base64encode", "b64e"])
+    def b64encode_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Base64 Encode** :: Usage: `{bot.prefix}b64encode <text>`")
+            return
+        import base64 as _b64
+        text = " ".join(args)
+        encoded = _b64.b64encode(text.encode()).decode()
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Base64** :: `{encoded}`")
+
+    @bot.command(name="b64decode", aliases=["base64decode", "b64d"])
+    def b64decode_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Base64 Decode** :: Usage: `{bot.prefix}b64decode <encoded>`")
+            return
+        import base64 as _b64
+        try:
+            decoded = _b64.b64decode(args[0].encode()).decode("utf-8", errors="replace")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Decoded** :: {decoded}")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Base64 Decode** :: Invalid input: {e}")
+
+    @bot.command(name="charinfo", aliases=["unicode", "uinfo"])
+    def charinfo_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **CharInfo** :: Usage: `{bot.prefix}charinfo <char>`")
+            return
+        char = args[0][0]
+        cp = ord(char)
+        name = ""
+        try:
+            import unicodedata
+            name = unicodedata.name(char, "UNKNOWN")
+        except Exception:
+            pass
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **CharInfo** :: `{char}` · U+{cp:04X} · {name} · `\\u{cp:04x}`")
+
+    @bot.command(name="snowflake", aliases=["sf", "sfinfo"])
+    def snowflake_cmd(ctx, args):
+        if not args or not args[0].isdigit():
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Snowflake** :: Usage: `{bot.prefix}snowflake <discord_id>`")
+            return
+        sf = int(args[0])
+        epoch = 1420070400000
+        timestamp_ms = (sf >> 22) + epoch
+        worker = (sf & 0x3E0000) >> 17
+        process = (sf & 0x1F000) >> 12
+        increment = sf & 0xFFF
+        import datetime as _dt
+        created = _dt.datetime.utcfromtimestamp(timestamp_ms / 1000).strftime("%Y-%m-%d %H:%M:%S UTC")
+        msg = ctx["api"].send_message(ctx["channel_id"],
+            f"> **Snowflake** :: ID `{sf}` · Created: **{created}** · Worker: {worker} · PID: {process} · Inc: {increment}")
+
+    @bot.command(name="timestamp", aliases=["ts", "discordts"])
+    def timestamp_cmd(ctx, args):
+        import time as _time
+        unix = int(_time.time())
+        if args and args[0].isdigit():
+            unix = int(args[0])
+        styles = ["t", "T", "d", "D", "f", "F", "R"]
+        examples = " · ".join(f"`<t:{unix}:{s}>` → <t:{unix}:{s}>" for s in styles)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Timestamp** (`{unix}`) :: {examples}")
+
+    @bot.command(name="calc", aliases=["calculate", "math"])
+    def calc_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Calc** :: Usage: `{bot.prefix}calc <expression>`")
+            return
+        import math as _math
+        expr = " ".join(args)
+        safe_globals = {"__builtins__": {}, "math": _math, "abs": abs, "round": round,
+                        "min": min, "max": max, "sum": sum, "pow": pow, "sqrt": _math.sqrt,
+                        "pi": _math.pi, "e": _math.e, "sin": _math.sin, "cos": _math.cos,
+                        "tan": _math.tan, "log": _math.log, "ceil": _math.ceil, "floor": _math.floor}
+        try:
+            result = eval(compile(expr, "<calc>", "eval"), safe_globals, {})
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Calc** :: `{expr}` = **{result}**")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Calc** :: Error: {e}")
+
+    @bot.command(name="hex", aliases=["tohex", "fromhex"])
+    def hex_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Hex** :: Usage: `{bot.prefix}hex <number or 0xFF>`")
+            return
+        raw = args[0]
+        try:
+            if raw.lower().startswith("0x"):
+                val = int(raw, 16)
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Hex** :: `{raw}` = decimal **{val}**")
+            else:
+                val = int(raw)
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Hex** :: `{val}` = hex **0x{val:X}**")
+        except Exception:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Hex** :: Invalid input")
+
+    @bot.command(name="binary", aliases=["bin", "tobin"])
+    def binary_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Binary** :: Usage: `{bot.prefix}binary <number or 0b1010>`")
+            return
+        raw = args[0]
+        try:
+            if raw.lower().startswith("0b"):
+                val = int(raw, 2)
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Binary** :: `{raw}` = decimal **{val}**")
+            else:
+                val = int(raw)
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Binary** :: `{val}` = binary **{bin(val)}**")
+        except Exception:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Binary** :: Invalid input")
+
+    @bot.command(name="leet", aliases=["l33t", "1337"])
+    def leet_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Leet** :: Usage: `{bot.prefix}leet <text>`")
+            return
+        tbl = str.maketrans("aAeEiIoOsStTbBgGlL", "4433110055++886699")
+        msg = ctx["api"].send_message(ctx["channel_id"], " ".join(args).translate(tbl))
+
+    @bot.command(name="upper")
+    def upper_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Upper** :: Usage: `{bot.prefix}upper <text>`")
+            return
+        msg = ctx["api"].send_message(ctx["channel_id"], " ".join(args).upper())
+
+    @bot.command(name="lower")
+    def lower_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Lower** :: Usage: `{bot.prefix}lower <text>`")
+            return
+        msg = ctx["api"].send_message(ctx["channel_id"], " ".join(args).lower())
+
+    @bot.command(name="repeat", aliases=["rpt"])
+    def repeat_cmd(ctx, args):
+        if len(args) < 2 or not args[0].isdigit():
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Repeat** :: Usage: `{bot.prefix}repeat <count> <text>`")
+            return
+        count = min(int(args[0]), 20)
+        text = " ".join(args[1:])
+        import time as _time
+        for _ in range(count):
+            ctx["api"].send_message(ctx["channel_id"], text)
+            _time.sleep(0.5)
+
+    @bot.command(name="wordcount", aliases=["wc"])
+    def wordcount_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Word Count** :: Usage: `{bot.prefix}wordcount <text>`")
+            return
+        text = " ".join(args)
+        words = len(text.split())
+        chars = len(text)
+        chars_no_space = len(text.replace(" ", ""))
+        msg = ctx["api"].send_message(ctx["channel_id"],
+            f"> **Word Count** :: Words: **{words}** · Chars: **{chars}** · Chars (no spaces): **{chars_no_space}**")
+
+    @bot.command(name="scramble")
+    def scramble_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Scramble** :: Usage: `{bot.prefix}scramble <text>`")
+            return
+        import random as _rand
+        text = " ".join(args)
+        words = text.split()
+        result = " ".join("".join(_rand.sample(w, len(w))) for w in words)
+        msg = ctx["api"].send_message(ctx["channel_id"], result)
+
+    @bot.command(name="zalgo")
+    def zalgo_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Zalgo** :: Usage: `{bot.prefix}zalgo <text>`")
+            return
+        import random as _rand
+        combining = [chr(c) for c in range(0x0300, 0x036F)]
+        text = " ".join(args)
+        result = "".join(c + "".join(_rand.choices(combining, k=_rand.randint(1, 4))) if c.isalpha() else c for c in text)
+        msg = ctx["api"].send_message(ctx["channel_id"], result[:1900])
+
+    # ─── INFO / LOOKUP COMMANDS ──────────────────────────────────────────────
+
+    @bot.command(name="serverinfo", aliases=["si", "guildinfo", "gi"])
+    def serverinfo_cmd(ctx, args):
+        guild_id = ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id")
+        if not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **ServerInfo** :: Not in a server")
+            return
+        try:
+            guild = ctx["api"].request("GET", f"/guilds/{guild_id}?with_counts=true")
+            if not guild:
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ ServerInfo** :: Failed to fetch guild info")
+                return
+            name = guild.get("name", "Unknown")
+            owner = f"<@{guild.get('owner_id', '?')}>"
+            members = guild.get("approximate_member_count", "?")
+            online = guild.get("approximate_presence_count", "?")
+            channels = len(guild.get("channels") or [])
+            roles = len(guild.get("roles") or [])
+            region = guild.get("region", "auto")
+            boost_level = guild.get("premium_tier", 0)
+            boosts = guild.get("premium_subscription_count", 0)
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"> **Server Info** :: **{name}** (`{guild_id}`)\n"
+                f"> Owner: {owner} · Members: **{members}** ({online} online)\n"
+                f"> Channels: **{channels}** · Roles: **{roles}** · Region: **{region}**\n"
+                f"> Boost Level: **{boost_level}** ({boosts} boosts)")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ ServerInfo** :: {e}")
+
+    @bot.command(name="membercount", aliases=["mc", "members"])
+    def membercount_cmd(ctx, args):
+        guild_id = ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id")
+        if not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **MemberCount** :: Not in a server")
+            return
+        try:
+            guild = ctx["api"].request("GET", f"/guilds/{guild_id}?with_counts=true")
+            name = (guild or {}).get("name", guild_id)
+            total = (guild or {}).get("approximate_member_count", "?")
+            online = (guild or {}).get("approximate_presence_count", "?")
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"> **Members** :: **{name}** — Total: **{total}** · Online: **{online}**")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ MemberCount** :: {e}")
+
+    @bot.command(name="roleinfo", aliases=["ri", "rinfo"])
+    def roleinfo_cmd(ctx, args):
+        guild_id = ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id")
+        if not args or not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **RoleInfo** :: Usage: `{bot.prefix}roleinfo <role_id>`")
+            return
+        role_id = args[0].strip("<@&>")
+        try:
+            guild = ctx["api"].request("GET", f"/guilds/{guild_id}")
+            roles = (guild or {}).get("roles") or []
+            role = next((r for r in roles if str(r.get("id")) == role_id), None)
+            if not role:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ RoleInfo** :: Role `{role_id}` not found")
+                return
+            color = f"#{role.get('color', 0):06X}"
+            hoisted = "Yes" if role.get("hoist") else "No"
+            mentionable = "Yes" if role.get("mentionable") else "No"
+            position = role.get("position", 0)
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"> **Role Info** :: **{role.get('name')}** (`{role_id}`)\n"
+                f"> Color: `{color}` · Position: **{position}** · Hoisted: **{hoisted}** · Mentionable: **{mentionable}**")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ RoleInfo** :: {e}")
+
+    @bot.command(name="channelinfo", aliases=["ci", "cinfo"])
+    def channelinfo_cmd(ctx, args):
+        cid = args[0].strip("<#>") if args else ctx["channel_id"]
+        try:
+            channel = ctx["api"].request("GET", f"/channels/{cid}")
+            if not channel:
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ ChannelInfo** :: Channel not found")
+                return
+            ch_types = {0: "Text", 2: "Voice", 4: "Category", 5: "Announcement", 11: "Thread", 13: "Stage", 15: "Forum"}
+            ch_type = ch_types.get(channel.get("type", 0), "Unknown")
+            topic = channel.get("topic") or "None"
+            slowmode = channel.get("rate_limit_per_user", 0)
+            name = channel.get("name", cid)
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"> **Channel Info** :: **#{name}** (`{cid}`)\n"
+                f"> Type: **{ch_type}** · Slowmode: **{slowmode}s** · Topic: {topic[:80]}")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ ChannelInfo** :: {e}")
+
+    @bot.command(name="inviteinfo", aliases=["ii", "iinfo"])
+    def inviteinfo_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **InviteInfo** :: Usage: `{bot.prefix}inviteinfo <invite_code>`")
+            return
+        code = args[0].split("/")[-1].strip()
+        try:
+            data = ctx["api"].request("GET", f"/invites/{code}?with_counts=true&with_expiration=true")
+            if not data:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ InviteInfo** :: Invalid invite")
+                return
+            guild = data.get("guild") or {}
+            channel = data.get("channel") or {}
+            inviter = data.get("inviter") or {}
+            total = data.get("approximate_member_count", "?")
+            online = data.get("approximate_presence_count", "?")
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"> **Invite Info** :: `{code}`\n"
+                f"> Server: **{guild.get('name', '?')}** · Channel: **#{channel.get('name', '?')}**\n"
+                f"> Members: **{total}** ({online} online) · Inviter: **{inviter.get('username', 'Unknown')}**")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ InviteInfo** :: {e}")
+
+    @bot.command(name="firstmsg", aliases=["firstmessage", "fm"])
+    def firstmsg_cmd(ctx, args):
+        cid = args[0].strip("<#>") if args else ctx["channel_id"]
+        try:
+            messages = ctx["api"].request("GET", f"/channels/{cid}/messages?limit=1&after=0")
+            if not messages:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ FirstMsg** :: No messages found")
+                return
+            m = messages[0]
+            author = (m.get("author") or {}).get("username", "Unknown")
+            content = m.get("content") or "[no text]"
+            msg_id = m.get("id")
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"> **First Message** in <#{cid}> · by **{author}**: {content[:100]}\n"
+                f"> Jump: https://discord.com/channels/{ctx.get('guild_id', '@me')}/{cid}/{msg_id}")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ FirstMsg** :: {e}")
+
+    # ─── SELF MANAGEMENT COMMANDS ────────────────────────────────────────────
+
+    @bot.command(name="nick", aliases=["nickname", "setnick"])
+    def nick_cmd(ctx, args):
+        guild_id = ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id")
+        if not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Nick** :: Must be used in a server")
+            return
+        new_nick = " ".join(args) if args else None
+        try:
+            ctx["api"].request("PATCH", f"/guilds/{guild_id}/members/@me",
+                               json={"nick": new_nick})
+            if new_nick:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Nick** :: Changed to **{new_nick}**")
+            else:
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **✓ Nick** :: Nickname cleared")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Nick** :: {e}")
+
+    @bot.command(name="status", aliases=["setstatus", "presence"])
+    def status_cmd_presence(ctx, args):
+        valid = {"online", "idle", "dnd", "invisible"}
+        if not args or args[0].lower() not in valid:
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"> **Status** :: Usage: `{bot.prefix}status <online|idle|dnd|invisible>`")
+            return
+        status = args[0].lower()
+        try:
+            ctx["api"].request("PATCH", "/users/@me/settings", json={"status": status})
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Status** :: Set to **{status}**")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Status** :: {e}")
+
+    @bot.command(name="customstatus", aliases=["cstatus", "cs"])
+    def customstatus_cmd(ctx, args):
+        custom_text = " ".join(args) if args else ""
+        try:
+            ctx["api"].request("PATCH", "/users/@me/settings",
+                               json={"custom_status": {"text": custom_text} if custom_text else None})
+            if custom_text:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Custom Status** :: Set to **{custom_text}**")
+            else:
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **✓ Custom Status** :: Cleared")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Custom Status** :: {e}")
+
+    @bot.command(name="purge", aliases=["delpurge", "selfpurge"])
+    def purge_cmd(ctx, args):
+        count = 10
+        if args and args[0].isdigit():
+            count = min(int(args[0]), 100)
+        channel_id = ctx["channel_id"]
+        user_id = str(bot.user_id)
+        deleted = 0
+        try:
+            messages = ctx["api"].request("GET", f"/channels/{channel_id}/messages?limit=100")
+            if not messages:
+                msg = ctx["api"].send_message(channel_id, "> **Purge** :: No messages found")
+                return
+            import time as _time
+            for m in messages:
+                if deleted >= count:
+                    break
+                if str((m.get("author") or {}).get("id")) == user_id:
+                    try:
+                        ctx["api"].delete_message(channel_id, m["id"])
+                        deleted += 1
+                        _time.sleep(0.3)
+                    except Exception:
+                        pass
+            msg = ctx["api"].send_message(channel_id, f"> **✓ Purge** :: Deleted **{deleted}** of your messages")
+        except Exception as e:
+            msg = ctx["api"].send_message(channel_id, f"> **✗ Purge** :: {e}")
+
+    @bot.command(name="pin")
+    def pin_cmd(ctx, args):
+        msg_id = args[0] if args else None
+        if not msg_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Pin** :: Usage: `{bot.prefix}pin <message_id>`")
+            return
+        try:
+            ctx["api"].request("PUT", f"/channels/{ctx['channel_id']}/pins/{msg_id}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Pin** :: Message pinned")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Pin** :: {e}")
+
+    @bot.command(name="unpin")
+    def unpin_cmd(ctx, args):
+        msg_id = args[0] if args else None
+        if not msg_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Unpin** :: Usage: `{bot.prefix}unpin <message_id>`")
+            return
+        try:
+            ctx["api"].request("DELETE", f"/channels/{ctx['channel_id']}/pins/{msg_id}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Unpin** :: Message unpinned")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Unpin** :: {e}")
+
+    @bot.command(name="slowmode", aliases=["sm"])
+    def slowmode_cmd(ctx, args):
+        guild_id = ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id")
+        if not args or not args[0].isdigit():
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Slowmode** :: Usage: `{bot.prefix}slowmode <seconds>`")
+            return
+        seconds = min(int(args[0]), 21600)
+        try:
+            ctx["api"].request("PATCH", f"/channels/{ctx['channel_id']}", json={"rate_limit_per_user": seconds})
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Slowmode** :: Set to **{seconds}s**")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Slowmode** :: {e}")
+
+    @bot.command(name="topic")
+    def topic_cmd(ctx, args):
+        new_topic = " ".join(args) if args else ""
+        try:
+            ctx["api"].request("PATCH", f"/channels/{ctx['channel_id']}", json={"topic": new_topic})
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"> **✓ Topic** :: Set to `{new_topic}`" if new_topic else "> **✓ Topic** :: Cleared")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Topic** :: {e}")
+
+    @bot.command(name="react")
+    def react_cmd(ctx, args):
+        if len(args) < 2:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **React** :: Usage: `{bot.prefix}react <message_id> <emoji>`")
+            return
+        msg_id, emoji = args[0], args[1]
+        try:
+            import urllib.parse
+            encoded = urllib.parse.quote(emoji)
+            ctx["api"].request("PUT", f"/channels/{ctx['channel_id']}/messages/{msg_id}/reactions/{encoded}/@me")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ React** :: Reacted with {emoji}")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ React** :: {e}")
+
+    @bot.command(name="unreact", aliases=["removereact"])
+    def unreact_cmd(ctx, args):
+        if len(args) < 2:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Unreact** :: Usage: `{bot.prefix}unreact <message_id> <emoji>`")
+            return
+        msg_id, emoji = args[0], args[1]
+        try:
+            import urllib.parse
+            encoded = urllib.parse.quote(emoji)
+            ctx["api"].request("DELETE", f"/channels/{ctx['channel_id']}/messages/{msg_id}/reactions/{encoded}/@me")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Unreact** :: Removed reaction {emoji}")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Unreact** :: {e}")
+
+    # ─── EMOJI MANAGEMENT COMMANDS ───────────────────────────────────────────
+
+    @bot.command(name="stealemoji", aliases=["semoji", "copyemoji"])
+    def stealemoji_cmd(ctx, args):
+        guild_id = ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id")
+        if not args or not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **StealEmoji** :: Usage: `{bot.prefix}stealemoji <emoji>` (in a server)")
+            return
+        raw = args[0]
+        import re as _re
+        m = _re.match(r"<a?:(\w+):(\d+)>", raw)
+        if not m:
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ StealEmoji** :: Must be a custom emoji like `<:name:id>`")
+            return
+        name, eid = m.group(1), m.group(2)
+        ext = "gif" if raw.startswith("<a:") else "png"
+        url = f"https://cdn.discordapp.com/emojis/{eid}.{ext}?size=128"
+        try:
+            r = ctx["api"].session.get(url, timeout=10)
+            if r.status_code != 200:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ StealEmoji** :: Failed to download emoji")
+                return
+            b64 = base64.b64encode(r.content).decode()
+            data_uri = f"data:image/{ext};base64,{b64}"
+            result = ctx["api"].request("POST", f"/guilds/{guild_id}/emojis", json={"name": name, "image": data_uri})
+            new_id = (result or {}).get("id", "?")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ StealEmoji** :: Added **{name}** (`{new_id}`) to this server")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ StealEmoji** :: {e}")
+
+    @bot.command(name="emojiurl", aliases=["eurl", "enlargeemoji", "jumbo"])
+    def emojiurl_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **EmojiURL** :: Usage: `{bot.prefix}emojiurl <emoji>`")
+            return
+        import re as _re
+        raw = args[0]
+        m = _re.match(r"<a?:(\w+):(\d+)>", raw)
+        if m:
+            name, eid = m.group(1), m.group(2)
+            ext = "gif" if raw.startswith("<a:") else "png"
+            url = f"https://cdn.discordapp.com/emojis/{eid}.{ext}?size=256"
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Emoji** :: **{name}**\n{url}")
+        else:
+            import urllib.parse
+            encoded = urllib.parse.quote(raw)
+            code_point = "-".join(f"{ord(c):x}" for c in raw)
+            url = f"https://twemoji.maxcdn.com/v/latest/72x72/{code_point}.png"
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Emoji** :: `{raw}` — {url}")
+
+    @bot.command(name="delemoji", aliases=["deleteemoji", "removeemoji"])
+    def delemoji_cmd(ctx, args):
+        guild_id = ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id")
+        if not args or not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **DelEmoji** :: Usage: `{bot.prefix}delemoji <emoji_id>`")
+            return
+        import re as _re
+        raw = args[0]
+        m = _re.match(r"<a?:\w+:(\d+)>", raw)
+        emoji_id = m.group(1) if m else raw.strip()
+        try:
+            ctx["api"].request("DELETE", f"/guilds/{guild_id}/emojis/{emoji_id}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ DelEmoji** :: Deleted emoji `{emoji_id}`")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ DelEmoji** :: {e}")
+
+    @bot.command(name="addemoji", aliases=["addmoji", "uploademoji"])
+    def addemoji_cmd(ctx, args):
+        guild_id = ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id")
+        if len(args) < 2 or not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **AddEmoji** :: Usage: `{bot.prefix}addemoji <name> <image_url>`")
+            return
+        name, url = args[0], args[1]
+        try:
+            r = ctx["api"].session.get(url, timeout=10)
+            if r.status_code != 200:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ AddEmoji** :: Failed to download image (HTTP {r.status_code})")
+                return
+            ct = r.headers.get("Content-Type", "image/png").split(";")[0].strip()
+            ext = {"image/gif": "gif", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}.get(ct, "png")
+            b64 = base64.b64encode(r.content).decode()
+            result = ctx["api"].request("POST", f"/guilds/{guild_id}/emojis",
+                                        json={"name": name, "image": f"data:{ct};base64,{b64}"})
+            new_id = (result or {}).get("id", "?")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ AddEmoji** :: Added **{name}** (`{new_id}`)")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ AddEmoji** :: {e}")
+
+    @bot.command(name="listemojis", aliases=["emojis", "emojilist"])
+    def listemojis_cmd(ctx, args):
+        guild_id = ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id")
+        if not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **ListEmojis** :: Must be in a server")
+            return
+        try:
+            guild = ctx["api"].request("GET", f"/guilds/{guild_id}")
+            emojis = (guild or {}).get("emojis") or []
+            if not emojis:
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Emojis** :: No custom emojis in this server")
+                return
+            lines = [f"<{'a' if e.get('animated') else ''}:{e['name']}:{e['id']}> `{e['name']}`" for e in emojis[:30]]
+            text = "\n".join(lines)
+            if len(emojis) > 30:
+                text += f"\n... and {len(emojis) - 30} more"
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Emojis** :: **{len(emojis)}** total\n{text}")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ ListEmojis** :: {e}")
+
+    # ─── SNIPE COMMANDS ───────────────────────────────────────────────────────
+
+    @bot.command(name="snipe", aliases=["sn"])
+    def snipe_cmd_runtime(ctx, args):
+        cid = ctx["channel_id"]
+        entry = bot._snipe_cache.get(cid)
+        if not entry:
+            msg = ctx["api"].send_message(cid, "> **Snipe** :: Nothing to snipe in this channel")
+            return
+        m = entry.get("message") or {}
+        author = (m.get("author") or {}).get("username", "Unknown")
+        content = m.get("content") or "[no content]"
+        msg = ctx["api"].send_message(cid, f"> **Snipe** :: **{author}**: {content[:1800]}")
+
+    @bot.command(name="editsnipe", aliases=["esnipe", "es"])
+    def editsnipe_cmd(ctx, args):
+        cid = ctx["channel_id"]
+        entry = bot._esnipe_cache.get(cid)
+        if not entry:
+            msg = ctx["api"].send_message(cid, "> **EditSnipe** :: Nothing to edit-snipe in this channel")
+            return
+        before_data = entry.get("before") or {}
+        after_data = entry.get("after") or {}
+        author = (before_data.get("author") or {}).get("username", "Unknown")
+        before = before_data.get("content") or "[empty]"
+        after = after_data.get("content") or "[empty]"
+        msg = ctx["api"].send_message(cid, f"> **EditSnipe** :: **{author}** edited:\n> Before: {before[:800]}\n> After: {after[:800]}")
+
+    # ─── REMINDER COMMAND ────────────────────────────────────────────────────
+
+    @bot.command(name="remind", aliases=["reminder", "remindme"])
+    def remind_cmd(ctx, args):
+        if len(args) < 2:
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"> **Remind** :: Usage: `{bot.prefix}remind <seconds> <message>` — e.g. `{bot.prefix}remind 60 take a break`")
+            return
+        try:
+            secs = int(args[0])
+        except ValueError:
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Remind** :: First argument must be seconds (e.g. `300` for 5 min)")
+            return
+        reminder_text = " ".join(args[1:])
+        cid = ctx["channel_id"]
+        import threading, time as _time
+        def _fire():
+            _time.sleep(secs)
+            try:
+                bot.api.send_message(cid, f"> ⏰ **Reminder** :: {reminder_text}")
+            except Exception:
+                pass
+        t = threading.Thread(target=_fire, daemon=True)
+        t.start()
+        h = secs // 3600
+        m2 = (secs % 3600) // 60
+        s2 = secs % 60
+        parts = []
+        if h: parts.append(f"{h}h")
+        if m2: parts.append(f"{m2}m")
+        if s2 or not parts: parts.append(f"{s2}s")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Remind** :: I'll remind you in **{''.join(parts)}** — {reminder_text}")
+
+    @bot.command(name="countdown", aliases=["cd"])
+    def countdown_cmd(ctx, args):
+        if len(args) < 2 or not args[0].isdigit():
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"> **Countdown** :: Usage: `{bot.prefix}countdown <from> <label>` — e.g. `{bot.prefix}countdown 5 Go!`")
+            return
+        count = min(int(args[0]), 10)
+        label = " ".join(args[1:])
+        import time as _time
+        import threading
+        cid = ctx["channel_id"]
+        def _run():
+            for i in range(count, 0, -1):
+                bot.api.send_message(cid, str(i))
+                _time.sleep(1)
+            bot.api.send_message(cid, f"**{label}**")
+        threading.Thread(target=_run, daemon=True).start()
+
+    # ─── MISCELLANEOUS UTILITY ───────────────────────────────────────────────
+
+    @bot.command(name="coinflip", aliases=["coin", "flip", "cf"])
+    def coinflip_cmd(ctx, args):
+        import random as _rand
+        result = _rand.choice(["**Heads** 🪙", "**Tails** 🪙"])
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Coin Flip** :: {result}")
+
+    @bot.command(name="dice", aliases=["roll", "d6"])
+    def dice_cmd(ctx, args):
+        import random as _rand
+        sides = 6
+        count = 1
+        if args:
+            spec = args[0].lower()
+            if "d" in spec:
+                parts = spec.split("d")
+                try:
+                    count = min(int(parts[0] or 1), 20)
+                    sides = int(parts[1])
+                except Exception:
+                    pass
+            elif spec.isdigit():
+                sides = int(spec)
+        rolls = [_rand.randint(1, sides) for _ in range(count)]
+        result = " + ".join(str(r) for r in rolls) + f" = **{sum(rolls)}**" if count > 1 else f"**{rolls[0]}**"
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Dice** :: 🎲 {result}")
+
+    @bot.command(name="rng", aliases=["random", "randnum"])
+    def rng_cmd(ctx, args):
+        import random as _rand
+        lo, hi = 1, 100
+        if len(args) >= 2:
+            try: lo, hi = int(args[0]), int(args[1])
+            except Exception: pass
+        elif len(args) == 1:
+            try: hi = int(args[0])
+            except Exception: pass
+        val = _rand.randint(min(lo, hi), max(lo, hi))
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **RNG** :: 🎲 {val} (range {lo}–{hi})")
+
+    @bot.command(name="choose", aliases=["pick", "choice"])
+    def choose_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Choose** :: Usage: `{bot.prefix}choose option1 option2 ...`")
+            return
+        import random as _rand
+        chosen = _rand.choice(args)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Choose** :: 🎯 **{chosen}**")
+
+    @bot.command(name="8ball", aliases=["eightball", "8b"])
+    def eightball_cmd(ctx, args):
+        import random as _rand
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **8Ball** :: Usage: `{bot.prefix}8ball <question>`")
+            return
+        responses = [
+            "It is certain.", "It is decidedly so.", "Without a doubt.", "Yes, definitely.",
+            "You may rely on it.", "As I see it, yes.", "Most likely.", "Outlook good.",
+            "Yes.", "Signs point to yes.", "Reply hazy, try again.", "Ask again later.",
+            "Better not tell you now.", "Cannot predict now.", "Concentrate and ask again.",
+            "Don't count on it.", "My reply is no.", "My sources say no.",
+            "Outlook not so good.", "Very doubtful.",
+        ]
+        resp = _rand.choice(responses)
+        question = " ".join(args)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **🎱 8Ball** :: *{question}*\n> {resp}")
+
+    @bot.command(name="rate", aliases=["rateme"])
+    def rate_cmd(ctx, args):
+        import random as _rand
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Rate** :: Usage: `{bot.prefix}rate <thing>`")
+            return
+        thing = " ".join(args)
+        rating = _rand.randint(0, 10)
+        bar = "█" * rating + "░" * (10 - rating)
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **Rate** :: **{thing}** — {rating}/10 `{bar}`")
+
+    @bot.command(name="ascii")
+    def ascii_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **ASCII** :: Usage: `{bot.prefix}ascii <text>`")
+            return
+        text = " ".join(args)
+        codes = " · ".join(f"`{c}` = {ord(c)}" for c in text[:20])
+        msg = ctx["api"].send_message(ctx["channel_id"], f"> **ASCII** :: {codes}")
+
+    @bot.command(name="copycat", aliases=["say", "echo2"])
+    def copycat_cmd(ctx, args):
+        if not args:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Copycat** :: Usage: `{bot.prefix}copycat <text>`")
+            return
+        msg = ctx["api"].send_message(ctx["channel_id"], " ".join(args))
+
+    @bot.command(name="vanity", aliases=["servervanity", "guildvanity"])
+    def vanity_cmd(ctx, args):
+        guild_id = ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id")
+        if not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Vanity** :: Must be in a server")
+            return
+        try:
+            data = ctx["api"].request("GET", f"/guilds/{guild_id}/vanity-url")
+            code = (data or {}).get("code")
+            if code:
+                msg = ctx["api"].send_message(ctx["channel_id"],
+                    f"> **Vanity** :: `discord.gg/{code}` · Uses: **{(data or {}).get('uses', '?')}**")
+            else:
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Vanity** :: This server has no vanity URL")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Vanity** :: {e}")
+
+    @bot.command(name="permissions", aliases=["perms", "mperms"])
+    def permissions_cmd(ctx, args):
+        guild_id = ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id")
+        if not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **Permissions** :: Must be in a server")
+            return
+        try:
+            member = ctx["api"].request("GET", f"/guilds/{guild_id}/members/@me")
+            roles = (member or {}).get("roles") or []
+            guild = ctx["api"].request("GET", f"/guilds/{guild_id}")
+            all_roles = {r["id"]: r for r in (guild or {}).get("roles") or []}
+            perms = 0
+            for rid in roles:
+                perms |= int((all_roles.get(rid) or {}).get("permissions") or 0)
+            perm_names = {
+                "Administrator": 1 << 3, "Manage Guild": 1 << 5, "Manage Roles": 1 << 28,
+                "Kick Members": 1 << 1, "Ban Members": 1 << 2, "Manage Channels": 1 << 4,
+                "Manage Messages": 1 << 13, "Mention Everyone": 1 << 17, "Mute Members": 1 << 22,
+            }
+            granted = [name for name, bit in perm_names.items() if perms & bit]
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"> **My Permissions** :: `{'` · `'.join(granted) if granted else 'None'}`")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Permissions** :: {e}")
+
+    @bot.command(name="inviteme", aliases=["botinvite", "createinvite"])
+    def inviteme_cmd(ctx, args):
+        guild_id = ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id")
+        if not guild_id:
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **CreateInvite** :: Must be used in a server channel")
+            return
+        max_age = 86400
+        max_uses = 0
+        if args and args[0].isdigit():
+            max_age = int(args[0])
+        try:
+            data = ctx["api"].request("POST", f"/channels/{ctx['channel_id']}/invites",
+                                      json={"max_age": max_age, "max_uses": max_uses, "temporary": False})
+            code = (data or {}).get("code")
+            msg = ctx["api"].send_message(ctx["channel_id"],
+                f"> **✓ Invite** :: `discord.gg/{code}` · Expires: **{max_age // 3600}h**")
+        except Exception as e:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ CreateInvite** :: {e}")
+
+    @bot.command(name="signup", aliases=["authorize", "authbot", "addbot"])
+    def signup_cmd(ctx, args):
+        """Return OAuth2 authorize links for server install and user install.
+
+        Usage:
+            <prefix>signup
+            <prefix>signup user
+            <prefix>signup <guild_id>
+            <prefix>signup <guild_id> <permissions_int>
+        """
+        cfg = ctx["bot"].config
+
+        # Preferred app id for OAuth2 link generation.
+        client_id = str(
+            (cfg.get("discord_client_id") or "").strip()
+            or (cfg.get("application_id") or "").strip()
+        )
+
+        # Fallback: derive application id from bot token's first segment when possible.
+        if not client_id.isdigit():
+            bot_token = (os.getenv("DISCORD_BOT_TOKEN") or cfg.get("discord_bot_token") or "").strip()
+            if bot_token and "." in bot_token:
+                try:
+                    token_head = bot_token.split(".", 1)[0]
+                    padded = token_head + "=" * (-len(token_head) % 4)
+                    decoded = base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8", errors="ignore")
+                    if decoded.isdigit():
+                        client_id = decoded
+                except Exception:
+                    pass
+
+        if not client_id.isdigit():
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                "> **✗ Signup** :: Missing `discord_client_id` in config. Set it to your bot application's client ID.",
+            )
+            return
+
+        mode = (str(args[0]).lower() if args else "both")
+        target_guild_id = ""
+        if mode.isdigit():
+            target_guild_id = mode
+            mode = "guild"
+        elif mode not in {"user", "guild", "both"}:
+            mode = "both"
+
+        if not target_guild_id:
+            target_guild_id = str(ctx.get("guild_id") or "")
+
+        permissions = "274877924352"  # baseline admin-lite + messaging bits
+        if len(args) >= 2 and str(args[1]).isdigit():
+            permissions = str(args[1])
+
+        base_url = "https://discord.com/oauth2/authorize"
+        redirect_uri = (cfg.get("oauth_redirect_uri") or "").strip()
+        redirect_q = f"&redirect_uri={_url_quote(redirect_uri, safe='')}" if redirect_uri else ""
+
+        guild_query = [
+            f"client_id={client_id}",
+            f"permissions={permissions}",
+            "scope=bot%20applications.commands",
+            "disable_guild_select=false",
+        ]
+        if target_guild_id:
+            guild_query.append(f"guild_id={target_guild_id}")
+
+        # User-install link for DM/private usage (no bot scope required).
+        user_query = [
+            f"client_id={client_id}",
+            "scope=applications.commands",
+            "integration_type=1",
+        ]
+
+        guild_invite_url = f"{base_url}?{'&'.join(guild_query)}{redirect_q}"
+        user_install_url = f"{base_url}?{'&'.join(user_query)}{redirect_q}"
+
+        if mode == "user":
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                "> **Signup (User Install)** :: Authorize for personal DM/private command use\n"
+                f"{user_install_url}\n"
+                "> Commands run via the bot app, not as your personal Discord account.",
+            )
+            return
+
+        if mode == "guild":
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                "> **Signup (Server Install)** :: Add bot to a server\n"
+                f"{guild_invite_url}\n"
+                "> After authorizing, slash commands should sync. Use `slashbot status` to verify runtime.",
+            )
+            return
+
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            "> **Signup** :: Choose install type\n"
+            f"> **Server Install**\n{guild_invite_url}\n"
+            f"> **User Install (DM/private)**\n{user_install_url}\n"
+            "> Commands run through the bot app; Discord does not allow executing them as user-account/selfbot commands.",
+        )
+
+    @bot.command(name="dashboardurl", aliases=["dashurl", "redirecturl", "oauthredirect"])
+    def dashboardurl_cmd(ctx, args):
+        """Show dashboard and OAuth redirect config values for quick verification."""
+        cfg = ctx["bot"].config
+        dashboard_url = str(cfg.get("dashboard_url") or "").strip()
+        redirect_uri = str(cfg.get("oauth_redirect_uri") or "").strip()
+
+        dashboard_status = "set" if dashboard_url else "missing"
+        redirect_status = "set" if redirect_uri else "missing"
+
+        if dashboard_url and not dashboard_url.startswith(("http://", "https://")):
+            dashboard_status = "invalid"
+        if redirect_uri and not redirect_uri.startswith(("http://", "https://")):
+            redirect_status = "invalid"
+
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            "> **Dashboard Config**\n"
+            f"> dashboard_url: `{dashboard_url or 'not set'}` ({dashboard_status})\n"
+            f"> oauth_redirect_uri: `{redirect_uri or 'not set'}` ({redirect_status})\n"
+            "> Make sure `oauth_redirect_uri` exactly matches your Discord OAuth2 Redirects entry.",
+        )
+
+    # ─── ANTINUKE COMMANDS ──────────────────────────────────────────
 
     # Global antinuke configuration
     global ANTINUKE_CONFIG
@@ -4596,28 +5738,28 @@ Example Usage:
                 f"> **Antinuke** :: Usage: {p}antinuke on|off|status|settings — {p}antinuke actions [add|remove|list] <warn|kick|ban>",
             )
             return
-        
+
         guild_id = str(ctx["guild_id"])
         subcommand = args[0].lower()
-        
+
         if subcommand == "on":
             if guild_id not in ANTINUKE_CONFIG:
                 ANTINUKE_CONFIG[guild_id] = {"mode": "on", "actions": ["warn"]}
             else:
                 ANTINUKE_CONFIG[guild_id]["mode"] = "on"
             msg = ctx["api"].send_message(ctx["channel_id"], "> **✓ Antinuke** :: Mode **ON** — protecting against unauthorized changes.")
-        
+
         elif subcommand == "off":
             if guild_id in ANTINUKE_CONFIG:
                 ANTINUKE_CONFIG[guild_id]["mode"] = "off"
             msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Antinuke** :: Mode **OFF** — disabled.")
-        
+
         elif subcommand == "status":
             cfg = ANTINUKE_CONFIG.get(guild_id, {})
             mode = cfg.get("mode", "off")
             actions = cfg.get("actions", [])
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **Antinuke** :: Mode **{mode.upper()}** · Actions: {', '.join(actions) if actions else 'none'}")
-        
+
         elif subcommand == "settings":
             cfg = ANTINUKE_CONFIG.get(guild_id, {})
             mode = cfg.get("mode", "off")
@@ -4666,6 +5808,228 @@ Example Usage:
                     actions.append("warn")
                 msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Antinuke Actions** :: Removed **{val}** · Current: {', '.join(actions)}")
                 return
+
+    # ─── SLASH / INTERACTION COMMANDS ──────────────────────────────────────────
+
+    @bot.command(name="slashlist", aliases=["getslash", "slashcmds"])
+    def slashlist_cmd(ctx, args):
+        """List slash commands for this guild (or global with --me).
+        Usage: <prefix>slashlist [guild_id]
+               <prefix>slashlist --me"""
+        api = ctx["api"]
+        channel_id = ctx["channel_id"]
+        if args and args[0] == "--me":
+            data = api.get_user_slash_commands()
+            scope = "your global"
+        else:
+            guild_id = args[0] if args else ctx.get("guild_id", "")
+            if not guild_id:
+                api.send_message(channel_id, "> **✗ SlashList** :: Must be in a guild or provide a guild_id.")
+                return
+            data = api.get_slash_commands(guild_id)
+            scope = f"guild `{guild_id}`"
+        if not data:
+            api.send_message(channel_id, f"> **✗ SlashList** :: Could not fetch slash commands for {scope}.")
+            return
+        commands = data.get("application_commands") or []
+        apps = {a["id"]: a.get("name", "?") for a in (data.get("applications") or [])}
+        if not commands:
+            api.send_message(channel_id, f"> **SlashList** :: No slash commands found for {scope}.")
+            return
+        from collections import defaultdict as _dd
+        grouped = _dd(list)
+        for cmd in commands:
+            app_name = apps.get(cmd.get("application_id", ""), cmd.get("application_id", "?"))
+            grouped[app_name].append(cmd)
+        lines = [f"**Slash Commands — {scope}** ({len(commands)} total)"]
+        for app_name, cmds in sorted(grouped.items()):
+            lines.append(f"\n**{app_name}**")
+            for c in cmds[:20]:
+                desc = c.get("description", "").rstrip(".")
+                lines.append(f"  `/{c['name']}`  ·  {desc[:60]}" if desc else f"  `/{c['name']}`")
+            if len(cmds) > 20:
+                lines.append(f"  … and {len(cmds) - 20} more")
+        output = "\n".join(lines)
+        if len(output) > 1900:
+            output = output[:1900] + "\n…"
+        api.send_message(channel_id, output)
+
+    @bot.command(name="slash", aliases=["sendslash", "useslash"])
+    def slash_cmd(ctx, args):
+        """Fire a slash command in the current guild.
+        Usage: <prefix>slash <command_name> [guild_id] [option_value ...]"""
+        api = ctx["api"]
+        channel_id = ctx["channel_id"]
+        guild_id = ctx.get("guild_id", "")
+        if not args:
+            api.send_message(channel_id, f"> **Slash** :: `{bot.prefix}slash <command_name> [guild_id] [option value ...]`")
+            return
+        cmd_name = args[0].lstrip("/")
+        remaining = list(args[1:])
+        if remaining and remaining[0].isdigit() and len(remaining[0]) >= 17:
+            guild_id = remaining.pop(0)
+        if not guild_id:
+            api.send_message(channel_id, "> **✗ Slash** :: Not in a guild. Provide a guild_id as the second argument.")
+            return
+        data = api.get_slash_commands(guild_id)
+        if not data:
+            api.send_message(channel_id, "> **✗ Slash** :: Could not retrieve slash commands for that guild.")
+            return
+        commands = data.get("application_commands") or []
+        target = next((c for c in commands if c.get("name", "").lower() == cmd_name.lower()), None)
+        if not target:
+            api.send_message(channel_id, f"> **✗ Slash** :: Command `/{cmd_name}` not found in that guild.")
+            return
+        options = []
+        for val in remaining:
+            options.append({"type": 3, "name": "value", "value": val})
+        ok = api.send_slash_command(channel_id, guild_id, target, options if options else None)
+        if ok:
+            api.send_message(channel_id, f"> **✓ Slash** :: Fired `/{target['name']}` in <#{channel_id}>.")
+        else:
+            api.send_message(channel_id, "> **✗ Slash** :: Interaction failed — bot may lack access or command needs specific options.")
+
+    @bot.command(name="clickbutton", aliases=["btnclick", "clickbtn"])
+    def clickbutton_cmd(ctx, args):
+        """Click a message component button.
+        Usage: <prefix>clickbutton <message_id> <custom_id> [channel_id] [app_id]"""
+        api = ctx["api"]
+        channel_id = ctx["channel_id"]
+        guild_id = ctx.get("guild_id", "")
+        if len(args) < 2:
+            api.send_message(channel_id, f"> **ClickButton** :: `{bot.prefix}clickbutton <message_id> <custom_id> [channel_id] [app_id]`")
+            return
+        message_id = args[0]
+        custom_id = args[1]
+        target_channel = args[2] if len(args) > 2 else channel_id
+        app_id = args[3] if len(args) > 3 else ""
+        if not app_id:
+            msg_resp = api.request("GET", f"/channels/{target_channel}/messages/{message_id}")
+            if msg_resp and msg_resp.status_code == 200:
+                msg_data = msg_resp.json()
+                app_id = (msg_data.get("application_id") or msg_data.get("author", {}).get("id", ""))
+            if not app_id:
+                api.send_message(channel_id, "> **✗ ClickButton** :: Could not determine application_id. Pass it explicitly.")
+                return
+        ok = api.click_button(guild_id, target_channel, message_id, app_id, custom_id)
+        if ok:
+            api.send_message(channel_id, f"> **✓ ClickButton** :: Clicked `{custom_id}` on message `{message_id}`.")
+        else:
+            api.send_message(channel_id, "> **✗ ClickButton** :: Interaction failed.")
+
+    # ─── READALL / READALLDMS COMMANDS ──────────────────────────────────────
+
+    @bot.command(name="readall", aliases=["readguild", "dumpguild"])
+    def readall_cmd(ctx, args):
+        """Read recent messages from all channels in this guild.
+        Usage: <prefix>readall [limit_per_channel] [guild_id]"""
+        api = ctx["api"]
+        channel_id = ctx["channel_id"]
+        guild_id = ctx.get("guild_id", "")
+        limit = 10
+        for a in args:
+            if a.isdigit() and len(a) < 5:
+                limit = max(1, min(int(a), 50))
+            elif a.isdigit() and len(a) >= 17:
+                guild_id = a
+        if not guild_id:
+            api.send_message(channel_id, "> **✗ ReadAll** :: Not in a guild. Provide a guild_id.")
+            return
+        status = api.send_message(channel_id, f"> **ReadAll** :: Fetching up to {limit} messages/channel…")
+        status_id = (status or {}).get("id")
+        ch_resp = api.request("GET", f"/guilds/{guild_id}/channels")
+        if not ch_resp or ch_resp.status_code != 200:
+            api.edit_message(channel_id, status_id, "> **✗ ReadAll** :: Could not fetch channels.")
+            return
+        text_types = {0, 5, 10, 11, 12}
+        channels = [c for c in (ch_resp.json() or []) if c.get("type") in text_types]
+        if not channels:
+            api.edit_message(channel_id, status_id, "> **ReadAll** :: No readable channels found.")
+            return
+        all_msgs = []
+        skipped = 0
+        import time as _rt
+        for ch in channels:
+            cid_ = ch.get("id")
+            if not cid_:
+                continue
+            r = api.request("GET", f"/channels/{cid_}/messages?limit={limit}")
+            if r and r.status_code == 200:
+                msgs = r.json() or []
+                for m in msgs:
+                    all_msgs.append({
+                        "channel": ch.get("name", cid_),
+                        "author": m.get("author", {}).get("username", "?"),
+                        "content": (m.get("content") or "")[:80],
+                        "ts": m.get("timestamp", "")[:10],
+                    })
+            else:
+                skipped += 1
+            _rt.sleep(0.25)
+        all_msgs.sort(key=lambda x: x["ts"], reverse=True)
+        top = all_msgs[:80]
+        lines = [f"**ReadAll — {len(channels)} channels, {len(all_msgs)} messages**"
+                 + (f" ({skipped} skipped/no-access)" if skipped else "")]
+        for m in top:
+            snippet = m["content"].replace("\n", " ") or "<no text>"
+            lines.append(f"`#{m['channel']}` **{m['author']}**: {snippet}")
+        output = "\n".join(lines)
+        if len(output) > 1900:
+            output = output[:1900] + "\n…"
+        api.edit_message(channel_id, status_id, output)
+
+    @bot.command(name="readalldms", aliases=["readdms", "dumpdms"])
+    def readalldms_cmd(ctx, args):
+        """Read recent messages from all open DMs.
+        Usage: <prefix>readalldms [limit_per_dm]"""
+        api = ctx["api"]
+        channel_id = ctx["channel_id"]
+        limit = 10
+        for a in args:
+            if a.isdigit() and len(a) < 5:
+                limit = max(1, min(int(a), 50))
+        status = api.send_message(channel_id, f"> **ReadAllDMs** :: Fetching up to {limit} messages/DM…")
+        status_id = (status or {}).get("id")
+        dms_resp = api.request("GET", "/users/@me/channels")
+        if not dms_resp or dms_resp.status_code != 200:
+            api.edit_message(channel_id, status_id, "> **✗ ReadAllDMs** :: Could not fetch DM channels.")
+            return
+        dms = [c for c in (dms_resp.json() or []) if c.get("type") in (1, 3)]
+        if not dms:
+            api.edit_message(channel_id, status_id, "> **ReadAllDMs** :: No DM channels found.")
+            return
+        import time as _rdmt
+        all_msgs = []
+        for dm in dms:
+            cid_ = dm.get("id")
+            if not cid_:
+                continue
+            if dm.get("type") == 1:
+                recips = dm.get("recipients", [{}])
+                dm_name = recips[0].get("username", cid_) if recips else cid_
+            else:
+                dm_name = dm.get("name") or "Group DM"
+            r = api.request("GET", f"/channels/{cid_}/messages?limit={limit}")
+            if r and r.status_code == 200:
+                msgs = r.json() or []
+                for m in msgs:
+                    all_msgs.append({
+                        "dm": dm_name,
+                        "author": m.get("author", {}).get("username", "?"),
+                        "content": (m.get("content") or "")[:80],
+                        "ts": m.get("timestamp", "")[:10],
+                    })
+            _rdmt.sleep(0.2)
+        all_msgs.sort(key=lambda x: x["ts"], reverse=True)
+        top = all_msgs[:80]
+        lines = [f"**ReadAllDMs — {len(dms)} DMs, {len(all_msgs)} messages**"]
+        for m in top:
+            snippet = m["content"].replace("\n", " ") or "<no text>"
+            lines.append(f"**@{m['dm']}** · *{m['author']}*: {snippet}")
+        output = "\n".join(lines)
+        if len(output) > 1900:
+            output = output[:1900] + "\n…"
+        api.edit_message(channel_id, status_id, output)
 
     # ─── AUTOBUMP COMMANDS ──────────────────────────────────────────────────
 
@@ -4765,7 +6129,7 @@ Example Usage:
             "general": {
                 "title": f"{p}help General",
                 "lines": [
-                    ("help [category|command]", "Open the main help system"),
+                    ("help [section|command]", "Open the main help system"),
                     ("helpwall", "Show the full command wall"),
                     ("quickhelp", "Show common starter commands"),
                     ("categories", "List command-engine categories"),
@@ -4773,6 +6137,7 @@ Example Usage:
                     ("ping", "Test bot latency"),
                     ("profile [user_id]", "Show a user profile"),
                     ("guilds", "List your guilds"),
+                    ("signup [user|guild_id] [perms]", "Get user-install and/or server-install authorize links"),
                     ("autoreact <@user> <emoji...>", "Set auto-reactions for a target user"),
                     ("mimic <@user> [reply]", "Mimic a user or one-off echo"),
                     ("bold <text>", "Make text bold"),
@@ -5313,10 +6678,10 @@ Example Usage:
                 "lines": [
                     ("vc [channel_id]", "Join voice/call"),
                     ("vce", "Leave voice/call"),
-                    ("vccam [on/off]", "Toggle camera"),
-                    ("vcstream [on/off]", "Toggle stream / Go Live"),
-                    ("vcmute [on/off]", "Toggle self mute"),
-                    ("vcdeaf [on/off]", "Toggle self deaf"),
+                    ("vccam [on/off|channel_id] [channel_id]", "Camera (alias: cam)"),
+                    ("vcstream [on/off|channel_id] [channel_id]", "Stream / Go Live (alias: stream)"),
+                    ("vcmute [on/off|channel_id] [channel_id]", "Self mute"),
+                    ("vcdeaf [on/off|channel_id] [channel_id]", "Self deaf"),
                     ("vcswitch <channel_id>", "Switch voice channel"),
                     ("vcrejoin", "Reconnect to current voice channel"),
                     ("vcstatus", "Show voice connection state"),
@@ -5339,11 +6704,12 @@ Example Usage:
 
                         "vccam": help_page(
                                 f"{p}vccam [on/off]",
-                                "Toggles or sets the camera state in voice.",
+                                "Sets camera state in voice.",
                                 "",
                                 {"type": "section", "text": "Arguments"},
-                                ("on/off", "Explicitly turn camera on or off"),
-                                "Omit to toggle current state",
+                                ("on/off", "Turn camera on or off"),
+                                ("channel_id", "Optional voice channel id"),
+                                "If first arg is a channel_id, camera turns on for that VC.",
                             "",
                             {"type": "section", "text": "Aliases"},
                             "cam, camera, vcam, vcvideo",
@@ -5351,18 +6717,19 @@ Example Usage:
 
                         "vcstream": help_page(
                                 f"{p}vcstream [on/off]",
-                                "Toggles or sets the Go Live stream state in voice.",
+                                "Sets Go Live stream state in voice.",
                                 "",
                                 {"type": "section", "text": "Arguments"},
-                                ("on/off", "Explicitly start or stop streaming"),
-                                "Omit to toggle current state",
+                                ("on/off", "Start or stop streaming"),
+                                ("channel_id", "Optional voice channel id"),
+                                "If first arg is a channel_id, stream starts for that VC.",
                             "",
                             {"type": "section", "text": "Aliases"},
                             "stream, golive, vcgo, vcgolive, screenshare, vcscreen",
                         ),
 
-                    "vcmute": help_page(f"{p}vcmute [on/off] [channel_id]", "Sets your self-mute state in voice."),
-                    "vcdeaf": help_page(f"{p}vcdeaf [on/off] [channel_id]", "Sets your self-deaf state in voice."),
+                    "vcmute": help_page(f"{p}vcmute [on/off|channel_id] [channel_id]", "Sets your self-mute state in voice."),
+                    "vcdeaf": help_page(f"{p}vcdeaf [on/off|channel_id] [channel_id]", "Sets your self-deaf state in voice."),
                     "vcswitch": help_page(f"{p}vcswitch <channel_id>", "Moves/switches your current voice session to another channel."),
                     "vcrejoin": help_page(f"{p}vcrejoin", "Reconnects to the current voice channel to recover broken VC state."),
                     "vcstatus": help_page(f"{p}vcstatus", "Shows detailed VC state (channel/cam/stream/mute/deaf/ws)."),
@@ -5385,8 +6752,70 @@ Example Usage:
                     ("roast", "Get roasted"),
                     ("compliment", "Get a compliment"),
                     ("mimic <text>", "Echo text (mimic)"),
-                    ("snipe [page]", "Snipe deleted messages"),
-                    ("editsnipe [page]", "Snipe edited messages"),
+                    ("snipe", "Snipe last deleted message"),
+                    ("editsnipe", "Snipe last edited message"),
+                    ("8ball <question>", "Ask the magic 8-ball"),
+                    ("coinflip", "Flip a coin"),
+                    ("dice [NdX]", "Roll dice (e.g. 2d6)"),
+                    ("rng [min] [max]", "Random number"),
+                    ("choose <opt1> <opt2>...", "Pick a random option"),
+                    ("rate <thing>", "Rate something out of 10"),
+                    ("mock <text>", "SpOnGeBoB mOcK tExT"),
+                    ("clap <text>", "Add 👏 between words"),
+                    ("aesthetic <text>", "Vaporwave fullwidth text"),
+                    ("reverse <text>", "Reverse text"),
+                    ("big <text>", "Regional indicator big text"),
+                    ("spoiler <text>", "Wrap text in spoiler tags"),
+                    ("codeblock [lang] <text>", "Wrap in code block"),
+                    ("leet <text>", "L33t-speak converter"),
+                    ("upper <text>", "UPPERCASE text"),
+                    ("lower <text>", "lowercase text"),
+                    ("repeat <n> <text>", "Repeat a message N times"),
+                    ("scramble <text>", "Scramble each word"),
+                    ("zalgo <text>", "Z̷a̵l̸g̴o̶ text"),
+                    ("wordcount <text>", "Count words and characters"),
+                    ("b64encode <text>", "Base64 encode"),
+                    ("b64decode <encoded>", "Base64 decode"),
+                    ("charinfo <char>", "Unicode character info"),
+                    ("snowflake <id>", "Decode a Discord snowflake"),
+                    ("timestamp [unix]", "Discord timestamp formats"),
+                    ("calc <expr>", "Calculator (supports math)"),
+                    ("hex <number>", "Convert decimal/hex"),
+                    ("binary <number>", "Convert decimal/binary"),
+                    ("ascii <text>", "Show ASCII codes"),
+                ],
+            },
+
+            # ── Utility ──────────────────────────────────────────────────────
+            "utility": {
+                "title": f"{p}help Utility",
+                "lines": [
+                    ("serverinfo", "Info about current server"),
+                    ("membercount", "Member count for server"),
+                    ("roleinfo <role_id>", "Info about a role"),
+                    ("channelinfo [#channel]", "Info about a channel"),
+                    ("inviteinfo <code>", "Inspect an invite"),
+                    ("firstmsg [#channel]", "Get first message in a channel"),
+                    ("nick [new_nick]", "Change your nickname"),
+                    ("customstatus [text]", "Set / clear custom status"),
+                    ("purge [count]", "Delete your own messages"),
+                    ("pin <msg_id>", "Pin a message"),
+                    ("unpin <msg_id>", "Unpin a message"),
+                    ("slowmode <secs>", "Set channel slowmode"),
+                    ("topic [text]", "Set channel topic"),
+                    ("react <msg_id> <emoji>", "Add a reaction"),
+                    ("unreact <msg_id> <emoji>", "Remove a reaction"),
+                    ("stealemoji <:emoji:>", "Copy emoji to this server"),
+                    ("addemoji <name> <url>", "Add emoji from URL"),
+                    ("delemoji <emoji_id>", "Delete a server emoji"),
+                    ("emojiurl <emoji>", "Get emoji image URL"),
+                    ("listemojis", "List all server emojis"),
+                    ("vanity", "Show server vanity URL"),
+                    ("permissions", "Show your server permissions"),
+                    ("createinvite [max_age_secs]", "Create a channel invite"),
+                    ("remind <secs> <text>", "Set a reminder"),
+                    ("countdown <from> <label>", "Countdown from N"),
+                    ("copycat <text>", "Send text as-is"),
                 ],
             },
 
@@ -6332,10 +7761,10 @@ Example Usage:
                     ("badges server <server_id> [limit]", "Server badges"),
                     ("vc [channel_id]", "Join voice/call"),
                     ("vce", "Leave voice/call"),
-                    ("vccam [on/off]", "Toggle camera"),
-                    ("vcstream [on/off]", "Stream / Go Live"),
-                    ("vcmute [on/off]", "Self mute"),
-                    ("vcdeaf [on/off]", "Self deaf"),
+                    ("vccam [on/off|channel_id] [channel_id]", "Camera (cam/camera)"),
+                    ("vcstream [on/off|channel_id] [channel_id]", "Stream (stream/golive)"),
+                    ("vcmute [on/off|channel_id] [channel_id]", "Self mute"),
+                    ("vcdeaf [on/off|channel_id] [channel_id]", "Self deaf"),
                     ("vcswitch <channel_id>", "Switch VC channel"),
                     ("vcrejoin", "Reconnect VC"),
                     ("vcstatus", "VC state"),
@@ -6439,7 +7868,7 @@ Example Usage:
         
         if page == "owner" and not is_owner_user(ctx["author_id"]):
             bad = (full_page or page or "unknown").strip()
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **No command or category found**: **{bad}**")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **No command or help section found**: **{bad}**")
             return
 
         if page in help_pages:
@@ -6545,6 +7974,11 @@ Example Usage:
                 except Exception:
                     pass
 
+            try:
+                _stop_slash_bot()
+            except Exception:
+                pass
+
             python = sys.executable
             subprocess.Popen([python, "main.py"])
 
@@ -6552,6 +7986,76 @@ Example Usage:
             bot.stop()
         
         threading.Thread(target=restart_sequence, daemon=True).start()
+
+    @bot.command(name="slashbot", aliases=["sbot"])
+    def slashbot_cmd(ctx, args):
+        if not is_strict_owner_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "SlashBot")
+            return
+
+        api = ctx["api"]
+        channel_id = ctx["channel_id"]
+        sub = (args[0].lower() if args else "status")
+
+        if sub == "status":
+            api.send_message(
+                channel_id,
+                f"> **SlashBot** :: {_slashbot_status_text()} · AutoStart: **{str(bool(config.get('auto_start_slash_bot', True))).lower()}** · HideReplies: **{str(bool(config.get('slash_hide_replies', False))).lower()}**",
+            )
+            return
+
+        if sub == "start":
+            ok, info = _start_slash_bot()
+            tag = "✓" if ok else "✗"
+            api.send_message(channel_id, f"> **{tag} SlashBot** :: {info}")
+            return
+
+        if sub == "stop":
+            ok, info = _stop_slash_bot()
+            tag = "✓" if ok else "✗"
+            api.send_message(channel_id, f"> **{tag} SlashBot** :: {info}")
+            return
+
+        if sub == "restart":
+            _stop_slash_bot()
+            ok, info = _start_slash_bot(force=True)
+            tag = "✓" if ok else "✗"
+            api.send_message(channel_id, f"> **{tag} SlashBot** :: {info}")
+            return
+
+        if sub in {"autostart", "auto"}:
+            if len(args) < 2 or args[1].lower() not in {"on", "off"}:
+                api.send_message(channel_id, f"> **SlashBot** :: Usage: `{bot.prefix}slashbot autostart on|off`")
+                return
+            enabled = args[1].lower() == "on"
+            config.set("auto_start_slash_bot", enabled)
+            api.send_message(channel_id, f"> **✓ SlashBot** :: AutoStart set to **{str(enabled).lower()}**")
+            return
+
+        if sub in {"hidereplies", "hidden", "ephemeral"}:
+            if len(args) < 2 or args[1].lower() not in {"on", "off", "status"}:
+                api.send_message(channel_id, f"> **SlashBot** :: Usage: `{bot.prefix}slashbot hidereplies on|off|status`")
+                return
+
+            if args[1].lower() == "status":
+                curr = bool(config.get("slash_hide_replies", False))
+                api.send_message(channel_id, f"> **SlashBot** :: HideReplies is **{str(curr).lower()}**")
+                return
+
+            enabled = args[1].lower() == "on"
+            config.set("slash_hide_replies", enabled)
+
+            # Apply immediately by restarting the slash bot process.
+            _stop_slash_bot()
+            ok, info = _start_slash_bot(force=True)
+            tag = "✓" if ok else "✗"
+            api.send_message(
+                channel_id,
+                f"> **{tag} SlashBot** :: HideReplies set to **{str(enabled).lower()}** · {info}",
+            )
+            return
+
+        api.send_message(channel_id, f"> **SlashBot** :: Usage: `{bot.prefix}slashbot [status|start|stop|restart|autostart on|off|hidereplies on|off|status]`")
         
     def _vc_send(ctx, text):
         msg = ctx["api"].send_message(ctx["channel_id"], text)
@@ -6604,9 +8108,18 @@ Example Usage:
     @bot.command(name="vccam", aliases=["cam", "camera", "vcam", "vcvideo"])
     def vccam(ctx, args):
         enabled = True
-        if args and args[0].lower() in ("off", "false", "0"):
-            enabled = False
-        channel_id = args[1] if len(args) > 1 else None
+        channel_id = None
+        if args:
+            first = str(args[0]).strip().lower()
+            if first in ("off", "false", "0"):
+                enabled = False
+                channel_id = args[1] if len(args) > 1 else None
+            elif first in ("on", "true", "1"):
+                enabled = True
+                channel_id = args[1] if len(args) > 1 else None
+            else:
+                # Treat first arg as channel id when state flag is omitted.
+                channel_id = args[0]
         try:
             ok, detail = voice_manager.set_video(channel_id, enabled)
             if ok:
@@ -6636,9 +8149,18 @@ Example Usage:
     @bot.command(name="vcstream", aliases=["stream", "golive", "vcgo", "vcgolive", "screenshare", "vcscreen"])
     def vcstream(ctx, args):
         enabled = True
-        if args and args[0].lower() in ("off", "stop", "false", "0"):
-            enabled = False
-        channel_id = args[1] if len(args) > 1 else None
+        channel_id = None
+        if args:
+            first = str(args[0]).strip().lower()
+            if first in ("off", "stop", "false", "0"):
+                enabled = False
+                channel_id = args[1] if len(args) > 1 else None
+            elif first in ("on", "start", "true", "1"):
+                enabled = True
+                channel_id = args[1] if len(args) > 1 else None
+            else:
+                # Treat first arg as channel id when state flag is omitted.
+                channel_id = args[0]
         try:
             ok, detail = voice_manager.set_stream(channel_id, enabled)
             if ok:
@@ -6651,9 +8173,17 @@ Example Usage:
     @bot.command(name="vcmute", aliases=["mutevc", "voice_mute", "vcm"])
     def vcmute(ctx, args):
         enabled = True
-        if args and args[0].lower() in ("off", "false", "0"):
-            enabled = False
-        channel_id = args[1] if len(args) > 1 else None
+        channel_id = None
+        if args:
+            first = str(args[0]).strip().lower()
+            if first in ("off", "false", "0"):
+                enabled = False
+                channel_id = args[1] if len(args) > 1 else None
+            elif first in ("on", "true", "1"):
+                enabled = True
+                channel_id = args[1] if len(args) > 1 else None
+            else:
+                channel_id = args[0]
         ok, detail = voice_manager.set_mute_deaf(channel_id=channel_id, mute=enabled, deaf=None)
         if ok:
             msg = _vc_send(ctx, f"> **✓ VC Mute** :: {detail}")
@@ -6663,9 +8193,17 @@ Example Usage:
     @bot.command(name="vcdeaf", aliases=["deafvc", "voice_deaf", "vcd"])
     def vcdeaf(ctx, args):
         enabled = True
-        if args and args[0].lower() in ("off", "false", "0"):
-            enabled = False
-        channel_id = args[1] if len(args) > 1 else None
+        channel_id = None
+        if args:
+            first = str(args[0]).strip().lower()
+            if first in ("off", "false", "0"):
+                enabled = False
+                channel_id = args[1] if len(args) > 1 else None
+            elif first in ("on", "true", "1"):
+                enabled = True
+                channel_id = args[1] if len(args) > 1 else None
+            else:
+                channel_id = args[0]
         ok, detail = voice_manager.set_mute_deaf(channel_id=channel_id, mute=None, deaf=enabled)
         if ok:
             msg = _vc_send(ctx, f"> **✓ VC Deaf** :: {detail}")
@@ -8066,7 +9604,8 @@ Example Usage:
         if matched_prefix:
             content_after_prefix = content[len(matched_prefix):].strip().lower()
         is_setting_afk = content_after_prefix.split()[:1] in (["afk"], ["away"])
-        is_afk_confirmation = "AFK enabled:" in content or "Set AFK:" in content
+        # Match the actual confirmation format: "> **✓ AFK** :: AFK enabled — …"
+        is_afk_confirmation = "AFK enabled" in content or "Set AFK:" in content or "AFK Notice" in content
 
         if (
             author_id
@@ -8076,8 +9615,14 @@ Example Usage:
             and not is_afk_confirmation
             and not matched_prefix
         ):
+            away_time = afk_system.get_time_message(bot.user_id)
             afk_system.remove_afk(bot.user_id)
             afk_system.save_state()
+            wb_msg = f"> **Welcome Back** :: AFK removed · You were away for **{away_time}**" if away_time else "> **Welcome Back** :: AFK removed"
+            try:
+                bot.api.send_message(channel_id, wb_msg)
+            except Exception:
+                pass
 
         # Only the token owner, developer, and authed users can run commands.
         if author_id and str(author_id) != str(bot.user_id) and not is_control:
@@ -9684,7 +11229,7 @@ Example Usage:
     # -----------------------------------------------------------------------
 
     @bot.command(name="inviteinfo", aliases=["ii", "invite", "checkinvite"])
-    def inviteinfo_cmd(ctx, args):
+    def inviteinfo_cmd_runtime(ctx, args):
         if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Invite Info")
             return
@@ -9778,7 +11323,7 @@ Example Usage:
     # -----------------------------------------------------------------------
 
     @bot.command(name="channelinfo", aliases=["cinfo", "chinfo"])
-    def channelinfo_cmd(ctx, args):
+    def channelinfo_cmd_runtime(ctx, args):
         if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Channel Info")
             return
@@ -9926,7 +11471,7 @@ Example Usage:
     # -----------------------------------------------------------------------
 
     @bot.command(name="react", aliases=["r", "addreact", "reaction"])
-    def react_cmd(ctx, args):
+    def react_cmd_runtime(ctx, args):
         if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "React")
             return
@@ -9979,7 +11524,7 @@ Example Usage:
     # -----------------------------------------------------------------------
 
     @bot.command(name="pin", aliases=["pinmsg", "pinmessage"])
-    def pin_cmd(ctx, args):
+    def pin_cmd_runtime(ctx, args):
         if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Pin")
             return
@@ -10007,7 +11552,7 @@ Example Usage:
             msg = api.send_message(ctx["channel_id"], f"> **✗ Pin** :: Failed: HTTP {r.status_code if r else 'No response'}")
 
     @bot.command(name="unpin", aliases=["unpinmsg", "unpinmessage"])
-    def unpin_cmd(ctx, args):
+    def unpin_cmd_runtime(ctx, args):
         if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Unpin")
             return
@@ -10177,7 +11722,7 @@ Example Usage:
     # -----------------------------------------------------------------------
 
     @bot.command(name="roleinfo", aliases=["role", "ri", "rinfo"])
-    def roleinfo_cmd(ctx, args):
+    def roleinfo_cmd_runtime(ctx, args):
         if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Role Info")
             return
@@ -10225,7 +11770,7 @@ Example Usage:
     # -----------------------------------------------------------------------
 
     @bot.command(name="stealemoji", aliases=["se", "copyemoji", "takeemoji"])
-    def stealemoji_cmd(ctx, args):
+    def stealemoji_cmd_runtime(ctx, args):
         if not is_control_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Steal Emoji")
             return
@@ -10436,6 +11981,10 @@ Example Usage:
         print("[AccountData] Stopping local stats job...")
 
         stop_rpc_keepalive(bot=bot, clear_activity=False)
+        try:
+            _stop_slash_bot()
+        except Exception:
+            pass
         account_data_manager.stop_stats_job()
         account_data_manager.stop_auto_scrape()
         history_manager.stop_background_scraping()

@@ -2,6 +2,7 @@ import os
 import threading
 import urllib.parse
 import time
+import re
 
 
 GIVEAWAY_KEYWORDS = ["giveaway", "prize", "hosted by", "ends in", "react to win", "🎉"]
@@ -37,8 +38,10 @@ class GiveawaySniper:
             target=self._check_win, args=(message_data,), daemon=True
         ).start()
 
-        # Giveaway entry — bot messages only
-        if is_bot:
+        # Giveaway entry — bot, webhook, or app messages
+        is_webhook = bool(message_data.get("webhook_id"))
+        is_app = bool(message_data.get("application_id"))
+        if is_bot or is_webhook or is_app:
             threading.Thread(
                 target=self._try_enter, args=(message_data,), daemon=True
             ).start()
@@ -66,21 +69,109 @@ class GiveawaySniper:
     def _already_reacted(self, message_data: dict) -> bool:
         for r in message_data.get("reactions") or []:
             if r.get("me"):
-                name = (r.get("emoji") or {}).get("name", "")
-                if name == "🎉":
-                    return True
+                return True
         return False
+
+    def _entry_emoji_from_text(self, message_data: dict):
+        # Prefer explicit "react with X" style instructions from content/embeds.
+        parts = [str(message_data.get("content") or "")]
+        for embed in message_data.get("embeds") or []:
+            parts.append(str(embed.get("title") or ""))
+            parts.append(str(embed.get("description") or ""))
+            for field in embed.get("fields") or []:
+                parts.append(str(field.get("name") or ""))
+                parts.append(str(field.get("value") or ""))
+            parts.append(str((embed.get("footer") or {}).get("text") or ""))
+
+        text = "\n".join(parts)
+        text_lower = text.lower()
+
+        # 1) Custom Discord emoji token like <:name:id> or <a:name:id>
+        custom_near_react = re.search(
+            r"react(?:\s+with|\s+using|\s+to)?[^\n<]{0,60}(<a?:[A-Za-z0-9_~]{2,32}:[0-9]{15,25}>)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if custom_near_react:
+            token = custom_near_react.group(1)
+            m = re.match(r"<(a?):([^:>]+):([0-9]{15,25})>", token)
+            if m:
+                animated = bool(m.group(1))
+                name = m.group(2)
+                eid = m.group(3)
+                prefix = "a:" if animated else ""
+                return f"{prefix}{name}:{eid}"
+
+        # 2) Unicode emoji near react instructions (common giveaway styles)
+        for emo in ["🎉", "🎁", "🪅", "🥳", "✅", "☑️"]:
+            if emo in text and ("react" in text_lower or "entry" in text_lower or "enter" in text_lower):
+                return urllib.parse.quote(emo)
+
+        # 3) Any custom emoji in text if giveaway keywords are present
+        custom_any = re.search(r"<(a?):([^:>]+):([0-9]{15,25})>", text)
+        if custom_any:
+            animated = bool(custom_any.group(1))
+            name = custom_any.group(2)
+            eid = custom_any.group(3)
+            prefix = "a:" if animated else ""
+            return f"{prefix}{name}:{eid}"
+
+        return ""
 
     # ------------------------------------------------------------------
     # Entry logic — button first, reactions fallback
     # ------------------------------------------------------------------
 
+    def _iter_component_nodes(self, node):
+        # Supports both classic components and Components v2-style nested payloads.
+        if isinstance(node, list):
+            for item in node:
+                yield from self._iter_component_nodes(item)
+            return
+
+        if not isinstance(node, dict):
+            return
+
+        yield node
+
+        for key in ("components", "items"):
+            child = node.get(key)
+            if child:
+                yield from self._iter_component_nodes(child)
+
+        accessory = node.get("accessory")
+        if accessory:
+            yield from self._iter_component_nodes(accessory)
+
+    def _button_candidates(self, message_data: dict):
+        roots = []
+        roots.extend(message_data.get("components") or [])
+        roots.extend(message_data.get("components_v2") or [])
+
+        buttons = []
+        for node in self._iter_component_nodes(roots):
+            if int(node.get("type") or 0) != 2:
+                continue
+            if not node.get("custom_id"):
+                continue  # Skip link buttons; they can't be clicked via interaction payload.
+            buttons.append(node)
+        return buttons
+
     def _first_button(self, message_data: dict):
-        for row in message_data.get("components") or []:
-            for comp in row.get("components") or []:
-                if comp.get("type") == 2 and comp.get("custom_id"):  # Button
-                    return comp
-        return None
+        buttons = self._button_candidates(message_data)
+        if not buttons:
+            return None
+
+        # Prefer buttons that look like giveaway entry actions.
+        preferred_terms = (
+            "enter", "join", "participate", "entries", "entry", "claim", "giveaway"
+        )
+        for b in buttons:
+            label = str(b.get("label") or "").lower()
+            custom_id = str(b.get("custom_id") or "").lower()
+            if any(t in label or t in custom_id for t in preferred_terms):
+                return b
+        return buttons[0]
 
     def _reaction_identifiers(self, message_data: dict):
         result = []
@@ -122,6 +213,9 @@ class GiveawaySniper:
 
         button = self._first_button(message_data)
         reactions = self._reaction_identifiers(message_data)
+        text_entry = self._entry_emoji_from_text(message_data)
+        if text_entry and text_entry not in reactions:
+            reactions.append(text_entry)
 
         with self._lock:
             if msg_id in self._entered:
@@ -150,6 +244,11 @@ class GiveawaySniper:
             self.stats["failed"] += 1
 
     def _click_button(self, message_data: dict, button: dict) -> bool:
+        application_id = (
+            str(message_data.get("application_id") or "")
+            or str((message_data.get("interaction_metadata") or {}).get("id") or "")
+            or str((message_data.get("author") or {}).get("id", ""))
+        )
         payload = {
             "type": 3,
             "nonce": str(int.from_bytes(os.urandom(8), "big") % (10**19 - 10**18) + 10**18),
@@ -157,7 +256,7 @@ class GiveawaySniper:
             "channel_id": message_data.get("channel_id"),
             "message_flags": message_data.get("flags", 0),
             "message_id": message_data.get("id"),
-            "application_id": str((message_data.get("author") or {}).get("id", "")),
+            "application_id": application_id,
             "session_id": "0",
             "data": {
                 "component_type": button.get("type", 2),

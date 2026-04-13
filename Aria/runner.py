@@ -67,7 +67,8 @@ def inst_all():
         "websockets>=11.0.0",
         "aiohttp>=3.9.0",
         "flask>=2.3.0",
-        "colorama>=0.4.6"
+        "colorama>=0.4.6",
+        "discord.py>=2.3.0"
     ]
     print(col("\n[+] Installing packages:",'b'))
     for p in pkgs:
@@ -98,7 +99,7 @@ def chk_all():
     optional = [
         "requirements.txt", "runner.py", "aria.py", "agc_whitelist.json",
         "afk_state.json", "boost_state.json", "analytics.json",
-        "aria_data.json", "errors.json", "alerts.json"
+        "aria_data.json", "errors.json", "alerts.json", "slash_bot.py"
     ]
     
     print(col("\n[+] Core files:",'b'))
@@ -132,11 +133,17 @@ def mk_cfg():
         print(col("  ✓ config.json exists",'g'))
         return True
     
-    print(col("\nEnter token:",'y'))
+    print(col("\nEnter selfbot token:",'y'))
     t = input("  ").strip()
     if not t:
         print(col("  ✗ Token required",'r'))
         return False
+
+    print(col("\nEnter slash bot token (optional, press Enter to skip):",'y'))
+    sbt = input("  ").strip()
+
+    print(col("\nEnter slash sync guild id (optional, press Enter to skip):",'y'))
+    sgid = input("  ").strip()
     
     cfg = {
         "token": t,
@@ -147,7 +154,11 @@ def mk_cfg():
         "cache_enabled": True,
         "max_message_cache": 1000,
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "impersonate_browser": "chrome120"
+        "impersonate_browser": "chrome120",
+        "discord_bot_token": sbt,
+        "discord_slash_guild_id": sgid,
+        "auto_start_slash_bot": True,
+        "slash_hide_replies": True,
     }
     
     try:
@@ -167,6 +178,19 @@ def run_bot():
     
     try:
         subprocess.run([sys.executable,"main.py"])
+    except KeyboardInterrupt:
+        print(col("\n[!] Stopped",'y'))
+    except Exception as e:
+        print(col(f"\n[!] Error: {e}",'r'))
+
+def run_slash_bot_only():
+    print(col("\n[+] Starting slash bot...",'b'))
+    if not os.path.exists("slash_bot.py"):
+        print(col("  ✗ slash_bot.py missing",'r'))
+        return
+
+    try:
+        subprocess.run([sys.executable, "slash_bot.py"])
     except KeyboardInterrupt:
         print(col("\n[!] Stopped",'y'))
     except Exception as e:
@@ -195,9 +219,10 @@ def menu():
         "2. Check all files",
         "3. Install packages",
         "4. Create config",
-        "5. Run bot",
+        "5. Run main bot (auto-starts slash bot)",
         "6. System info",
-        "7. Exit"
+        "7. Run slash bot only",
+        "8. Exit"
     ]
     for o in opts:
         print(col(f"  {o}",'w'))
@@ -239,6 +264,9 @@ def main():
             show_info()
         
         elif c == "7":
+            run_slash_bot_only()
+
+        elif c == "8":
             print(col("\nExiting...",'c'))
             break
         

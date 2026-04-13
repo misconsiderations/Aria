@@ -530,6 +530,9 @@ async function removeDashUser(uid) {
 async function loadLogs() {
     const container = document.getElementById('logContainer');
     const countEl   = document.getElementById('logLineCount');
+    const cmdFeed   = document.getElementById('commandExecFeed');
+    const sniperFeed = document.getElementById('sniperFeed');
+    const gatewayFeed = document.getElementById('gatewayFeed');
     if (!container) return;
     container.innerHTML = '<div class="log-loading">Fetching logs…</div>';
     const res = await fetchJSON('/api/logs?lines=100');
@@ -537,6 +540,82 @@ async function loadLogs() {
         container.innerHTML = '<div class="log-loading">Failed to load logs.</div>';
         return;
     }
+
+    const summary = res.summary || {};
+    const connectedUser = summary.connected_user || {};
+    setText('logsConnectedUser', connectedUser.username || '—');
+    setText('logsConnectedUserId', connectedUser.user_id || '—');
+    setText('logsCommandTotal', summary.command_total ?? 0);
+    setText('logsCommandEvents', summary.command_events ?? 0);
+    setText('logsSniperEvents', summary.sniper_events ?? 0);
+    setText('logsGatewayEvents', summary.gateway_events ?? 0);
+    setText('logsErrorEvents', summary.error_events ?? 0);
+
+    const events = res.events || {};
+    const commandEvents = events.commands || [];
+    const sniperEvents = events.snipers || [];
+    const gatewayEvents = events.gateway || [];
+    const errorEvents = events.errors || [];
+
+    if (cmdFeed) {
+        if (!commandEvents.length) {
+            cmdFeed.innerHTML = '<div class="log-loading">No command execution logs yet.</div>';
+        } else {
+            cmdFeed.innerHTML = commandEvents.slice().reverse().map(e => {
+                const duration = e.duration_ms != null ? `${Math.round(e.duration_ms)}ms` : '—';
+                return `<div class="history-item">
+                    <div class="history-dot"></div>
+                    <div class="history-content">
+                        <span class="history-cmd">${esc(e.command || '(unknown)')}</span>
+                        <span class="badge badge-ok">#${esc(String(e.number || '0'))}</span>
+                        <div class="history-meta">${[
+                            e.user ? '👤 ' + esc(e.user) : '',
+                            e.guild ? '🏠 ' + esc(e.guild) : '',
+                            e.time ? '🕐 ' + esc(e.time) : '',
+                            '⚡ ' + esc(duration),
+                        ].filter(Boolean).join(' &nbsp;·&nbsp; ')}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+    }
+
+    if (sniperFeed) {
+        if (!sniperEvents.length) {
+            sniperFeed.innerHTML = '<div class="log-loading">No sniper logs yet.</div>';
+        } else {
+            sniperFeed.innerHTML = sniperEvents.slice().reverse().map(e => `
+                <div class="history-item">
+                    <div class="history-dot"></div>
+                    <div class="history-content">
+                        <div class="history-raw">${esc(e.raw || '')}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+    }
+
+    if (gatewayFeed) {
+        const merged = gatewayEvents.concat(errorEvents).slice(-100);
+        if (!merged.length) {
+            gatewayFeed.innerHTML = '<div class="log-loading">No gateway/error logs yet.</div>';
+        } else {
+            gatewayFeed.innerHTML = merged.slice().reverse().map(e => {
+                const lo = String(e.raw || '').toLowerCase();
+                const badge = (lo.includes('error') || lo.includes('exception') || lo.includes('failed'))
+                    ? '<span class="badge badge-pink">error</span>'
+                    : '<span class="badge badge-warn">gateway</span>';
+                return `<div class="history-item">
+                    <div class="history-dot"></div>
+                    <div class="history-content">
+                        ${badge}
+                        <div class="history-raw">${esc(e.raw || '')}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+    }
+
     if (res.lines.length === 0) {
         container.innerHTML = '<div class="log-loading">No log output yet.</div>';
         return;

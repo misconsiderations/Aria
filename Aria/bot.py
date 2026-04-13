@@ -497,6 +497,18 @@ class DiscordBot:
             cmd_name = parts[0].lower()
             args = parts[1:]
 
+            # Normalize common VC alias forms to canonical command keys so
+            # VC routing still works even if alias keys are overridden later.
+            cmd_name = {
+                "joinvc": "vc",
+                "vcjoin": "vc",
+                "joinvoice": "vc",
+                "joincall": "vc",
+                "leavevc": "vce",
+                "vcleave": "vce",
+                "leavevoice": "vce",
+            }.get(cmd_name, cmd_name)
+
             if self._resolve_command(cmd_name) is not None:
                 ctx = {
                     "author_id": author_id,

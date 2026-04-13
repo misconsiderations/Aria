@@ -273,3 +273,153 @@ class DiscordAPIClient:
     def block_user(self, user_id: str) -> bool:
         response = self.request("PUT", f"/users/@me/relationships/{user_id}", data={"type": 2})
         return response.status_code == 204 if response else False
+    # ── Slash / Interaction API (ported from KrishnaSSH/discoself) ─────────────
+
+    def _generate_nonce(self) -> str:
+        """Generate a Discord nonce from current time snowflake."""
+        epoch = 1420070400000
+        ts = int(__import__('time').time() * 1000) - epoch
+        return str((ts << 22) & 0x7FFFFFFFFFFFFFFF)
+
+    def _session_id(self) -> str:
+        """Return or generate a session_id for interaction payloads."""
+        sid = getattr(self, '_gateway_session_id', None)
+        if not sid:
+            import random, string
+            sid = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
+            self._gateway_session_id = sid
+        return sid
+
+    def get_slash_commands(self, guild_id: str):
+        """GET /guilds/{guild_id}/application-command-index"""
+        response = self.request(
+            'GET',
+            f'/guilds/{guild_id}/application-command-index',
+            headers={'referer': f'https://discord.com/channels/{guild_id}'},
+        )
+        if response and response.status_code == 200:
+            return response.json()
+        return None
+
+    def get_user_slash_commands(self):
+        """GET /users/@me/application-command-index"""
+        response = self.request(
+            'GET',
+            '/users/@me/application-command-index',
+            headers={'referer': 'https://discord.com/channels/@me'},
+        )
+        if response and response.status_code == 200:
+            return response.json()
+        return None
+
+    def send_slash_command(self, channel_id: str, guild_id: str, command, options=None) -> bool:
+        """POST /interactions  type=2 (APPLICATION_COMMAND).
+        Mirrors discoself SendSlashCommand / SendSlashCommandWithOptions."""
+        import time as _t
+        cmd_id = command.get('id', '')
+        app_id = command.get('application_id', '')
+        version = command.get('version', '')
+        name = command.get('name', '')
+        description = command.get('description', '')
+        payload = {
+            'type': 2,
+            'application_id': app_id,
+            'guild_id': guild_id,
+            'channel_id': channel_id,
+            'session_id': self._session_id(),
+            'nonce': self._generate_nonce(),
+            'data': {
+                'version': version,
+                'id': cmd_id,
+                'name': name,
+                'type': 1,
+                'options': options or [],
+                'application_command': {
+                    'id': cmd_id,
+                    'type': 1,
+                    'application_id': app_id,
+                    'version': version,
+                    'name': name,
+                    'description': description,
+                    'dm_permission': True,
+                    'options': [],
+                    'integration_types': [0],
+                },
+                'attachments': [],
+            },
+            'analytics_location': 'slash_ui',
+        }
+        response = self.request(
+            'POST',
+            '/interactions',
+            data=payload,
+            headers={'referer': f'https://discord.com/channels/{guild_id}/{channel_id}'},
+        )
+        return bool(response and response.status_code == 204)
+
+    def click_button(self, guild_id: str, channel_id: str, message_id: str,
+                     application_id: str, custom_id: str, message_flags: int = 0) -> bool:
+        """POST /interactions  type=3 (MESSAGE_COMPONENT).
+        Mirrors discoself ClickButton."""
+        payload = {
+            'type': 3,
+            'nonce': self._generate_nonce(),
+            'guild_id': guild_id,
+            'channel_id': channel_id,
+            'message_flags': message_flags,
+            'message_id': message_id,
+            'application_id': application_id,
+            'session_id': self._session_id(),
+            'data': {
+                'component_type': 2,
+                'custom_id': custom_id,
+            },
+        }
+        response = self.request(
+            'POST',
+            '/interactions',
+            data=payload,
+            headers={'referer': f'https://discord.com/channels/{guild_id}/{channel_id}'},
+        )
+        return bool(response and response.status_code == 204)
+
+    # ── Bulk read helpers ──────────────────────────────────────────────────────
+
+    def read_all_guild_messages(self, guild_id: str, limit_per_channel: int = 50,
+                                channel_types=None):
+        """Fetch recent messages from all readable text channels in a guild."""
+        import time as _t
+        if channel_types is None:
+            channel_types = [0, 5, 10, 11, 12]
+        channels_resp = self.request('GET', f'/guilds/{guild_id}/channels')
+        if not channels_resp or channels_resp.status_code != 200:
+            return {}
+        channels = [c for c in (channels_resp.json() or []) if c.get('type') in channel_types]
+        result = {}
+        for ch in channels:
+            cid = ch.get('id')
+            if not cid:
+                continue
+            msgs_resp = self.request('GET', f'/channels/{cid}/messages?limit={min(limit_per_channel, 100)}')
+            if msgs_resp and msgs_resp.status_code == 200:
+                result[cid] = msgs_resp.json() or []
+            _t.sleep(0.3)
+        return result
+
+    def read_all_dms(self, limit_per_dm: int = 50):
+        """Fetch recent messages from all open DM channels."""
+        import time as _t
+        dms_resp = self.request('GET', '/users/@me/channels')
+        if not dms_resp or dms_resp.status_code != 200:
+            return {}
+        dms = [c for c in (dms_resp.json() or []) if c.get('type') in (1, 3)]
+        result = {}
+        for dm in dms:
+            cid = dm.get('id')
+            if not cid:
+                continue
+            msgs_resp = self.request('GET', f'/channels/{cid}/messages?limit={min(limit_per_dm, 100)}')
+            if msgs_resp and msgs_resp.status_code == 200:
+                result[cid] = msgs_resp.json() or []
+            _t.sleep(0.25)
+        return result

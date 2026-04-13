@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -275,6 +276,83 @@ class WebPanel:
             })
         return {"commands": result, "total": len(result)}
 
+    @staticmethod
+    def _strip_ansi(text: str) -> str:
+        """Remove ANSI color/control sequences from runtime logs."""
+        return re.sub(r"\x1B\[[0-?]*[ -/]*[@-~]", "", text)
+
+    def _parse_structured_logs(self, log_lines: list[str]) -> dict:
+        """Build dashboard-friendly structured logs from raw console lines."""
+        command_events: list[dict[str, Any]] = []
+        sniper_events: list[dict[str, Any]] = []
+        gateway_events: list[dict[str, Any]] = []
+        error_events: list[dict[str, Any]] = []
+
+        command_re = re.compile(
+            r"\[CMD\s*#(?P<num>\d+)\]\s*\[(?P<time>[^\]]+)\]\s*(?P<cmd>[^|]+)\s*\|\s*user=(?P<user>[^|]+)\s*\|\s*guild=(?P<guild>[^|]+)\s*\|\s*(?P<ms>[\d.]+)ms",
+            re.IGNORECASE,
+        )
+
+        for raw in log_lines:
+            line = self._strip_ansi(str(raw or "")).strip()
+            if not line:
+                continue
+            lo = line.lower()
+
+            m = command_re.search(line)
+            if m:
+                command_events.append(
+                    {
+                        "number": int(m.group("num")),
+                        "time": m.group("time").strip(),
+                        "command": m.group("cmd").strip(),
+                        "user": m.group("user").strip(),
+                        "guild": m.group("guild").strip(),
+                        "duration_ms": float(m.group("ms")),
+                        "raw": line,
+                    }
+                )
+                continue
+
+            if any(tag in lo for tag in ["[nitro", "[giveaway", "[snipe"]):
+                sniper_events.append({"time": "", "type": "sniper", "raw": line})
+                continue
+
+            if any(tag in lo for tag in ["[gateway]", "[connected]", "[reconnect]", "session resumed"]):
+                gateway_events.append({"time": "", "raw": line})
+                continue
+
+            if any(tag in lo for tag in ["[error", "exception", "traceback", "failed"]):
+                error_events.append({"time": "", "raw": line})
+
+        bot_d = self._bot_data()
+        connected_user = {
+            "username": bot_d.get("username", "—"),
+            "user_id": bot_d.get("user_id", "—"),
+            "connected": bool(bot_d.get("connected", False)),
+        }
+
+        command_total = int(bot_d.get("command_count", 0) or 0)
+        if not command_total:
+            command_total = len(command_events)
+
+        return {
+            "summary": {
+                "connected_user": connected_user,
+                "command_total": command_total,
+                "command_events": len(command_events),
+                "sniper_events": len(sniper_events),
+                "gateway_events": len(gateway_events),
+                "error_events": len(error_events),
+            },
+            "events": {
+                "commands": command_events[-50:],
+                "snipers": sniper_events[-50:],
+                "gateway": gateway_events[-50:],
+                "errors": error_events[-50:],
+            },
+        }
+
     def _config_data(self) -> dict:
         """Return live bot config values."""
         b = self.bot
@@ -308,6 +386,15 @@ class WebPanel:
                 return self._read_raw_template("home_template.html"), 200, {"Content-Type": "text/html; charset=utf-8"}
             except Exception:
                 return redirect("/dashboard")
+
+        @self.app.get("/favicon.ico")
+        def favicon() -> Any:
+            default_img = "https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012"
+            cfg = getattr(self.bot, "config", {}) if self.bot is not None else {}
+            favicon_url = ""
+            if isinstance(cfg, dict):
+                favicon_url = str(cfg.get("favicon_url") or cfg.get("brand_image_url") or "").strip()
+            return redirect(favicon_url or default_img, code=302)
 
         @self.app.get("/tos")
         @self.app.get("/terms")
@@ -617,10 +704,11 @@ class WebPanel:
                 if log_path and os.path.exists(log_path):
                     with open(log_path, "r", encoding="utf-8", errors="replace") as f:
                         all_lines = f.readlines()
-                    lines = [l.rstrip("\n") for l in all_lines[-n:]]
+                    lines = [self._strip_ansi(l.rstrip("\n")) for l in all_lines[-n:]]
             except Exception as e:
                 lines = [f"[log read error] {e}"]
-            return jsonify({"ok": True, "lines": lines, "count": len(lines)})
+            structured = self._parse_structured_logs(lines)
+            return jsonify({"ok": True, "lines": lines, "count": len(lines), **structured})
 
         # ── AFK ───────────────────────────────────────────────────────────
         @self.app.get("/api/afk")
