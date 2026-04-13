@@ -3,7 +3,10 @@ import time
 import base64
 import threading
 import requests
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 class AntiGCTrap:
     def __init__(self, api_client):
@@ -39,7 +42,7 @@ class AntiGCTrap:
         if not self.enabled:
             return False
         
-        print(f"[GC TRAP DEBUG] Checking channel data")
+        logger.debug(f"[GC TRAP DEBUG] Checking channel data")
         
         channel_type = channel_data.get("type", 0)
         channel_id = channel_data.get("channel_id", "")
@@ -62,19 +65,19 @@ class AntiGCTrap:
             recipients = channel_data.get("recipients", [])
             owner_id = channel_data.get("owner_id", "")
             
-            print(f"[GC TRAP] Processing GC: {channel_id}")
-            print(f"[GC TRAP] Members: {len(recipients)}, Owner: {owner_id}")
+            logger.info(f"[GC TRAP] Processing GC: {channel_id}")
+            logger.info(f"[GC TRAP] Members: {len(recipients)}, Owner: {owner_id}")
             
             if not recipients or len(recipients) <= 1:
-                print("[GC TRAP] Not enough recipients")
+                logger.info("[GC TRAP] Not enough recipients")
                 return
             
             if str(owner_id) in self.whitelist:
-                print(f"[GC TRAP] Owner {owner_id} is whitelisted, skipping")
+                logger.info(f"[GC TRAP] Owner {owner_id} is whitelisted, skipping")
                 return
             
             if owner_id == self.api.user_id:
-                print("[GC TRAP] Bot is owner, skipping")
+                logger.info("[GC TRAP] Bot is owner, skipping")
                 return
             
             self._rename_gc(channel_id)
@@ -88,18 +91,18 @@ class AntiGCTrap:
             self._send_webhook_alert(channel_id, channel_data, owner_id, recipients)
             
         except Exception as e:
-            print(f"[GC TRAP Error] {e}")
+            logger.error(f"[GC TRAP Error] {e}", exc_info=True)
     
     def _rename_gc(self, channel_id):
         try:
             data = {"name": self.gc_name}
             response = self.api.request("PATCH", f"/channels/{channel_id}", data=data)
             if response and response.status_code == 200:
-                print(f"[GC TRAP] Renamed GC to: {self.gc_name}")
+                logger.info(f"[GC TRAP] Renamed GC to: {self.gc_name}")
             else:
-                print(f"[GC TRAP] Failed to rename GC: {response.status_code if response else 'No response'}")
+                logger.warning(f"[GC TRAP] Failed to rename GC: {response.status_code if response else 'No response'}")
         except Exception as e:
-            print(f"[GC TRAP Rename Error] {e}")
+            logger.error(f"[GC TRAP Rename Error] {e}", exc_info=True)
     
     def _change_gc_icon(self, channel_id):
         if not self.gc_icon_url:
@@ -122,43 +125,43 @@ class AntiGCTrap:
                 data = {"icon": icon_data}
                 response = self.api.request("PATCH", f"/channels/{channel_id}", data=data)
                 if response and response.status_code == 200:
-                    print(f"[GC TRAP] Changed GC icon")
+                    logger.info(f"[GC TRAP] Changed GC icon")
                 else:
-                    print(f"[GC TRAP] Failed to change icon: {response.status_code if response else 'No response'}")
+                    logger.warning(f"[GC TRAP] Failed to change icon: {response.status_code if response else 'No response'}")
             else:
-                print(f"[GC TRAP] Failed to download icon: {response.status_code}")
+                logger.warning(f"[GC TRAP] Failed to download icon: {response.status_code}")
         except Exception as e:
-            print(f"[GC TRAP Icon Error] {e}")
+            logger.error(f"[GC TRAP Icon Error] {e}", exc_info=True)
     
     def _send_leave_message(self, channel_id):
         try:
             result = self.api.send_message(channel_id, self.leave_message)
             if result:
-                print(f"[GC TRAP] Sent leave message")
+                logger.info(f"[GC TRAP] Sent leave message")
             else:
-                print(f"[GC TRAP] Failed to send leave message")
+                logger.warning(f"[GC TRAP] Failed to send leave message")
         except Exception as e:
-            print(f"[GC TRAP Message Error] {e}")
+            logger.error(f"[GC TRAP Message Error] {e}", exc_info=True)
     
     def _block_creator(self, user_id):
         try:
             response = self.api.request("PUT", f"/users/@me/relationships/{user_id}", data={"type": 2})
             if response and response.status_code in [200, 204]:
-                print(f"[GC TRAP] Blocked creator: {user_id}")
+                logger.info(f"[GC TRAP] Blocked creator: {user_id}")
             else:
-                print(f"[GC TRAP] Failed to block: {response.status_code if response else 'No response'}")
+                logger.warning(f"[GC TRAP] Failed to block: {response.status_code if response else 'No response'}")
         except Exception as e:
-            print(f"[GC TRAP Block Error] {e}")
+            logger.error(f"[GC TRAP Block Error] {e}", exc_info=True)
     
     def _leave_gc(self, channel_id):
         try:
             response = self.api.request("DELETE", f"/channels/{channel_id}")
             if response and response.status_code in [200, 204]:
-                print(f"[GC TRAP] Left GC: {channel_id}")
+                logger.info(f"[GC TRAP] Left GC: {channel_id}")
             else:
-                print(f"[GC TRAP] Failed to leave GC: {response.status_code if response else 'No response'}")
+                logger.warning(f"[GC TRAP] Failed to leave GC: {response.status_code if response else 'No response'}")
         except Exception as e:
-            print(f"[GC TRAP Leave Error] {e}")
+            logger.error(f"[GC TRAP Leave Error] {e}", exc_info=True)
     
     def _send_webhook_alert(self, channel_id, channel_data, owner_id, recipients):
         if not self.webhook_url:
@@ -208,12 +211,12 @@ class AntiGCTrap:
             
             response = requests.post(self.webhook_url, json=data, timeout=5)
             if response.status_code in [200, 204]:
-                print(f"[GC TRAP] Sent webhook alert")
+                logger.info(f"[GC TRAP] Sent webhook alert")
             else:
-                print(f"[GC TRAP] Webhook failed: {response.status_code}")
+                logger.warning(f"[GC TRAP] Webhook failed: {response.status_code}")
             
         except Exception as e:
-            print(f"[GC TRAP Webhook Error] {e}")
+            logger.error(f"[GC TRAP Webhook Error] {e}", exc_info=True)
     
     def add_to_whitelist(self, user_id):
         self.whitelist.add(str(user_id))

@@ -12,6 +12,14 @@ from nitro import NitroSniper
 from anti_gc_trap import AntiGCTrap
 from giveaway import GiveawaySniper
 from header_spoofer import HeaderSpoofer
+from core.client.platform import (
+    CLIENT_PROFILES,
+    build_identify_payload,
+    client_identify,
+    normalize_client_type,
+    normalize_status,
+    state_identify,
+)
 
 class Command:
     def __init__(self, func: Callable, name: str, aliases: Optional[List[str]] = None):
@@ -69,6 +77,18 @@ class DiscordBot:
         self.command_count = 0
         self._client_type = "mobile"
         self._current_status = "online"
+        self._auto_delete_enabled: bool = True
+        self._auto_delete_delay: int = 20
+        self._mimic_target: Optional[str] = None
+        self._mimic_enabled: bool = False
+        self._mimic_custom_response: Optional[str] = None
+        self._mimic_sent_messages: Dict[str, Dict[str, str]] = {}
+        self._mimic_last_sent_at: float = 0.0
+        self._purge_active: bool = False
+        self._purge_started_by: Optional[str] = None
+        self._autoreact_targets: Dict[str, Dict[str, Any]] = {}
+        self._autoreact_last_sent_at: float = 0.0
+        self._message_delete_hook: Optional[Callable[[str, str], None]] = None
         self.boost_manager: Any = None
         self._afk_system_ref: Any = None
         self.friend_scraper: Any = None
@@ -226,6 +246,12 @@ class DiscordBot:
                                 "deleted_at": time.time(),
                             }
                             del self._msg_cache[mid]
+                        hook = getattr(self, "_message_delete_hook", None)
+                        if hook is not None and mid and cid:
+                            try:
+                                hook(mid, cid)
+                            except Exception:
+                                pass
                     except Exception:
                         pass
 
@@ -312,72 +338,20 @@ class DiscordBot:
     
     # Client type properties
     # Keys match Discord's gateway IDENTIFY d.properties exactly.
-    _CLIENT_PROFILES = {
-        "web": {
-            "$os":               "linux",
-            "$browser":          "Chrome",
-            "$device":           "",
-            "browser_user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.113 Safari/537.36",
-            "browser_version":   "125.0.6422.113",
-            "os_version":        "",
-            "system_locale":     "en-US",
-            "release_channel":   "stable",
-            "client_build_number": 284054,
-        },
-        "desktop": {
-            "$os":               "Windows",
-            "$browser":          "Discord Client",
-            "$device":           "desktop",
-            "browser_user_agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9167 Chrome/124.0.6367.207 Electron/30.2.0 Safari/537.36",
-            "browser_version":   "30.2.0",
-            "os_version":        "10.0.22631",
-            "system_locale":     "en-US",
-            "release_channel":   "stable",
-            "client_build_number": 284054,
-        },
-        "mobile": {
-            "$os":               "Android",
-            "$browser":          "Discord Android",
-            "$device":           "android",
-            "browser_user_agent": "com.discord",
-            "browser_version":   "",
-            "os_version":        "14",
-            "system_locale":     "en-US",
-            "release_channel":   "stable",
-            "client_build_number": 284054,
-        },
-        "vr": {
-            "$os":               "Meta Quest",
-            "$browser":          "Discord VR",
-            "$device":           "Meta Quest 3",
-            "browser_user_agent": "Mozilla/5.0 (Linux; Android 14; Meta Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-            "browser_version":   "Discord VR",
-            "os_version":        "Meta Quest OS",
-            "system_locale":     "en-US",
-            "release_channel":   "stable",
-            "client_build_number": 284054,
-        },
-    }
+    _CLIENT_PROFILES = CLIENT_PROFILES
 
     def identify(self):
         try:
-            props = self._CLIENT_PROFILES.get(self._client_type, self._CLIENT_PROFILES["web"])
-            identify = {
-                "op": 2,
-                "d": {
-                    "token": self.token,
-                    "properties": props,
-                    "presence": {
-                        "status": getattr(self, "_current_status", "online"),
-                        "since": 0,
-                        "activities": [self.activity] if self.activity else [],
-                        "afk": False,
-                    },
-                    "compress": False,
-                    "large_threshold": 250,
-                    "intents": 3276799,
-                },
-            }
+            self._client_type = client_identify(bot=self, token=self.token)
+            self._current_status = state_identify(bot=self, token=self.token)
+            identify = build_identify_payload(
+                token=self.token,
+                client_type=self._client_type,
+                status=getattr(self, "_current_status", "online"),
+                activity=self.activity,
+                intents=3276799,
+                compress=False,
+            )
             if self.ws:
                 self.ws.send(json.dumps(identify))
         except:
@@ -385,6 +359,7 @@ class DiscordBot:
 
     def set_client_type(self, client_type: str) -> bool:
         """Change the reported client type, update API headers, and reconnect gateway."""
+        client_type = normalize_client_type(client_type)
         if client_type not in self._CLIENT_PROFILES:
             return False
         self._client_type = client_type
@@ -565,6 +540,7 @@ class DiscordBot:
 
     def set_status(self, status: str) -> bool:
         """Update presence status (online/idle/dnd/invisible) via gateway op 3."""
+        status = normalize_status(status)
         valid = {"online", "idle", "dnd", "invisible"}
         if status not in valid:
             return False

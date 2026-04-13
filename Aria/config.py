@@ -29,7 +29,7 @@ class Config:
             "discord_client_id": "",
             "discord_client_secret": "",
             "captcha_enabled": False,
-            "captcha_api_key": "",
+            "captcha_api_key": "6354c8b64c602d94cadf5912f437cd28",
             "captcha_service": "2captcha"  # 2captcha, anticaptcha, capmonster
         }
         self.config = self.load_config()

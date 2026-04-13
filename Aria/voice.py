@@ -16,9 +16,11 @@ import struct
 import time
 import threading
 import random
+import logging
 from typing import Optional, Dict
 
 _VOICE_WS_VERSION = 4
+logger = logging.getLogger(__name__)
 
 
 class VoiceClient:
@@ -58,6 +60,15 @@ class VoiceClient:
         self.self_deaf = False
         self.self_video = False
         self.self_stream = False
+
+    def _send_gateway_payload(self, payload: dict) -> bool:
+        try:
+            self.bot_ws.send(json.dumps(payload))
+            return True
+        except Exception as e:
+            self._ws_error = str(e)
+            logger.error("[Voice] Failed to send gateway payload: %s", e)
+            return False
     
     # ── called by bot.on_message to deliver gateway voice events ────────────
 
@@ -88,6 +99,11 @@ class VoiceClient:
         self.guild_id = str(guild_id) if guild_id else None
         self.is_dm_call = is_dm
         self.call_channel_id = str(channel_id) if is_dm else None
+        self.session_id = None
+        self.voice_token = None
+        self.endpoint = None
+        self.ssrc = None
+        self.secret_key = None
 
         self._session_event.clear()
         self._server_event.clear()
@@ -108,15 +124,17 @@ class VoiceClient:
         try:
             self.bot_ws.send(payload)
         except Exception as e:
-            print(f"[Voice] Failed to send op4: {e}")
+            logger.error("[Voice] Failed to send op4: %s", e)
             return False
 
         # Wait for session_id and endpoint from gateway events (up to 10 s each)
         if not self._session_event.wait(timeout=10):
-            print("[Voice] Timeout waiting for session_id (VOICE_STATE_UPDATE)")
+            self._ws_error = "Timeout waiting for VOICE_STATE_UPDATE"
+            logger.warning("[Voice] Timeout waiting for session_id (VOICE_STATE_UPDATE)")
             return False
         if not self._server_event.wait(timeout=10):
-            print("[Voice] Timeout waiting for voice server (VOICE_SERVER_UPDATE)")
+            self._ws_error = "Timeout waiting for VOICE_SERVER_UPDATE"
+            logger.warning("[Voice] Timeout waiting for voice server (VOICE_SERVER_UPDATE)")
             return False
 
         # Spawn voice WS thread
@@ -156,7 +174,13 @@ class VoiceClient:
             except Exception:
                 pass
 
-        print("[Voice] Disconnected")
+        if self.voice_thread and self.voice_thread.is_alive():
+            try:
+                self.voice_thread.join(timeout=2)
+            except Exception:
+                pass
+
+        logger.info("[Voice] Disconnected from channel %s", self.channel_id)
         return True
 
     def ws_ready(self) -> bool:
@@ -180,11 +204,11 @@ class VoiceClient:
             try:
                 self.voice_loop.run_until_complete(self._voice_ws_connect())
             except Exception as e:
-                print(f"[Voice] ws thread error: {e}")
+                logger.error("[Voice] WS thread error: %s", e)
                 self._ws_error = str(e)
             if not self.running:
                 break
-            print(f"[Voice] Reconnecting in {backoff}s…")
+            logger.warning("[Voice] Reconnecting in %ss", backoff)
             for _ in range(backoff):
                 if not self.running:
                     break
@@ -197,7 +221,7 @@ class VoiceClient:
 
     async def _voice_ws_connect(self):
         url = f"wss://{self.endpoint}/?v={_VOICE_WS_VERSION}"
-        print(f"[Voice] Connecting to voice server: {url}")
+        logger.info("[Voice] Connecting to voice server: %s", url)
         try:
             async with websockets.connect(url, max_size=None) as ws:
                 self.voice_ws = ws
@@ -223,7 +247,7 @@ class VoiceClient:
                         continue
                     await self._handle_voice_op(ws, msg)
         except Exception as e:
-            print(f"[Voice] WS error: {e}")
+            logger.error("[Voice] WS error: %s", e)
             self._ws_error = str(e)
         finally:
             self.voice_ws = None
@@ -235,7 +259,7 @@ class VoiceClient:
         if op == 8:
             # Hello — start heartbeat
             interval = msg["d"]["heartbeat_interval"] / 1000
-            asyncio.ensure_future(self._heartbeat(ws, interval))
+            asyncio.create_task(self._heartbeat(ws, interval))
 
         elif op == 2:
             # Voice Ready — do UDP IP discovery then select protocol
@@ -243,7 +267,7 @@ class VoiceClient:
             self.ssrc = d["ssrc"]
             udp_ip = d["ip"]
             udp_port = d["port"]
-            print(f"[Voice] Voice Ready — SSRC {self.ssrc}")
+            logger.info("[Voice] Voice ready with SSRC %s", self.ssrc)
             ext_ip, ext_port = await asyncio.get_event_loop().run_in_executor(
                 None, self._ip_discovery, udp_ip, udp_port, self.ssrc
             )
@@ -262,7 +286,7 @@ class VoiceClient:
         elif op == 4:
             # Session Description — we're fully connected
             self.secret_key = msg["d"].get("secret_key")
-            print("[Voice] CONNECTED — session description received")
+            logger.info("[Voice] Connected to voice session")
             self._connected_event.set()
             # Mark as not-speaking (silent join)
             await ws.send(json.dumps({
@@ -270,10 +294,10 @@ class VoiceClient:
                 "d": {"speaking": 0, "delay": 0, "ssrc": self.ssrc},
             }))
             # Start silence keepalive so Discord doesn't evict the idle connection
-            asyncio.ensure_future(self._silence_keepalive(ws))
+            asyncio.create_task(self._silence_keepalive(ws))
 
         elif op == 9:
-            print("[Voice] Session resumed")
+            logger.info("[Voice] Session resumed")
 
     async def _silence_keepalive(self, ws, interval: float = 30.0):
         """Re-send speaking=0 every `interval` seconds to prevent idle disconnect."""
@@ -316,10 +340,10 @@ class VoiceClient:
             ip_end = data.index(b"\x00", 8)
             ext_ip = data[8:ip_end].decode("utf-8")
             ext_port = struct.unpack_from("<H", data, 72)[0]
-            print(f"[Voice] External address: {ext_ip}:{ext_port}")
+            logger.debug("[Voice] External address: %s:%s", ext_ip, ext_port)
             return ext_ip, ext_port
         except Exception as e:
-            print(f"[Voice] IP discovery failed ({e}), using fallback 0.0.0.0:0")
+            logger.warning("[Voice] IP discovery failed (%s), using fallback 0.0.0.0:0", e)
             return "0.0.0.0", 0
 
 
@@ -360,7 +384,7 @@ class SimpleVoice:
 
     def _send_voice_state_update(self, client: VoiceClient) -> bool:
         try:
-            payload = json.dumps({
+            payload = {
                 "op": 4,
                 "d": {
                     "guild_id": client.guild_id,
@@ -369,11 +393,11 @@ class SimpleVoice:
                     "self_deaf": bool(client.self_deaf),
                     "self_video": bool(client.self_video),
                 },
-            })
-            client.bot_ws.send(payload)
-            return True
+            }
+            return client._send_gateway_payload(payload)
         except Exception as e:
             self.last_error = str(e)
+            logger.error("[Voice] Failed to update voice state: %s", e)
             return False
 
     def join_vc(self, *args, **kwargs) -> bool:
@@ -389,7 +413,7 @@ class SimpleVoice:
             return False
 
         if not self.bot or not self.bot.ws:
-            print("[Voice] Bot gateway not ready")
+            logger.warning("[Voice] Bot gateway not ready")
             self.last_error = "Bot gateway not ready"
             return False
 
@@ -411,11 +435,11 @@ class SimpleVoice:
                 elif ctype in (1, 3):   # DM / group DM call
                     is_dm = True
                 else:
-                    print(f"[Voice] Channel type {ctype} is not a voice channel")
+                    logger.warning("[Voice] Channel type %s is not a voice channel", ctype)
                     self.last_error = f"Channel type {ctype} is not voice"
                     return False
         except Exception as e:
-            print(f"[Voice] Could not fetch channel info: {e}")
+            logger.error("[Voice] Could not fetch channel info: %s", e)
             self.last_error = f"Could not fetch channel info: {str(e)[:80]}"
             return False
 
@@ -497,21 +521,17 @@ class SimpleVoice:
             return False, str(e)
 
     def set_stream(self, channel_id=None, enabled=True):
-        """Toggle Go Live / screen share via voice WS."""
+        """Toggle Go Live / screen share via the main Discord gateway."""
         client = self._get_client(channel_id)
         if not client:
             self.last_error = "Not in a voice channel"
             return False, "Not in a voice channel"
-        if not client.ws_ready():
-            # Voice WS may come online shortly after join.
-            client._connected_event.wait(timeout=6)
-        if not client.voice_loop or client.voice_loop.is_closed() or not client.voice_ws:
-            detail = client._ws_error or "Voice WS not connected"
-            self.last_error = detail
-            return False, detail
+        if client.is_dm_call or not client.guild_id:
+            self.last_error = "Go Live is only supported in guild voice channels"
+            return False, self.last_error
         try:
             if enabled:
-                op_payload = json.dumps({
+                op_payload = {
                     "op": 18,
                     "d": {
                         "type": "guild",
@@ -519,22 +539,24 @@ class SimpleVoice:
                         "channel_id": client.channel_id,
                         "preferred_region": None,
                     },
-                })
+                }
             else:
-                op_payload = json.dumps({
+                op_payload = {
                     "op": 22,
                     "d": {
                         "guild_id": client.guild_id,
                         "channel_id": client.channel_id,
                     },
-                })
-            asyncio.run_coroutine_threadsafe(
-                client.voice_ws.send(op_payload), client.voice_loop
-            ).result(timeout=5)
+                }
+            if not client._send_gateway_payload(op_payload):
+                detail = client._ws_error or "Failed to send gateway payload"
+                self.last_error = detail
+                return False, detail
             client.self_stream = bool(enabled)
             return True, "Stream " + ("started" if enabled else "stopped")
         except Exception as e:
             self.last_error = str(e)
+            logger.error("[Voice] Failed to toggle stream: %s", e)
             return False, str(e)
 
     def set_mute_deaf(self, channel_id=None, mute=None, deaf=None):

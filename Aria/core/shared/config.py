@@ -7,6 +7,8 @@ class ConfigContainer:
         self.token: Optional[str] = None
         self.debug: bool = False
         self.prefix: str = ";"
+        self.client: str = "mobile"
+        self.state: str = "online"
 
 # Global instance
 container = ConfigContainer()

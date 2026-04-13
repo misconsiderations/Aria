@@ -35,6 +35,7 @@ class DiscordAPIClient:
         self.captcha_solver = CaptchaSolver(captcha_api_key, "2captcha") if captcha_api_key else CaptchaSolver()
         self.captcha_max_retries = 3
         self.last_captcha_solve = 0
+        self.auth_failed = False
         
     def _validate_system(self):
         check_parts = self.system_check.split("_")
@@ -51,6 +52,9 @@ class DiscordAPIClient:
         Enhanced request handler with comprehensive captcha support for all Discord API operations.
         Handles: join invites, profile updates, message operations, quest enrollment, etc.
         """
+        if self.auth_failed:
+            return None
+
         wait_time = self.rate_limiter.get_wait_time(endpoint)
         if wait_time:
             time.sleep(wait_time)
@@ -83,10 +87,17 @@ class DiscordAPIClient:
             else:
                 return None
 
-            # Handle 401/403 - refresh spoofed identity and retry
-            if response.status_code in (401, 403) and retry_count < max_retries:
-                print(f"[AUTH-ERROR] {response.status_code} on {endpoint} - refreshing headers...")
-                self.header_spoofer.initialize_with_token(self.token)
+            # Handle 401 - token is invalid, no point retrying
+            if response.status_code == 401:
+                if not self.auth_failed:
+                    print(f"[AUTH-ERROR] 401 on {endpoint} - token is invalid or expired. Halting requests.")
+                    self.auth_failed = True
+                return response
+
+            # Handle 403 - may be a transient header/fingerprint issue, retry once
+            if response.status_code == 403 and retry_count < 1:
+                print(f"[AUTH-ERROR] 403 on {endpoint} - refreshing headers and retrying...")
+                self.header_spoofer.rotate_profile()
                 time.sleep(0.5)
                 return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
 

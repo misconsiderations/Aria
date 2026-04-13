@@ -3,23 +3,124 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard</title>
+    <title>Aria Dashboard</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-    <header>
-        <h1>Welcome to the Dashboard</h1>
-    </header>
-    <main>
-        <section>
-            <h2>User Information</h2>
-            <p>Details about the user will appear here.</p>
+    <nav class="sidebar">
+        <div class="sidebar-logo">
+            <span class="logo-icon">⚡</span>
+            <span class="logo-text">Aria</span>
+        </div>
+        <ul class="sidebar-nav">
+            <li class="nav-item active" data-section="overview">
+                <span class="nav-icon">◈</span> Overview
+            </li>
+            <li class="nav-item" data-section="analytics">
+                <span class="nav-icon">◈</span> Analytics
+            </li>
+            <li class="nav-item" data-section="history">
+                <span class="nav-icon">◈</span> History
+            </li>
+            <li class="nav-item" data-section="boost">
+                <span class="nav-icon">◈</span> Boost
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <button class="refresh-btn" id="refreshBtn">↻ Refresh</button>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="topbar">
+            <h1 class="page-title" id="pageTitle">Overview</h1>
+            <div class="topbar-right">
+                <div class="status-dot" id="globalStatus"></div>
+                <span class="status-label" id="globalStatusLabel">Loading…</span>
+            </div>
+        </header>
+
+        <!-- Overview Section -->
+        <section class="section active" id="section-overview">
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-label">Username</div>
+                    <div class="card-value" id="username">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">User ID</div>
+                    <div class="card-value mono" id="userId">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Prefix</div>
+                    <div class="card-value mono" id="prefix">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Uptime</div>
+                    <div class="card-value" id="uptime">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Commands Run</div>
+                    <div class="card-value" id="commandCount">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Commands Registered</div>
+                    <div class="card-value" id="commandsRegistered">—</div>
+                </div>
+            </div>
         </section>
-        <section>
-            <h2>Actions</h2>
-            <button id="actionButton">Perform Action</button>
+
+        <!-- Analytics Section -->
+        <section class="section" id="section-analytics">
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-label">Total Commands Executed</div>
+                    <div class="card-value" id="totalCommands">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Success Rate</div>
+                    <div class="card-value" id="successRate">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Avg Response Time</div>
+                    <div class="card-value" id="avgResponseMs">—</div>
+                </div>
+            </div>
+            <div class="table-card">
+                <div class="table-title">Top Used Commands</div>
+                <table class="data-table" id="topCommandsTable">
+                    <thead>
+                        <tr><th>#</th><th>Command</th><th>Count</th></tr>
+                    </thead>
+                    <tbody id="topCommandsBody">
+                        <tr><td colspan="3" class="empty-row">Loading…</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </section>
-    </main>
+
+        <!-- History Section -->
+        <section class="section" id="section-history">
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-label">Total History Entries</div>
+                    <div class="card-value" id="historyTotal">—</div>
+                </div>
+            </div>
+            <div class="table-card">
+                <div class="table-title">Recent History (last 20)</div>
+                <div class="history-list" id="historyList">
+                    <div class="empty-row">Loading…</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Boost Section -->
+        <section class="section" id="section-boost">
+            <div class="boost-raw" id="boostRaw">Loading…</div>
+        </section>
+    </div>
+
     <script src="/static/js/script.js"></script>
 </body>
 </html>

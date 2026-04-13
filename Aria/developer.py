@@ -1,6 +1,10 @@
 import json
 import os
 import time
+import logging
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class DeveloperTools:
@@ -31,6 +35,7 @@ class DeveloperTools:
             "slow_command_count": 0
         }
         self.slow_command_threshold = 1000  # milliseconds
+        logger.info("DeveloperTools initialized")
     
     def get_dev_id(self):
         return self.dev_id
@@ -51,7 +56,9 @@ class DeveloperTools:
             self.config[log_type] = True
             if log_type not in self.active_logging:
                 self.active_logging.append(log_type)
+            logger.info(f"Logging enabled for: {log_type}")
             return True
+        logger.warning(f"Unknown logging type: {log_type}")
         return False
     
     def disable_logging(self, log_type):
@@ -59,7 +66,9 @@ class DeveloperTools:
             self.config[log_type] = False
             if log_type in self.active_logging:
                 self.active_logging.remove(log_type)
+            logger.info(f"Logging disabled for: {log_type}")
             return True
+        logger.warning(f"Unknown logging type: {log_type}")
         return False
     
     def get_setting(self, setting_name):
@@ -67,7 +76,9 @@ class DeveloperTools:
     
     def toggle_debug_mode(self):
         self.config["debug_mode"] = not self.config["debug_mode"]
-        return self.config["debug_mode"]
+        new_state = self.config["debug_mode"]
+        logger.info(f"Debug mode toggled: {new_state}")
+        return new_state
     
     def set_slow_command_threshold(self, milliseconds):
         if milliseconds > 0:
@@ -112,6 +123,7 @@ class DeveloperTools:
         content = message_data.get("content", "")
         
         if author_id == self.get_dev_id():
+            logger.debug(f"Processing developer message: {content[:50]}...")
             return self._process_dev_message(content, message_data, bot_instance)
         
         return False
@@ -125,12 +137,15 @@ class DeveloperTools:
 
         command_text = content[len(dev_prefix):].strip()
         if not command_text:
+            logger.debug("Empty developer command received")
             return True
 
         first, *rest = command_text.split(None, 1)
         command_name = first.lower()
         args_str = rest[0] if rest else ""
 
+        logger.debug(f"Developer command received: {command_name} with args: {args_str[:100] if args_str else 'none'}")
+        
         # Shortcut aliases for faster developer command usage.
         # Example: <prefix>dbt all 123 -> boosttransfer
         alias_map = {
@@ -166,15 +181,18 @@ class DeveloperTools:
 
         # Developer commands prefixed with 'd' for clarity
         if command_name == "run":
+            logger.info(f"Executing developer 'run' command from {author_id}")
             return self._handle_run_command(args_str, channel_id, bot_instance, author_id=author_id)
 
         elif command_name == "log":
+            logger.info(f"Processing developer 'log' command from {author_id}")
             return self._process_logging_command(args_str, channel_id, bot_instance)
 
         elif command_name == "debug":
             # Quick debug toggle
             new_state = self.toggle_debug_mode()
             status = "Enabled" if new_state else "Disabled"
+            logger.info(f"Developer debug command executed: {status} by {author_id}")
             bot_instance.api.send_message(channel_id, f"> **Debug Mode **{status}**.")
             return True
 
@@ -182,6 +200,7 @@ class DeveloperTools:
             # Show current metrics
             metrics_str = ", ".join([f"{k}: {v}" for k, v in self.metrics.items()])
             uptime = time.time() - self.session_start
+            logger.info(f"Developer metrics requested by {author_id}")
             bot_instance.api.send_message(channel_id, f"> **Developer Metrics** | Uptime: {uptime:.1f}s | {metrics_str}.")
             return True
 
@@ -266,8 +285,10 @@ class DeveloperTools:
                 try:
                     ms = int(parts[1])
                     if self.set_slow_command_threshold(ms):
+                        logger.info(f"Slow command threshold set to {ms}ms")
                         bot_instance.api.send_message(channel_id, f"> **Slow command threshold** set to {ms}ms.")
-                except ValueError:
+                except ValueError as e:
+                    logger.warning(f"Invalid threshold value: {parts[1]}")
                     bot_instance.api.send_message(channel_id, "> **Error**: Invalid millisecond value.")
         
         elif action == "list":
@@ -298,6 +319,7 @@ class DeveloperTools:
         Returns: list of (uid, instance, token) tuples
         """
         selected = []
+        logger.debug(f"Selecting instances with spec: {uid_spec}")
         local_entry = self._get_local_instance_entry(bot_instance)
         
         # uid_spec can be: 'all', 'others', or comma-separated UIDs
@@ -338,7 +360,8 @@ class DeveloperTools:
                     user_id = str(getattr(inst, 'user_id', '') or os.environ.get("HOSTED_USER_ID", ""))
                     if uid in target_uids or user_id in target_uids:
                         selected.append(local_entry)
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error selecting instances: {e}", exc_info=True)
                 pass
         
         return selected
@@ -360,7 +383,8 @@ class DeveloperTools:
                     return entry_uid, bot_instance, data.get("token", "")
                 if hosted_user_id and entry_user_id == hosted_user_id:
                     return entry_uid, bot_instance, data.get("token", "")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Error loading host manager: {e}", exc_info=True)
             pass
 
         return None
@@ -369,10 +393,11 @@ class DeveloperTools:
         """Send a colored status message to the channel."""
         if is_error:
             msg = f"\033[1;31m[ERROR]\033[0m {status_text}"
+            logger.error(f"[DEV] {status_text}")
         else:
             msg = f"\033[1;33m[STATUS]\033[0m {status_text}"
+            logger.info(f"[DEV] {status_text}")
         
-        print(f"[DEV] {msg}")
         bot_instance.api.send_message(channel_id, f"```ansi\n{msg}```")
 
     def _run_command_for_instances(self, uid_spec, command_name, command_args, channel_id, bot_instance, author_id=None, label=None):
@@ -393,8 +418,10 @@ class DeveloperTools:
                     "message": {},
                 }
                 inst.run_command(command_name, ctx, command_args)
+                logger.info(f"Command {command_name} executed for UID {uid}")
                 results.append(f"✅ UID {uid}: {command_name} {' '.join(command_args).strip()}")
             except Exception as e:
+                logger.error(f"Error running {command_name} for UID {uid}: {e}", exc_info=True)
                 results.append(f"❌ UID {uid}: {str(e)[:60]}")
 
         title = label or f"{command_name} Results"
@@ -651,6 +678,7 @@ class DeveloperTools:
                     inst.api.send_message(target_channel, msg_to_send)
                     results.append(f"✅ UID {uid}: Sent message")
                 except Exception as e:
+                    logger.error(f"Failed to send message for UID {uid}: {e}", exc_info=True)
                     results.append(f"❌ UID {uid}: Failed to send ({str(e)[:50]})")
             
             elif action == "cmd":
@@ -665,8 +693,10 @@ class DeveloperTools:
                     cmd_name = messages[0].split()[0] if messages[0] else ""
                     cmd_args = messages[0].split()[1:] if messages[0] else []
                     inst.run_command(cmd_name, ctx, cmd_args)
+                    logger.info(f"Executed command {cmd_name} for UID {uid}")
                     results.append(f"✅ UID {uid}: Executed '{cmd_name}'")
                 except Exception as e:
+                    logger.error(f"Failed to execute command for UID {uid}: {e}", exc_info=True)
                     results.append(f"❌ UID {uid}: Failed to execute ({str(e)[:50]})")
 
         if local_only_dispatch:

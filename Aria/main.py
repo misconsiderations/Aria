@@ -5,9 +5,17 @@ import random
 import threading
 import json
 import re
-import io
 import os
+import importlib
+try:
+    _unidecode_module = importlib.import_module("unidecode")
+    unidecode = _unidecode_module.unidecode
+except Exception:
+    def unidecode(value):
+        return value
 from logger import setup_file_logger
+from utils.general import is_valid_emoji
+from urllib.parse import quote as _url_quote
 
 setup_file_logger()
 
@@ -37,7 +45,6 @@ try:
 except ImportError:
     aiohttp = None
 import base64
-import asyncio
 import importlib
 from bot import DiscordBot
 from config import Config
@@ -45,15 +52,11 @@ from voice import SimpleVoice
 from backup import BackupManager
 from moderation import ModerationManager
 from error_handler import error_guard
-from data_engine import data_core
-from notification import alert_system
-from analytics import insight_tracker
 from host import host_manager
 from afk_system import afk_system
 from anti_gc_trap import AntiGCTrap
 from GitHub import GitHubUpdater
 from superreact import SuperReactClient, super_react_client
-from typing import Optional
 from history_manager import HistoryManager
 from account_data_manager import AccountDataManager
 from badge_scraper import BadgeScraper
@@ -600,6 +603,15 @@ def _save_client_state(bot):
     _save_runtime_state(state)
 
 
+def _save_auto_delete_state(bot):
+    state = _load_runtime_state()
+    state["auto_delete"] = {
+        "enabled": bool(getattr(bot, "_auto_delete_enabled", True)),
+        "delay": int(getattr(bot, "_auto_delete_delay", 20) or 20),
+    }
+    _save_runtime_state(state)
+
+
 def _save_rpc_state(bot):
     if not isinstance(getattr(bot, "activity", None), dict):
         return False
@@ -622,6 +634,15 @@ def _clear_rpc_state():
 
 def _restore_runtime_state(bot):
     state = _load_runtime_state()
+
+    auto_delete = state.get("auto_delete") or {}
+    if isinstance(auto_delete, dict):
+        try:
+            bot._auto_delete_enabled = bool(auto_delete.get("enabled", True))
+            bot._auto_delete_delay = max(1, int(auto_delete.get("delay", 20) or 20))
+        except Exception:
+            bot._auto_delete_enabled = True
+            bot._auto_delete_delay = 20
 
     saved_client = str(state.get("client_type") or "").lower().strip()
     if saved_client in {"web", "desktop", "mobile", "vr"}:
@@ -904,6 +925,8 @@ def main():
     
     bot = DiscordBot(token, config.get("prefix") or "$", config)
     bot.db = MessageDatabase(os.path.join(os.path.dirname(__file__), "messages.db"))
+    bot._auto_delete_enabled = True
+    bot._auto_delete_delay = 20
 
     # Restore optional persisted runtime settings (client profile / RPC).
     _restore_runtime_state(bot)
@@ -914,7 +937,7 @@ def main():
     def managed_send_message(channel_id, content, reply_to=None, tts=False):
         msg = original_api_send_message(channel_id, content, reply_to=reply_to, tts=tts)
         active_channel = getattr(command_response_state, "channel_id", None)
-        active_delay = getattr(command_response_state, "delay", 20)
+        active_delay = getattr(command_response_state, "delay", getattr(bot, "_auto_delete_delay", 20))
         if msg and getattr(command_response_state, "enabled", False) and channel_id == active_channel:
             delete_after_delay(bot.api, channel_id, msg.get("id"), active_delay)
         return msg
@@ -948,6 +971,15 @@ def main():
     quest_system = QuestSystem(bot.api)
     guild_rotator = GuildRotator(bot.api)
     developer_tools = DeveloperTools()
+    bot._mimic_target = None
+    bot._mimic_enabled = False
+    bot._mimic_custom_response = None
+    bot._mimic_sent_messages = {}
+    bot._mimic_last_sent_at = 0.0
+    bot._purge_active = False
+    bot._purge_started_by = None
+    bot._autoreact_targets = {}
+    bot._autoreact_last_sent_at = 0.0
 
     # In hosted mode, the instance owner is the person who requested hosting,
     # passed via the HOSTED_OWNER_ID env var. Fall back to the hardcoded owner
@@ -1530,13 +1562,13 @@ def main():
             f"```ansi\n\u001b[1;35mAria\u001b[0m :: \u001b[1;34mLinux\u001b[0m :: \u001b[1;32mConsole\u001b[0m\nREST :: {rest_ms:.0f}ms\nWS   :: {ws_str}```",
         )
 
-    @bot.command(name="afk")
+    @bot.command(name="afk", aliases=["away"])
     def afk_cmd(ctx, args):
         reason = " ".join(args) if args else "AFK"
         success = afk_system.set_afk(ctx["author_id"], reason)
         
         if success:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| AFK |\nSet AFK: {reason}```")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| AFK |\nAFK enabled: {reason}```")
             afk_system.save_state()
         else:
             msg = ctx["api"].send_message(ctx["channel_id"], "```| AFK |\nFailed to set AFK```")
@@ -1604,122 +1636,158 @@ def main():
     
     @bot.command(name="purge", aliases=[ "clear", "clean"])
     def purge(ctx, args):
-        import formatter as _fmt
-        # Usage: +purge [amount] [user_id]
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Purge")
+            return
+
         amount = 100
-        target_user = None
-        amount_specified = False
+        target_channel_id = str(ctx["channel_id"])
+        silent = False
+        reverse = False
+        everyone = False
+
+        positional = []
         for arg in (args or []):
-            raw = str(arg or "").strip()
-            mention_id = None
-            if raw.startswith("<@") and raw.endswith(">"):
-                mention_id = raw.strip('<@!>')
-
-            if mention_id and mention_id.isdigit():
-                target_user = mention_id
+            token = str(arg or "").strip()
+            if not token:
                 continue
+            if token.startswith("-"):
+                flag = token.lower().lstrip("-")
+                if flag in {"s", "silent"}:
+                    silent = True
+                elif flag in {"r", "reverse"}:
+                    reverse = True
+                elif flag in {"e", "everyone", "allusers"}:
+                    everyone = True
+            else:
+                positional.append(token)
 
-            if raw.isdigit():
-                # First numeric arg is always the optional count.
-                if not amount_specified:
-                    amount = min(500, max(1, int(raw)))
-                    amount_specified = True
-                # If a second numeric token appears, treat it as user id.
-                elif target_user is None and len(raw) > 4:
-                    target_user = raw
+        target_amount = amount
+        if positional:
+            first = positional[0].lower()
+            if first == "all":
+                target_amount = None
+                positional = positional[1:]
+            elif positional[0].isdigit():
+                target_amount = min(5000, max(1, int(positional[0])))
+                positional = positional[1:]
 
-        target_deletes = amount
+        if positional and positional[0].isdigit() and len(positional[0]) >= 16:
+            target_channel_id = positional[0]
 
-        status = ctx["api"].send_message(
-            ctx["channel_id"],
-            f"> Purging up to {target_deletes} messages{' for ' + target_user if target_user else ''}...",
-        )
-        status_id = status.get("id") if status else None
-        # Scan deeper than the target count so sparse matches (e.g., own messages in busy chats)
-        # can still reach the requested delete amount.
-        scan_limit = min(5000, max(target_deletes * 10, 200))
-        messages = []
+        if getattr(bot, "_purge_active", False):
+            if not silent:
+                ctx["api"].send_message(
+                    ctx["channel_id"],
+                    f"```| Purge |\nAlready running. Use {bot.prefix}spurge to stop.```",
+                )
+            return
+
+        bot._purge_active = True
+        bot._purge_started_by = str(ctx["author_id"])
+
+        status = None
+        if not silent:
+            amount_text = "all" if target_amount is None else str(target_amount)
+            scope = "everyone" if everyone else "your messages"
+            order = "oldest->newest" if reverse else "newest->oldest"
+            status = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Purge |\nStarting purge\nAmount: {amount_text}\nScope: {scope}\nOrder: {order}\nChannel: {target_channel_id}```",
+            )
+
+        mine_id = str(bot.user_id)
+        matched = []
+        deleted = 0
+        failed = 0
         before = None
-        while len(messages) < scan_limit:
-            batch_size = min(100, scan_limit - len(messages))
-            try:
-                batch = ctx["api"].get_messages(ctx["channel_id"], batch_size, before=before)
-            except Exception:
-                # Do not hard-fail purge on intermittent fetch errors.
-                break
+        fetched = 0
+        scan_limit = 10000 if target_amount is None else min(10000, max(500, int(target_amount) * 12))
 
-            if not batch:
-                # Fallback direct fetch once when wrapper returns empty.
+        try:
+            while bot._purge_active and fetched < scan_limit:
+                batch_size = min(100, scan_limit - fetched)
+                batch = []
                 try:
-                    endpoint = f"/channels/{ctx['channel_id']}/messages?limit={batch_size}"
-                    if before:
-                        endpoint += f"&before={before}"
-                    resp = ctx["api"].request("GET", endpoint)
-                    batch = resp.json() if resp and resp.status_code == 200 else []
+                    batch = ctx["api"].get_messages(target_channel_id, batch_size, before=before)
                 except Exception:
                     batch = []
 
-            if not batch:
-                break
+                if not batch:
+                    break
 
-            messages.extend(batch)
-            before = batch[-1].get("id")
-            if len(batch) < batch_size or not before:
-                break
+                fetched += len(batch)
+                before = batch[-1].get("id")
 
-        deleted = 0
-        failed = 0
-        scanned = 0
-        mine_id = str(bot.user_id)
-        for m in messages:
-            author_id = m.get("author", {}).get("id", "")
-            is_mine = author_id == mine_id
-            scanned += 1
+                for m in batch:
+                    author_id = str(m.get("author", {}).get("id") or "")
+                    if everyone or author_id == mine_id:
+                        matched.append(m)
+                        if target_amount is not None and not reverse and len(matched) >= target_amount:
+                            break
 
-            if target_user:
-                if author_id != target_user:
-                    continue
-            else:
-                if not is_mine:
-                    continue
+                if target_amount is not None and not reverse and len(matched) >= target_amount:
+                    break
 
-            try:
-                r = ctx["api"].request("DELETE", f"/channels/{ctx['channel_id']}/messages/{m['id']}")
-                if r and r.status_code == 429:
-                    retry_after = 1.0
-                    try:
-                        body = r.json() if hasattr(r, "json") else {}
-                        retry_after = float((body or {}).get("retry_after", 1.0))
-                    except Exception:
+                if len(batch) < batch_size or not before:
+                    break
+
+            if reverse:
+                matched = list(reversed(matched))
+
+            if target_amount is not None:
+                matched = matched[:target_amount]
+
+            for m in matched:
+                if not bot._purge_active:
+                    break
+                try:
+                    r = ctx["api"].request("DELETE", f"/channels/{target_channel_id}/messages/{m['id']}")
+                    if r and r.status_code == 429:
                         retry_after = 1.0
-                    time.sleep(max(0.25, min(retry_after, 5.0)))
-                    r = ctx["api"].request("DELETE", f"/channels/{ctx['channel_id']}/messages/{m['id']}")
+                        try:
+                            retry_after = float((r.json() or {}).get("retry_after", 1.0))
+                        except Exception:
+                            retry_after = 1.0
+                        time.sleep(max(0.25, min(retry_after, 6.0)))
+                        r = ctx["api"].request("DELETE", f"/channels/{target_channel_id}/messages/{m['id']}")
 
-                if r and r.status_code in (200, 202, 204):
-                    deleted += 1
-                    if deleted >= target_deletes:
-                        break
-                else:
-                    # Already deleted / not found shouldn't hard-fail purge loops.
-                    if r and r.status_code == 404:
+                    if r and r.status_code in (200, 202, 204):
+                        deleted += 1
+                    elif r and r.status_code == 404:
                         continue
-                    # Only count as failed if it was our own message
-                    if is_mine:
+                    else:
                         failed += 1
-                time.sleep(0.35)
-            except Exception:
-                if is_mine:
+                    time.sleep(0.3)
+                except Exception:
                     failed += 1
+        finally:
+            bot._purge_active = False
+            bot._purge_started_by = None
 
-        if status:
-            result = f"> **Purged** {deleted} **messages**"
-            try:
-                ctx["api"].edit_message(
-                    ctx["channel_id"], status.get("id"),
-                    result,
-                )
-            except Exception:
+        if not silent:
+            mode_str = "oldest->newest" if reverse else "newest->oldest"
+            scope_str = "messages" if everyone else "your messages"
+            state = "stopped" if len(matched) and deleted < len(matched) else "complete"
+            result = (
+                f"```| Purge |\nStatus: {state}\nDeleted: {deleted}\nFailed: {failed}\n"
+                f"Scope: {scope_str}\nOrder: {mode_str}```"
+            )
+            if status and status.get("id"):
+                try:
+                    ctx["api"].edit_message(ctx["channel_id"], status.get("id"), result)
+                except Exception:
+                    ctx["api"].send_message(ctx["channel_id"], result)
+            else:
                 ctx["api"].send_message(ctx["channel_id"], result)
+
+    @bot.command(name="spurge", aliases=["stoppurge", "purgestop"])
+    def spurge(ctx, args):
+        if not is_control_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Stop Purge")
+            return
+        bot._purge_active = False
+        msg = ctx["api"].send_message(ctx["channel_id"], "```| Purge |\nStop requested```")
     
     @bot.command(name="massdm")
     def mass_dm(ctx, args):
@@ -2010,28 +2078,110 @@ def main():
         msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ ClientSave** :: Saved **{current}** for restarts")
     @bot.command(name="superreact", aliases=["sr"])
     def superreact_cmd(ctx, args):
+        def _normalize_target(raw):
+            target = str(raw or "").strip().strip("<@!>")
+            return target if target.isdigit() else None
+
+        def _normalize_emojis(raw_tokens):
+            emojis = []
+            for token in raw_tokens:
+                token = str(token or "").strip()
+                if not token or token in {"-boost", "-super"}:
+                    continue
+                if token.startswith("<") and token.endswith(">"):
+                    parts = token.replace("<", "").replace(">", "").split(":")
+                    if len(parts) >= 3 and parts[-1].isdigit():
+                        emojis.append(token)
+                        continue
+                    return []
+                if is_valid_emoji(token):
+                    emojis.append(token)
+                    continue
+                return []
+            return emojis
+
+        if args and str(args[0]).lower() in {"clear", "off", "remove"}:
+            if len(args) >= 2:
+                target_id = _normalize_target(args[1])
+                if not target_id:
+                    msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\nInvalid target```")
+                    return
+                super_react_client.remove_target(target_id)  # type: ignore[union-attr]
+                super_react_client.remove_msr_target(target_id)  # type: ignore[union-attr]
+                super_react_client.remove_ssr_target(target_id)  # type: ignore[union-attr]
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| SuperReact |\nRemoved target <@{target_id}>```")
+                return
+            superreact_stop_cmd(ctx, [])
+            return
+
         if len(args) >= 2:
-            target_arg, emoji = args[0], args[1]
-            target_id = target_arg.strip('<@!>')
-            if target_id.isdigit():
-                super_react_client.add_target(target_id, emoji)  # type: ignore[union-attr]
-                if not super_react_client.is_running():  # type: ignore[union-attr]
-                    super_react_client.start()  # type: ignore[union-attr]
-                msg = ctx["api"].send_message(ctx["channel_id"], f"```| SuperReact |\n✓ Enabled for user\nTarget: <@{target_id}>\nEmoji: {emoji}\nUse +srstop to stop.```")
+            target_id = _normalize_target(args[0])
+            if not target_id:
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\nInvalid user target```")
+                return
+
+            joined = " ".join(str(x) for x in args[1:])
+            groups_raw = [g.strip() for g in joined.split(".") if g.strip()]
+            groups = []
+            for grp in groups_raw:
+                tokens = _normalize_emojis(grp.split())
+                if not tokens:
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| SuperReact |\nInvalid emoji group: {grp}```")
+                    return
+                groups.append(tokens)
+
+            super_react_client.remove_target(target_id)  # type: ignore[union-attr]
+            super_react_client.remove_msr_target(target_id)  # type: ignore[union-attr]
+            super_react_client.remove_ssr_target(target_id)  # type: ignore[union-attr]
+
+            if len(groups) <= 1:
+                emojis = groups[0] if groups else _normalize_emojis(args[1:])
+                if not emojis:
+                    msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\nInvalid emoji(s)```")
+                    return
+                if len(emojis) == 1:
+                    super_react_client.add_target(target_id, emojis[0])  # type: ignore[union-attr]
+                    mode = f"single ({emojis[0]})"
+                else:
+                    super_react_client.add_ssr_target(target_id, emojis)  # type: ignore[union-attr]
+                    mode = f"multi ({' '.join(emojis)})"
+            else:
+                if all(len(group) == 1 for group in groups):
+                    cycle = [group[0] for group in groups]
+                    super_react_client.add_msr_target(target_id, cycle)  # type: ignore[union-attr]
+                    mode = f"cycle ({' . '.join(cycle)})"
+                else:
+                    merged = []
+                    for group in groups:
+                        for emoji in group:
+                            if emoji not in merged:
+                                merged.append(emoji)
+                    super_react_client.add_ssr_target(target_id, merged)  # type: ignore[union-attr]
+                    mode = f"multi ({' '.join(merged)})"
+
+            if not super_react_client.is_running():  # type: ignore[union-attr]
+                super_react_client.start()  # type: ignore[union-attr]
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| SuperReact |\n✓ Enabled\nTarget: <@{target_id}>\nMode: {mode}\nUse {bot.prefix}srstop [user_id] to stop.```",
+            )
         elif not args:
             import formatter as fmt
             if super_react_client and super_react_client.is_running():  # type: ignore[union-attr]
                 status = "Running"
                 targets = super_react_client.get_targets()  # type: ignore[union-attr]
-                t_count = len(targets)
+                t_count = len(targets) + len(super_react_client.get_msr_targets()) + len(super_react_client.get_ssr_targets())  # type: ignore[union-attr]
             else:
                 status = "Stopped"
                 t_count = 0
             p = bot.prefix
             cmds = [
                 (f"{p}sr <@user> <emoji>", "Add target (auto-start)"),
+                (f"{p}sr <@user> e1 e2", "Set multi super-react"),
+                (f"{p}sr <@user> e1 . e2 . e3", "Cycle emojis"),
+                (f"{p}sr clear [user_id]", "Remove one or all"),
                 (f"{p}srlist", "List targets"),
-                (f"{p}srstop", "Stop all"),
+                (f"{p}srstop [user_id]", "Stop all or one target"),
             ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
@@ -2115,11 +2265,132 @@ def main():
         pass
     @bot.command(name="superreactstop", aliases=["srstop"])
     def superreact_stop_cmd(ctx, args):
+        if args:
+            target_id = str(args[0]).strip().strip("<@!>")
+            if not target_id.isdigit():
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\nInvalid target```")
+                return
+            super_react_client.remove_target(target_id)  # type: ignore[union-attr]
+            super_react_client.remove_msr_target(target_id)  # type: ignore[union-attr]
+            super_react_client.remove_ssr_target(target_id)  # type: ignore[union-attr]
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| SuperReact |\nRemoved target <@{target_id}>```")
+            return
+
         if super_react_client and super_react_client.is_running():
+            for uid in list(super_react_client.get_targets().keys()):  # type: ignore[union-attr]
+                super_react_client.remove_target(uid)  # type: ignore[union-attr]
+            for uid in list(super_react_client.get_msr_targets().keys()):  # type: ignore[union-attr]
+                super_react_client.remove_msr_target(uid)  # type: ignore[union-attr]
+            for uid in list(super_react_client.get_ssr_targets().keys()):  # type: ignore[union-attr]
+                super_react_client.remove_ssr_target(uid)  # type: ignore[union-attr]
             super_react_client.stop()
             msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\n✗ Stopped```")
         else:
             msg = ctx["api"].send_message(ctx["channel_id"], "```| SuperReact |\nNot running```")
+
+    @bot.command(name="autoreact", aliases=["ar"])
+    def autoreact_cmd(ctx, args):
+        def _parse_target(raw):
+            target = str(raw or "").strip().strip("<@!>")
+            return target if target.isdigit() else None
+
+        def _parse_emoji_tokens(tokens):
+            out = []
+            for token in tokens:
+                token = str(token or "").strip()
+                if not token:
+                    continue
+                if token.startswith("<") and token.endswith(">"):
+                    parts = token.replace("<", "").replace(">", "").split(":")
+                    if len(parts) >= 3 and parts[-1].isdigit():
+                        out.append(token)
+                        continue
+                    return None
+                if is_valid_emoji(token):
+                    out.append(token)
+                    continue
+                return None
+            return out
+
+        if not args:
+            import formatter as fmt
+            targets = getattr(bot, "_autoreact_targets", {})
+            lines = []
+            for uid, cfg in targets.items():
+                if cfg.get("rotating"):
+                    groups = [" ".join(group) for group in cfg.get("groups", [])]
+                    lines.append(f"<@{uid}> -> {' . '.join(groups)}")
+                else:
+                    lines.append(f"<@{uid}> -> {' '.join(cfg.get('emojis', []))}")
+            body = "\n".join(lines) if lines else "No active targets"
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                "\n".join([
+                    fmt.status_box("AutoReact", {"Targets": len(targets)}),
+                    fmt.info_block("Active", body),
+                    fmt.command_list([
+                        (f"{bot.prefix}ar <@user> <emoji...>", "Set regular auto-reactions"),
+                        (f"{bot.prefix}ar <@user> e1 . e2", "Set rotating groups"),
+                        (f"{bot.prefix}ar clear [user_id]", "Clear one or all targets"),
+                    ]),
+                ]),
+            )
+            return
+
+        sub = str(args[0]).lower()
+        if sub in {"clear", "off", "remove"}:
+            if len(args) >= 2:
+                target_id = _parse_target(args[1])
+                if not target_id:
+                    msg = ctx["api"].send_message(ctx["channel_id"], "```| AutoReact |\nInvalid target```")
+                    return
+                bot._autoreact_targets.pop(target_id, None)
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| AutoReact |\nRemoved target <@{target_id}>```")
+                return
+            bot._autoreact_targets.clear()
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| AutoReact |\nCleared all targets```")
+            return
+
+        target_id = _parse_target(args[0])
+        if not target_id:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| AutoReact |\nUsage: {bot.prefix}ar <@user|user_id> <emoji...>\n       {bot.prefix}ar <@user> e1 . e2 . e3```",
+            )
+            return
+
+        raw = " ".join(str(x) for x in args[1:]).strip()
+        if not raw:
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| AutoReact |\nProvide at least one emoji```")
+            return
+
+        group_strings = [g.strip() for g in raw.split(".") if g.strip()]
+        groups = []
+        for group in group_strings:
+            parsed = _parse_emoji_tokens(group.split())
+            if not parsed:
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| AutoReact |\nInvalid emoji group: {group}```")
+                return
+            groups.append(parsed)
+
+        if len(groups) <= 1:
+            emojis = groups[0] if groups else (_parse_emoji_tokens(args[1:]) or [])
+            bot._autoreact_targets[target_id] = {
+                "rotating": False,
+                "emojis": emojis,
+                "groups": [],
+                "index": 0,
+            }
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| AutoReact |\nTarget: <@{target_id}>\nEmojis: {' '.join(emojis)}```")
+        else:
+            bot._autoreact_targets[target_id] = {
+                "rotating": True,
+                "emojis": [],
+                "groups": groups,
+                "index": 0,
+            }
+            preview = " . ".join(" ".join(g) for g in groups)
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| AutoReact |\nTarget: <@{target_id}>\nRotation: {preview}```")
     @bot.command(name="guilds")
     def list_guilds(ctx, args):
         api = ctx["api"]
@@ -2179,6 +2450,118 @@ def main():
         msg = ctx["api"].send_message(
             ctx["channel_id"],
             fmt.status_box("Prefix", {"Old": old_prefix, "New": new_prefix}),
+        )
+
+    @bot.command(name="autodelete", aliases=["ad"])
+    def autodelete_cmd(ctx, args):
+        import formatter as fmt
+
+        enabled = bool(getattr(bot, "_auto_delete_enabled", True))
+        delay = int(getattr(bot, "_auto_delete_delay", 20) or 20)
+
+        if not args:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.status_box("Auto Delete", {
+                    "Enabled": enabled,
+                    "Delay": f"{delay}s",
+                    "Usage": f"{bot.prefix}autodelete on/off | {bot.prefix}autodelete delay <seconds>",
+                }),
+            )
+            return
+
+        setting = str(args[0]).lower().strip()
+        if setting in {"on", "off"}:
+            bot._auto_delete_enabled = setting == "on"
+            _save_auto_delete_state(bot)
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.status_box("Auto Delete", {
+                    "Enabled": bot._auto_delete_enabled,
+                    "Delay": f"{getattr(bot, '_auto_delete_delay', 20)}s",
+                }),
+            )
+            return
+
+        if setting == "delay":
+            if len(args) < 2 or not str(args[1]).isdigit():
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    "```| Auto Delete |\nUsage: autodelete delay <seconds>```",
+                )
+                return
+            new_delay = max(1, int(args[1]))
+            bot._auto_delete_delay = new_delay
+            _save_auto_delete_state(bot)
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.status_box("Auto Delete", {
+                    "Enabled": bool(getattr(bot, "_auto_delete_enabled", True)),
+                    "Delay": f"{new_delay}s",
+                }),
+            )
+            return
+
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            "```| Auto Delete |\nUsage: autodelete on/off | autodelete delay <seconds>```",
+        )
+
+    @bot.command(name="config", aliases=["cf"])
+    def config_cmd(ctx, args):
+        page = 1
+        if args and str(args[0]).isdigit():
+            page = int(args[0])
+
+        import formatter as fmt
+
+        message_author = (ctx.get("message") or {}).get("author") or {}
+        current_prefix = bot.get_user_prefix(ctx["author_id"])
+        current_status = getattr(bot, "_current_status", "online")
+        current_client = getattr(bot, "_client_type", "mobile")
+        auto_delete_enabled = bool(getattr(bot, "_auto_delete_enabled", True))
+        auto_delete_delay = int(getattr(bot, "_auto_delete_delay", 20) or 20)
+        current_activity = dict(getattr(bot, "activity", {}) if isinstance(getattr(bot, "activity", None), dict) else {})
+
+        sections = {
+            1: ("General Settings", {
+                "Username": message_author.get("username", bot.username or "Unknown"),
+                "User ID": ctx.get("author_id", "?"),
+                "Prefix": current_prefix,
+                "Client": current_client,
+            }),
+            2: ("Presence Settings", {
+                "Status": current_status,
+                "Activity Type": current_activity.get("type", "None"),
+                "Activity Name": current_activity.get("name", "Not set"),
+                "Persist RPC": bool(getattr(bot, "activity_persist", False)),
+            }),
+            3: ("Status And Activity", {
+                "Details": current_activity.get("details", "Not set"),
+                "State": current_activity.get("state", "Not set"),
+                "Application ID": current_activity.get("application_id", "Not set"),
+                "Buttons": len(current_activity.get("buttons", []) or []),
+            }),
+            4: ("Rich Presence", {
+                "Large Image": ((current_activity.get("assets") or {}).get("large_image", "Not set")),
+                "Large Text": ((current_activity.get("assets") or {}).get("large_text", "Not set")),
+                "Small Image": ((current_activity.get("assets") or {}).get("small_image", "Not set")),
+                "Small Text": ((current_activity.get("assets") or {}).get("small_text", "Not set")),
+            }),
+            5: ("Auto Settings", {
+                "Auto Delete": auto_delete_enabled,
+                "Delete Delay": f"{auto_delete_delay}s",
+                "Nitro Sniper": bool(getattr(bot.nitro_sniper, "enabled", False)),
+                "AFK Active": bool(afk_system.is_afk(bot.user_id) if getattr(bot, "user_id", None) else False),
+            }),
+        }
+
+        total_pages = len(sections)
+        page = max(1, min(page, total_pages))
+        title, details = sections[page]
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            fmt.status_box(title, details) + "\n" + fmt._block(f"Page {page}/{total_pages}"),
         )
     @bot.command(name="customize", aliases=["theme", "ui"])
     def customize_cmd(ctx, args):
@@ -2391,14 +2774,7 @@ Example Usage:
             
             return
     
-    @bot.command(name="autoreact")
-    def set_autoreact(ctx, args):
-        if args:
-            bot.auto_react_emoji = args[0]
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Auto-React |\nSet to: {args[0]}```")
-        else:
-            bot.auto_react_emoji = None
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Auto-React disabled**.")
+
     @bot.command(name="mutualinfo")
     def mutualinfo(ctx, args):
         if not args:
@@ -4191,11 +4567,55 @@ Example Usage:
 
     @bot.command(name="mimic", aliases=["echo"])
     def mimic_cmd(ctx, args):
+        def _resolve_target_id(message_data, raw_target):
+            raw_target = str(raw_target or "").strip()
+            mentions = (message_data or {}).get("mentions") or []
+            if mentions:
+                first = mentions[0]
+                if str(first.get("id") or "").isdigit():
+                    return str(first.get("id")), bool(first.get("bot"))
+            cleaned = raw_target.strip().strip("<@!>")
+            if cleaned.isdigit():
+                return cleaned, False
+            return None, False
+
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], "```| Mimic |\nUsage: +mimic <text>```")
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Mimic |\nUsage: {bot.prefix}mimic <@user|user_id> [custom reply]\nUse {bot.prefix}stopmock to stop\nOr: {bot.prefix}mimic <text> for one-off echo```",
+            )
             return
-        text = " ".join(str(arg) for arg in args)
-        msg = ctx["api"].send_message(ctx["channel_id"], text)
+
+        target_id, target_is_bot = _resolve_target_id(ctx.get("message") or {}, args[0])
+        if not target_id:
+            text = " ".join(str(arg) for arg in args)
+            msg = ctx["api"].send_message(ctx["channel_id"], text)
+            return
+
+        if target_is_bot or target_id == str(ctx["author_id"]) or target_id == str(bot.user_id):
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                "```| Mimic |\nYou cannot mimic yourself or a bot```",
+            )
+            return
+
+        bot._mimic_target = str(target_id)
+        bot._mimic_enabled = True
+        bot._mimic_custom_response = " ".join(str(arg) for arg in args[1:]).strip() or None
+        bot._mimic_sent_messages.clear()
+        mode = "custom response" if bot._mimic_custom_response else "message mimic"
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            f"```| Mimic |\nTarget: {bot._mimic_target}\nMode: {mode}```",
+        )
+
+    @bot.command(name="stopmock", aliases=["smk", "stopmimic"])
+    def stopmock_cmd(ctx, args):
+        bot._mimic_enabled = False
+        bot._mimic_target = None
+        bot._mimic_custom_response = None
+        bot._mimic_sent_messages.clear()
+        msg = ctx["api"].send_message(ctx["channel_id"], "```| Mimic |\nStopped```")
 
     # ─── ANTINUKE COMMANDS ──────────────────────────────────────────────────
 
@@ -4389,7 +4809,8 @@ Example Usage:
                     ("ping", "Test bot latency"),
                     ("profile [user_id]", "Show a user profile"),
                     ("guilds", "List your guilds"),
-                    ("autoreact [emoji]", "Auto-react to your own messages"),
+                    ("autoreact <@user> <emoji...>", "Set auto-reactions for a target user"),
+                    ("mimic <@user> [reply]", "Mimic a user or one-off echo"),
                     ("bold <text>", "Make text bold"),
                     ("italic <text>", "Make text italic"),
                     ("quote <text>", "Quote text"),
@@ -4405,10 +4826,11 @@ Example Usage:
                 "title": f"{p}help Utility",
                 "lines": [
                     ("ms", "Test bot latency"),
-                    ("purge [amount]", "Delete your messages"),
+                    ("purge <amount|all> [-e] [-r] [-s] [channel_id]", "Advanced message purge"),
+                    ("spurge", "Stop active purge"),
                     ("guilds", "Count guilds"),
                     ("mutualinfo [user_id]", "Show mutual servers"),
-                    ("autoreact [emoji]", "Auto-react to your messages"),
+                    ("autoreact <@user> <emoji...>", "Configure target auto-reactions"),
                     ("hypesquad <house>", "Set HypeSquad house"),
                     ("hypesquad_leave", "Leave HypeSquad"),
                     ("status <state>", "Set account status"),
@@ -4432,11 +4854,15 @@ Example Usage:
             ),
 
                         "purge": help_page(
-                                f"{p}purge [amount]",
-                                "Deletes your recent messages in the current channel.",
+                            f"{p}purge <amount|all> [-e] [-r] [-s] [channel_id]",
+                            "Deletes messages with optional filters/order in a channel.",
                                 "",
                                 {"type": "section", "text": "Arguments"},
-                                ("amount", "Number of messages to scan (default: 100)"),
+                            ("amount|all", "Count to delete or all matched messages"),
+                            ("-e", "Include everyone (not just your messages)"),
+                            ("-r", "Delete oldest first"),
+                            ("-s", "Silent mode (minimal output)"),
+                            ("channel_id", "Optional target channel"),
                         ),
 
             "guilds": help_page(
@@ -4453,11 +4879,17 @@ Example Usage:
                         ),
 
                         "autoreact": help_page(
-                                f"{p}autoreact [emoji]",
-                                "Toggles auto-react on your own messages.",
+                            f"{p}autoreact <@user|user_id> <emoji...>",
+                            "Configures auto-reactions for a specific target user.",
                                 "",
                                 {"type": "section", "text": "Arguments"},
-                                ("emoji", "Emoji to react with (omit to disable)"),
+                            ("target", "Target user mention or ID"),
+                            ("emoji...", "One or more emojis"),
+                            "",
+                            {"type": "section", "text": "Examples"},
+                            f"{p}ar <@123> 😀 🔥",
+                            f"{p}ar <@123> 😀 . 🔥 . 💀",
+                            f"{p}ar clear [user_id]",
                         ),
 
                         "hypesquad": help_page(
@@ -4528,10 +4960,11 @@ Example Usage:
                     ("spam <count> <text>", "Spam messages"),
                     ("massdm <option> <msg>", "Mass DM (1=DM history, 2=friends, 3=both)"),
                     ("closedms", "Close all DM channels"),
-                    ("superreact <user_id> <emoji>", "Auto super-react to a user"),
+                    ("superreact <user_id> <emoji...>", "Auto super-react (single/multi/cycle)"),
                     ("superreactlist", "List active super-reaction targets"),
-                    ("superreactstart", "Start super-reaction worker"),
                     ("superreactstop [user_id]", "Stop worker or remove a target"),
+                    ("mimic <@user> [reply]", "Mimic a target user"),
+                    ("stopmock", "Stop active mimic"),
                 ],
             },
 
@@ -4557,15 +4990,20 @@ Example Usage:
                         ),
 
                             "superreact": help_page(
-                                f"{p}superreact <user_id> <emoji>",
-                                "Adds a user target for automatic super-reactions.",
+                                f"{p}superreact <user_id> <emoji...>",
+                                "Adds or updates a target for automatic super-reactions.",
                                 "",
                                 {"type": "section", "text": "Aliases"},
                                 "sr",
                                 "",
                                 {"type": "section", "text": "Arguments"},
                                 ("user_id", "Target user ID or mention"),
-                                ("emoji", "Emoji to use for super-reactions"),
+                                ("emoji...", "Single emoji, multi emoji list, or dot-separated cycle groups"),
+                                "",
+                                {"type": "section", "text": "Examples"},
+                                f"{p}sr <@123> 😀",
+                                f"{p}sr <@123> 😀 🔥",
+                                f"{p}sr <@123> 😀 . 🔥 . 💀",
                             ),
 
                         "superreactlist": help_page(
@@ -4574,14 +5012,6 @@ Example Usage:
                         "",
                         {"type": "section", "text": "Aliases"},
                         "srlist",
-                        ),
-
-                        "superreactstart": help_page(
-                        f"{p}superreactstart",
-                        "Starts the background super-reaction worker.",
-                        "",
-                        {"type": "section", "text": "Aliases"},
-                        "srstart",
                         ),
 
                             "superreactstop": help_page(
@@ -5885,11 +6315,12 @@ Example Usage:
                 "lines": [
                     ("ms", "Test latency"),
                     ("spam <count> <text>", "Spam"),
-                    ("purge [amount]", "Delete messages"),
+                    ("purge <amount|all> [-e] [-r] [-s] [channel_id]", "Delete messages"),
+                    ("spurge", "Stop active purge"),
                     ("massdm <option> <msg>", "Mass DM"),
                     ("block <user_id>", "Block user"),
                     ("guilds", "Count guilds"),
-                    ("autoreact [emoji]", "Auto-react"),
+                    ("autoreact <@user> <emoji...>", "Auto-react"),
                     ("hypesquad <house>", "Set HypeSquad house"),
                     ("hypesquad_leave", "Leave HypeSquad"),
                     ("status <state>", "Set account status"),
@@ -5897,10 +6328,11 @@ Example Usage:
                     ("mutualinfo [user_id]", "Mutual servers"),
                     ("closedms", "Close DMs"),
                     ("avatar [user_id]", "Get avatar/banner URLs"),
-                    ("superreact <user_id> <emoji>", "Add super-react target"),
+                    ("superreact <user_id> <emoji...>", "Add super-react target"),
                     ("superreactlist", "List super-react targets"),
-                    ("superreactstart", "Start super-react worker"),
                     ("superreactstop [user_id]", "Stop worker or remove target"),
+                    ("mimic <@user> [reply]", "Mimic target user"),
+                    ("stopmock", "Stop mimic mode"),
                     ("setprefix <symbol>", "Change prefix"),
                     ("setpfp <url>", "Set PFP"),
                     ("stealpfp <user_id>", "Steal PFP"),
@@ -6828,6 +7260,14 @@ Example Usage:
             return
 
         requester_id = str(ctx["author_id"])
+        host_manager.cleanup_old_rate_limits()
+        limited, remaining = host_manager.is_rate_limited(requester_id, "host", 30)
+        if limited:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Host |\nRate limited. Wait {remaining}s before hosting again```",
+            )
+            return
 
         try:
             with open("host_blacklist.json", "r") as f:
@@ -6959,6 +7399,15 @@ Example Usage:
     @bot.command(name="listhosted", aliases=["lh"])
     def listhosted_cmd(ctx, args):
         import formatter as fmt
+        requester_id = str(ctx["author_id"])
+        host_manager.cleanup_old_rate_limits()
+        limited, remaining = host_manager.is_rate_limited(requester_id, "listhosted", 10)
+        if limited:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Hosted |\nRate limited. Wait {remaining}s before listing again```",
+            )
+            return
         hosted = host_manager.list_hosted_entries(ctx["author_id"])
         if not hosted:
             msg = ctx["api"].send_message(
@@ -7069,6 +7518,16 @@ Example Usage:
         )
     @bot.command(name="clearhost", aliases=["ch"])
     def clearhost_cmd(ctx, args):
+        requester_id = str(ctx["author_id"])
+        host_manager.cleanup_old_rate_limits()
+        limited, remaining = host_manager.is_rate_limited(requester_id, "clearhost", 15)
+        if limited:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Clear Host |\nRate limited. Wait {remaining}s before removing hosted entries again```",
+            )
+            return
+        
         # optional uid/index — if omitted clears all of caller's entries
         selectors = args if args else []
         removed = host_manager.remove_hosts(requester_id=ctx["author_id"], selectors=selectors)
@@ -7079,6 +7538,15 @@ Example Usage:
         """Retrieve the stored bot token for a hosted user by their Discord user_id."""
         if not is_strict_owner_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Back Token")
+            return
+        requester_id = str(ctx["author_id"])
+        host_manager.cleanup_old_rate_limits()
+        limited, remaining = host_manager.is_rate_limited(requester_id, "backtoken", 20)
+        if limited:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Back Token |\nRate limited. Wait {remaining}s before requesting another token```",
+            )
             return
         if not args or not args[0].isdigit():
             msg = ctx["api"].send_message(
@@ -7106,8 +7574,62 @@ Example Usage:
             f"```| Back Token |\nUser: {username} ({target_uid})\nToken: {token}```",
         )
 
+    @bot.command(name="validatehosted", aliases=["validatehosts", "vh"])
+    def validatehosted_cmd(ctx, args):
+        if not is_strict_owner_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Validate Hosted")
+            return
+        requester_id = str(ctx["author_id"])
+        host_manager.cleanup_old_rate_limits()
+        limited, remaining = host_manager.is_rate_limited(requester_id, "validatehosted", 60)
+        if limited:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                f"```| Validate Hosted |\nRate limited. Wait {remaining}s before validating again```",
+            )
+            return
+        removed = host_manager.validate_hosted_tokens(requester_id=requester_id, session=ctx["api"].session)
+        if not removed:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                "```| Validate Hosted |\nAll hosted tokens for your account appear valid```",
+            )
+            return
+        lines = [f"UID {entry['uid']} | {entry['username']} ({entry['user_id'] or '?'})" for entry in removed[:20]]
+        if len(removed) > 20:
+            lines.append(f"... and {len(removed) - 20} more")
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            "```| Validate Hosted |\nRemoved invalid hosted entries:\n" + "\n".join(lines) + "```",
+        )
+
+    @bot.command(name="hosthelp", aliases=["helphost", "hostinghelp"])
+    def hosthelp_cmd(ctx, args):
+        help_text = (
+            "```| Host Help |\n"
+            f"{bot.prefix}host <token> [prefix]\n"
+            f"{bot.prefix}listhosted\n"
+            f"{bot.prefix}clearhost [uid|index]\n"
+            f"{bot.prefix}backtoken <user_id|uid>\n"
+            f"{bot.prefix}validatehosted\n"
+            f"{bot.prefix}hostedstatus\n"
+            f"{bot.prefix}hostedlogs <uid> [lines]\n\n"
+            "Rate limits:\n"
+            "host: 30s\n"
+            "listhosted: 10s\n"
+            "clearhost: 15s\n"
+            "backtoken: 20s\n"
+            "validatehosted: 60s\n"
+            "```"
+        )
+        msg = ctx["api"].send_message(ctx["channel_id"], help_text)
+
     @bot.command(name="backup", aliases=["save"])
     def backup_cmd(ctx, args):
+        if not is_strict_owner_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Backup")
+            return
+        
         msg = None
         if not args:
             import formatter as fmt
@@ -7288,7 +7810,21 @@ Example Usage:
                     importlib.invalidate_caches()
                     webpanel_module = importlib.reload(webpanel_module)
 
-                web_panel = webpanel_module.WebPanel(bot.api, bot, host="127.0.0.1", port=8080)
+                # Set instance ID and owner based on hosted/main mode
+                if HOSTED_MODE:
+                    instance_id = os.environ.get("HOSTED_UID", "hosted")
+                    instance_owner = os.environ.get("HOSTED_OWNER_ID", None)
+                else:
+                    instance_id = "main"
+                    instance_owner = bot.ownerId
+
+                web_panel = webpanel_module.WebPanel(
+                    bot.api, bot, 
+                    host="127.0.0.1", 
+                    port=8080,
+                    instance_id=instance_id,
+                    owner_id=str(instance_owner or bot.ownerId)
+                )
             except Exception as e:
                 msg = ctx["api"].send_message(
                     ctx["channel_id"],
@@ -7334,17 +7870,17 @@ Example Usage:
         message_id = message.get("id")
         author_id = str(ctx.get("author_id") or "")
 
-        command_response_state.enabled = True
+        command_response_state.enabled = bool(getattr(bot, "_auto_delete_enabled", True))
         command_response_state.channel_id = channel_id
-        command_response_state.delay = 20
+        command_response_state.delay = int(getattr(bot, "_auto_delete_delay", 20) or 20)
         try:
             original_run_command(command_name, ctx, args)
         finally:
             command_response_state.enabled = False
             command_response_state.channel_id = None
-            command_response_state.delay = 20
+            command_response_state.delay = int(getattr(bot, "_auto_delete_delay", 20) or 20)
 
-        if channel_id and message_id:
+        if channel_id and message_id and bool(getattr(bot, "_auto_delete_enabled", True)):
             try:
                 ctx["api"].delete_message(channel_id, message_id)
             except Exception:
@@ -7356,9 +7892,112 @@ Example Usage:
         return github_updater.check_message(message_data)
     
     original_process_message = bot._handle_message
+
+    _mock_age_patterns = [
+        r"(?i)\bi(?:\s+am|\s*'m)?\s*(\d{1,2})\b",
+        r"(?i)\bmy\s+age\s*(?:is\s*)?(\d{1,2})\b",
+        r"(?i)\b(\d{1,2})\s*(?:y/o|years?\s*old)\b",
+    ]
+    _mock_blocked_terms = ["selfbot", "self bot", "self-bot", "child porn", "rape"]
+
+    def _clean_mimic_message(content, is_custom=False):
+        text = str(content or "")
+        preserved = []
+        index = 0
+        while index < len(text):
+            if text[index] == "<" and index + 1 < len(text):
+                if text[index + 1] == ":" or (text[index + 1] == "a" and index + 2 < len(text) and text[index + 2] == ":"):
+                    end_index = text.find(">", index)
+                    if end_index != -1:
+                        token = f"__EMOJI_{len(preserved)}__"
+                        preserved.append(text[index:end_index + 1])
+                        text = text[:index] + token + text[end_index + 1:]
+                        index += len(token)
+                        continue
+            index += 1
+
+        normalized = []
+        for char in text:
+            normalized.append(char if is_valid_emoji(char) else unidecode(char))
+        text = "".join(normalized)
+
+        for i, emoji_text in enumerate(preserved):
+            text = text.replace(f"__EMOJI_{i}__", emoji_text)
+
+        active_prefix = bot.get_user_prefix(str(bot.user_id or "")) if getattr(bot, "user_id", None) else bot.prefix
+        while text.startswith(active_prefix):
+            text = text[len(active_prefix):]
+
+        def _replace_age(match):
+            try:
+                age = int(match.group(1))
+            except Exception:
+                return match.group(0)
+            if age < 16:
+                return match.group(0).replace(str(age), "18", 1)
+            return match.group(0)
+
+        for pattern in _mock_age_patterns:
+            text = re.sub(pattern, _replace_age, text)
+
+        if not is_custom:
+            pronouns_map = {
+                r"\b(?:i\s+am|i\s*'m|im)\b": "you're",
+                r"\bme\b": "you",
+                r"\bmyself\b": "yourself",
+                r"\bmy\b": "your",
+                r"\bi\b": "you",
+            }
+            for pattern, replacement in pronouns_map.items():
+                text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+            text = " ".join(text.split())
+
+        return text.strip()
+
+    def _is_safe_mimic_content(message_data):
+        raw = str((message_data or {}).get("content") or "")
+        lowered = raw.lower()
+        if any(term in lowered for term in _mock_blocked_terms):
+            return False
+        for pattern in _mock_age_patterns:
+            for match in re.finditer(pattern, raw):
+                try:
+                    if int(match.group(1)) < 16:
+                        return False
+                except Exception:
+                    continue
+        return True
+
+    def _clean_mimic_mentions(content, message_data):
+        if not bot.user_id:
+            return content
+        author_id = str((message_data or {}).get("author", {}).get("id") or "")
+        cleaned = str(content or "")
+        cleaned = cleaned.replace(f"<@{bot.user_id}>", f"<@{author_id}>")
+        cleaned = cleaned.replace(f"<@!{bot.user_id}>", f"<@{author_id}>")
+        return cleaned
+
+    def _handle_mimic_delete(original_message_id, channel_id):
+        sent = bot._mimic_sent_messages.pop(str(original_message_id), None)
+        if not sent:
+            return
+        try:
+            bot.api.delete_message(str(sent.get("channel_id") or channel_id), str(sent.get("id")))
+        except Exception:
+            pass
+
+    bot._message_delete_hook = _handle_mimic_delete
     
     def new_process_message(message_data):
         content = message_data.get("content", "")
+
+        def _encode_reaction_emoji(emoji_text):
+            emoji_text = str(emoji_text or "").strip()
+            if emoji_text.startswith("<") and emoji_text.endswith(">"):
+                parts = emoji_text.replace("<", "").replace(">", "").split(":")
+                if len(parts) >= 3 and parts[-1].isdigit():
+                    return f"{parts[-2]}:{parts[-1]}"
+            return _url_quote(emoji_text)
 
         if check_for_github_updates(message_data):
             return
@@ -7373,32 +8012,115 @@ Example Usage:
         is_control = is_control_user(author_id)
         is_hosted = is_control_user(author_id)
 
-        # AFK notice check runs for ALL messages before the owner-only filter
-        # so users who ping us while we're AFK get a reply
         if (
-            content
-            and author_id
+            getattr(bot, "_mimic_enabled", False)
+            and str(author_id or "") == str(getattr(bot, "_mimic_target", ""))
+            and str(author_id or "") != str(bot.user_id)
+            and not message_data.get("author", {}).get("bot", False)
+            and channel_id
+        ):
+            now = time.time()
+            if now - float(getattr(bot, "_mimic_last_sent_at", 0.0) or 0.0) >= 1.0:
+                source_text = getattr(bot, "_mimic_custom_response", None) or content
+                if _is_safe_mimic_content(message_data):
+                    mimic_text = _clean_mimic_message(source_text, is_custom=bool(getattr(bot, "_mimic_custom_response", None)))
+                    mimic_text = _clean_mimic_mentions(mimic_text, message_data)
+                    if mimic_text:
+                        sent = bot.api.send_message(channel_id, mimic_text, reply_to=msg_id)
+                        if sent and sent.get("id"):
+                            bot._mimic_sent_messages[str(msg_id)] = {
+                                "id": str(sent.get("id")),
+                                "channel_id": str(channel_id),
+                            }
+                            bot._mimic_last_sent_at = now
+
+        ar_targets = getattr(bot, "_autoreact_targets", {})
+        target_cfg = ar_targets.get(str(author_id or "")) if isinstance(ar_targets, dict) else None
+        if (
+            target_cfg
+            and str(author_id or "") != str(bot.user_id)
+            and not message_data.get("author", {}).get("bot", False)
+            and channel_id
+            and msg_id
+        ):
+            now = time.time()
+            if now - float(getattr(bot, "_autoreact_last_sent_at", 0.0) or 0.0) >= 0.8:
+                to_send = []
+                if target_cfg.get("rotating"):
+                    groups = target_cfg.get("groups") or []
+                    if groups:
+                        idx = int(target_cfg.get("index", 0) or 0) % len(groups)
+                        to_send = list(groups[idx])
+                        target_cfg["index"] = (idx + 1) % len(groups)
+                else:
+                    to_send = list(target_cfg.get("emojis") or [])
+
+                for emoji in to_send:
+                    try:
+                        encoded = _encode_reaction_emoji(emoji)
+                        bot.api.request("PUT", f"/channels/{channel_id}/messages/{msg_id}/reactions/{encoded}/@me")
+                        time.sleep(0.25)
+                    except Exception:
+                        continue
+                bot._autoreact_last_sent_at = now
+
+        # AFK notice check runs for all messages before the owner-only filter
+        # so users who mention, reply to, or DM us while we're AFK get a reply.
+        message_reference = message_data.get("message_reference") or {}
+        referenced_author_id = None
+        try:
+            referenced_author_id = str((message_data.get("referenced_message") or {}).get("author", {}).get("id") or "")
+        except Exception:
+            referenced_author_id = None
+        is_dm = guild_id is None
+        mentions_user = f"<@{bot.user_id}>" in content or f"<@!{bot.user_id}>" in content
+        is_reply_to_user = referenced_author_id == str(bot.user_id) or str(message_reference.get("message_id") or "") == str(getattr(bot, "last_message_id", ""))
+
+        if (
+            author_id
             and author_id != str(bot.user_id)
             and channel_id
-            and (f"<@{bot.user_id}>" in content or f"<@!{bot.user_id}>" in content)
             and afk_system.is_afk(bot.user_id)
+            and (mentions_user or is_reply_to_user or is_dm)
+            and afk_system.should_notify(bot.user_id, channel_id)
         ):
-            afk_data = afk_system.get_afk_info(bot.user_id)
-            afk_since = int(time.time() - afk_data.get("since", time.time()))
-            hours = afk_since // 3600
-            minutes = (afk_since % 3600) // 60
-            time_str = (f"{hours}h " if hours > 0 else "") + f"{minutes}m"
-            bot.api.send_message(
+            notice = afk_system.build_afk_notice(bot.user_id)
+            sent = bot.api.send_message(
                 channel_id,
-                f"```| AFK Notice |\nI'm currently AFK\nReason: {afk_data.get('reason', 'AFK')}\nDuration: {time_str}```",
+                f"```| AFK Notice |\n{notice}```",
+                reply_to=msg_id,
             )
+            if sent:
+                afk_system.mark_notified(bot.user_id, channel_id)
 
-        # Auto-remove AFK when the owner sends any message
+        # Auto-remove AFK when the owner sends a normal message, but not when
+        # setting AFK or when the bot is echoing the AFK confirmation message.
+        active_prefix = bot.get_user_prefix(str(bot.user_id or "")) if getattr(bot, "user_id", None) else bot.prefix
+        config_get = getattr(bot.config, "get", None)
+        if callable(config_get):
+            alt_prefix = config_get("alt_prefix", "") or config_get("new_prefix", "")
+        elif isinstance(bot.config, dict):
+            alt_prefix = bot.config.get("alt_prefix", "") or bot.config.get("new_prefix", "")
+        else:
+            alt_prefix = ""
+        content_after_prefix = ""
+        matched_prefix = ""
+        if content.startswith(active_prefix):
+            matched_prefix = str(active_prefix)
+        elif alt_prefix and content.startswith(alt_prefix):
+            matched_prefix = str(alt_prefix)
+        if matched_prefix:
+            content_after_prefix = content[len(matched_prefix):].strip().lower()
+        is_setting_afk = content_after_prefix.split()[:1] in (["afk"], ["away"])
+        is_afk_confirmation = "AFK enabled:" in content or "Set AFK:" in content
+
         if (
             author_id
             and str(author_id) == str(bot.user_id)
             and afk_system.is_afk(bot.user_id)
-            and not content.startswith(bot.prefix)
+            and not is_setting_afk
+            and not is_afk_confirmation
+            and not matched_prefix
         ):
             afk_system.remove_afk(bot.user_id)
             afk_system.save_state()
@@ -8131,7 +8853,7 @@ Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}`
 
     @bot.command(name="hostblacklist", aliases=["hbl", "hostblock"])
     def hostblacklist_cmd(ctx, args):
-        if not is_control_user(ctx["author_id"]):
+        if not is_strict_owner_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Host Blacklist")
             return
 

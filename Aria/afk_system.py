@@ -1,6 +1,9 @@
 import json
+import logging
 import os
 import time
+
+logger = logging.getLogger(__name__)
 
 
 class AFKSystem:
@@ -8,6 +11,8 @@ class AFKSystem:
         self.state_file = state_file
         self.afk_users = {}
         self.webhook_url = None
+        self.last_afk_message = {}
+        self.cooldown = 60
 
     def load_state(self):
         try:
@@ -40,12 +45,15 @@ class AFKSystem:
             "reason": reason or "AFK",
             "since": int(time.time()),
         }
+        logger.info("AFK enabled for user %s", user_id)
         return True
 
     def remove_afk(self, user_id):
         user_id = str(user_id)
         if user_id in self.afk_users:
             del self.afk_users[user_id]
+            self.last_afk_message.pop(user_id, None)
+            logger.info("AFK cleared for user %s", user_id)
             return True
         return False
 
@@ -54,6 +62,54 @@ class AFKSystem:
 
     def get_afk_info(self, user_id):
         return self.afk_users.get(str(user_id), {})
+
+    def get_time_message(self, user_id):
+        afk_info = self.get_afk_info(user_id)
+        since = int(afk_info.get("since") or 0)
+        if not since:
+            return ""
+
+        elapsed = max(0, int(time.time() - since))
+        days = elapsed // 86400
+        hours = (elapsed % 86400) // 3600
+        minutes = (elapsed % 3600) // 60
+        seconds = elapsed % 60
+
+        parts = []
+        if days > 0:
+            parts.append(f"{days}d")
+        if hours > 0:
+            parts.append(f"{hours}h")
+        if minutes > 0:
+            parts.append(f"{minutes}m")
+        if seconds > 0 or not parts:
+            parts.append(f"{seconds}s")
+        return " ".join(parts)
+
+    def should_notify(self, user_id, channel_id, cooldown=None):
+        user_id = str(user_id)
+        channel_id = str(channel_id)
+        current_time = time.time()
+        effective_cooldown = self.cooldown if cooldown is None else max(0, int(cooldown))
+        user_channels = self.last_afk_message.setdefault(user_id, {})
+        last_time = float(user_channels.get(channel_id, 0) or 0)
+        if current_time - last_time < effective_cooldown:
+            return False
+        return True
+
+    def mark_notified(self, user_id, channel_id):
+        user_id = str(user_id)
+        channel_id = str(channel_id)
+        user_channels = self.last_afk_message.setdefault(user_id, {})
+        user_channels[channel_id] = time.time()
+
+    def build_afk_notice(self, user_id):
+        afk_info = self.get_afk_info(user_id)
+        reason = str(afk_info.get("reason") or "AFK")
+        time_msg = self.get_time_message(user_id)
+        if time_msg:
+            return f"I\'m currently AFK\nReason: {reason}\nDuration: {time_msg}"
+        return f"I\'m currently AFK\nReason: {reason}"
 
     def set_webhook(self, webhook_url):
         self.webhook_url = webhook_url.strip() if webhook_url else None

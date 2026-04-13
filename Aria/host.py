@@ -5,8 +5,11 @@ import subprocess
 import os
 import sys
 import shutil
+import logging
+from datetime import datetime, timedelta
 
 HOSTED_USERS_FILE = "hosted_users.json"
+logger = logging.getLogger(__name__)
 
 class HostManager:
     def __init__(self):
@@ -16,6 +19,7 @@ class HostManager:
         self.lock = threading.Lock()
         self.hosting_enabled = True  # owner toggle — allows non-owners to use +host
         self._stop_events = {}    # token_id -> threading.Event for keepalive control
+        self.rate_limits = {}     # owner_command -> datetime
         self._load_saved_users()
         # Removed: self._print_startup_summary()  <- This was causing duplicate loading
 
@@ -68,6 +72,47 @@ class HostManager:
             return str(self.saved_users[token_id].get("owner")) == user_id
         return False
 
+    def is_rate_limited(self, user_id, command="host", cooldown_seconds=30):
+        now = datetime.utcnow()
+        key = f"{user_id}_{command}"
+        last_used = self.rate_limits.get(key)
+        if last_used and now - last_used < timedelta(seconds=cooldown_seconds):
+            remaining = int((last_used + timedelta(seconds=cooldown_seconds) - now).total_seconds())
+            return True, max(1, remaining)
+        self.rate_limits[key] = now
+        return False, 0
+
+    def cleanup_old_rate_limits(self):
+        cutoff = datetime.utcnow() - timedelta(hours=1)
+        stale = [key for key, used_at in self.rate_limits.items() if used_at < cutoff]
+        for key in stale:
+            self.rate_limits.pop(key, None)
+
+    def validate_token_api(self, token, session=None):
+        if not token:
+            return False, None
+        try:
+            if session is not None:
+                response = session.get(
+                    "https://discord.com/api/v9/users/@me",
+                    headers={"Authorization": token, "Content-Type": "application/json"},
+                    timeout=12,
+                )
+            else:
+                import requests
+
+                response = requests.get(
+                    "https://discord.com/api/v9/users/@me",
+                    headers={"Authorization": token, "Content-Type": "application/json"},
+                    timeout=12,
+                )
+            if response.status_code == 200:
+                return True, response.json() or {}
+            return False, None
+        except Exception as exc:
+            logger.error("Host token validation failed: %s", exc)
+            return False, None
+
     def host_token(self, owner_id, token_input, prefix=";", user_id=None, username=None):
         if not token_input:
             return False, "No token"
@@ -114,6 +159,8 @@ class HostManager:
             self.saved_users[token_id] = {k: v for k, v in entry.items() if k != "config"}
             self._save_users()
 
+            logger.info("Hosted token created: owner=%s uid=%s user_id=%s username=%s", owner_id, token_id, user_id, username)
+
             pass  # hosted bot start suppressed — output goes to hosted log
 
         self._start_keepalive(token_id)
@@ -134,41 +181,79 @@ class HostManager:
     def _run_their_bot(self, config_file, token, prefix=";", hosted_uid=None, owner_id=None, user_id=None, username=None):
         try:
             runner_code = f"""
-import sys, os, json, time, subprocess, shutil
+import sys, os, json, subprocess, shutil
 
-temp_dir = "hosted_bot_{hosted_uid}"
-first_run = not os.path.exists(temp_dir)
-os.makedirs(temp_dir, exist_ok=True)
+SOURCE_ROOT = os.path.dirname(os.path.abspath(__file__))
+TEMP_DIR = os.path.join(SOURCE_ROOT, "hosted_bot_{hosted_uid}")
+SYNC_DIRS = ("cogs", "core", "static", "utils", "web_ui")
+SYNC_FILE_SUFFIXES = (".py", ".json", ".html")
+IGNORE_NAMES = {{"__pycache__", ".git", ".pytest_cache", ".mypy_cache", "hosted_logs", "dist"}}
 
-if first_run:
-    # First launch: copy everything and write fresh config
-    for file in os.listdir("."):
-        if file.endswith(".py") or file.endswith(".json"):
-            try:
-                shutil.copy(file, os.path.join(temp_dir, file))
-            except Exception:
-                pass
-    with open(os.path.join(temp_dir, "config.json"), "w") as f:
-        json.dump({{"token": "{token}", "prefix": "{prefix}"}}, f)
-else:
-    # Restart: refresh .py files only — preserve .json files so saved prefix persists
-    for file in os.listdir("."):
-        if file.endswith(".py"):
-            try:
-                shutil.copy(file, os.path.join(temp_dir, file))
-            except Exception:
-                pass
 
-os.chdir(temp_dir)
+def _should_copy_root_file(file_name):
+    if file_name in {{"config.json"}}:
+        return False
+    return file_name.endswith(SYNC_FILE_SUFFIXES)
+
+
+def _copy_root_files():
+    for file_name in os.listdir(SOURCE_ROOT):
+        source_path = os.path.join(SOURCE_ROOT, file_name)
+        dest_path = os.path.join(TEMP_DIR, file_name)
+        if not os.path.isfile(source_path) or not _should_copy_root_file(file_name):
+            continue
+        try:
+            shutil.copy2(source_path, dest_path)
+        except Exception:
+            pass
+
+
+def _sync_directory_tree(directory_name):
+    source_dir = os.path.join(SOURCE_ROOT, directory_name)
+    dest_dir = os.path.join(TEMP_DIR, directory_name)
+    if not os.path.isdir(source_dir):
+        return
+    try:
+        shutil.copytree(
+            source_dir,
+            dest_dir,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+        )
+    except Exception:
+        pass
+
+
+def _sync_project_tree():
+    os.makedirs(TEMP_DIR, exist_ok=True)
+    _copy_root_files()
+    for directory_name in SYNC_DIRS:
+        _sync_directory_tree(directory_name)
+    with open(os.path.join(TEMP_DIR, "config.json"), "w", encoding="utf-8") as config_file:
+        json.dump({{"token": {json.dumps(token)}, "prefix": {json.dumps(prefix)}}}, config_file)
+
+
+_sync_project_tree()
+
+for path in (TEMP_DIR, SOURCE_ROOT):
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
+os.chdir(TEMP_DIR)
 
 env = os.environ.copy()
+existing_pythonpath = env.get("PYTHONPATH", "")
+pythonpath_parts = [TEMP_DIR, SOURCE_ROOT]
+if existing_pythonpath:
+    pythonpath_parts.append(existing_pythonpath)
+env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
 env["HOSTED_TOKEN"] = "true"
 env["HOSTED_UID"] = {hosted_uid!r}
 env["HOSTED_OWNER_ID"] = {owner_id!r}
 env["HOSTED_USER_ID"] = {user_id!r}
 env["HOSTED_USERNAME"] = {username!r}
 
-subprocess.run([sys.executable, "main.py"], env=env)
+subprocess.run([sys.executable, os.path.join(TEMP_DIR, "main.py")], cwd=TEMP_DIR, env=env)
 """
             # Fixed runner filename per token so keepalive restarts work cleanly
             runner_file = f"runner_{hosted_uid}.py"
@@ -198,7 +283,7 @@ subprocess.run([sys.executable, "main.py"], env=env)
             return process
 
         except Exception as e:
-            print(f"Host error: {e}")
+            logger.error("Host start error: %s", e)
             return None
 
     def _start_keepalive(self, token_id):
@@ -449,6 +534,45 @@ subprocess.run([sys.executable, "main.py"], env=env)
                 removed += 1
             self._save_users()
 
+        if removed:
+            logger.info("Removed %s hosted entr%s for requester=%s", removed, "y" if removed == 1 else "ies", requester_id or "all")
+
+        return removed
+
+    def validate_hosted_tokens(self, requester_id=None, session=None):
+        scoped_entries = self.list_hosted_entries(requester_id)
+        if not scoped_entries:
+            return []
+
+        removed = []
+        for token_id, entry in scoped_entries:
+            is_valid, account = self.validate_token_api(entry.get("token"), session=session)
+            if is_valid:
+                continue
+
+            with self.lock:
+                stop_event = self._stop_events.pop(token_id, None)
+                if stop_event:
+                    stop_event.set()
+                proc = self.processes.pop(token_id, None)
+                if proc:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+                self.active_tokens.pop(token_id, None)
+                removed_entry = self.saved_users.pop(token_id, None) or entry
+                self._save_users()
+
+            removed.append({
+                "token_id": token_id,
+                "uid": str(removed_entry.get("uid") or token_id),
+                "user_id": str(removed_entry.get("user_id") or ""),
+                "username": str(removed_entry.get("username") or "Unknown"),
+            })
+
+        if removed:
+            logger.warning("Removed %s invalid hosted tokens for requester=%s", len(removed), requester_id or "all")
         return removed
 
     def list_all_hosted(self):
