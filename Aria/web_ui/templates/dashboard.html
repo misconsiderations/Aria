@@ -13,21 +13,20 @@
             <span class="logo-text">Aria</span>
         </div>
         <ul class="sidebar-nav">
-            <li class="nav-item active" data-section="overview">
-                <span class="nav-icon">◈</span> Overview
-            </li>
-            <li class="nav-item" data-section="analytics">
-                <span class="nav-icon">◈</span> Analytics
-            </li>
-            <li class="nav-item" data-section="history">
-                <span class="nav-icon">◈</span> History
-            </li>
-            <li class="nav-item" data-section="boost">
-                <span class="nav-icon">◈</span> Boost
-            </li>
+            <li class="nav-item active" data-section="overview">Overview</li>
+            <li class="nav-item" data-section="commands">Commands</li>
+            <li class="nav-item" data-section="analytics">Analytics</li>
+            <li class="nav-item" data-section="history">History</li>
+            <li class="nav-item" data-section="boost">Boost</li>
+            <li class="nav-item" data-section="rpc">RPC</li>
+            <li class="nav-item" data-section="presence">Presence</li>
+            <li class="nav-item" data-section="hosted">Hosted</li>
+            <li class="nav-item" data-section="logs">Logs</li>
+            <li class="nav-item" data-section="users">Users</li>
+            <li class="nav-item" data-section="settings">Settings</li>
         </ul>
         <div class="sidebar-footer">
-            <button class="refresh-btn" id="refreshBtn">↻ Refresh</button>
+            <button class="refresh-btn" id="refreshBtn">Refresh</button>
         </div>
     </nav>
 
@@ -36,11 +35,11 @@
             <h1 class="page-title" id="pageTitle">Overview</h1>
             <div class="topbar-right">
                 <div class="status-dot" id="globalStatus"></div>
-                <span class="status-label" id="globalStatusLabel">Loading…</span>
+                <span class="status-label" id="globalStatusLabel">Loading...</span>
             </div>
         </header>
 
-        <!-- Overview Section -->
+        <!-- ── Overview ─────────────────────────────────────── -->
         <section class="section active" id="section-overview">
             <div class="cards-grid">
                 <div class="card">
@@ -64,17 +63,42 @@
                     <div class="card-value" id="commandCount">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-label">Commands Registered</div>
+                    <div class="card-label">Registered Commands</div>
                     <div class="card-value" id="commandsRegistered">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Connection</div>
+                    <div class="card-value" id="connectionStatus">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Status</div>
+                    <div class="card-value" id="botStatus">—</div>
                 </div>
             </div>
         </section>
 
-        <!-- Analytics Section -->
+        <!-- ── Commands ──────────────────────────────────────── -->
+        <section class="section" id="section-commands">
+            <div class="search-row">
+                <input type="text" id="cmdSearch" class="search-input" placeholder="Search commands...">
+                <span class="search-hint" id="cmdCountLabel">— commands</span>
+            </div>
+            <div class="table-card" style="margin-top:16px">
+                <div class="table-title">All Registered Commands</div>
+                <table class="data-table">
+                    <thead><tr><th>Command</th><th>Aliases</th><th>Description</th></tr></thead>
+                    <tbody id="commandsBody">
+                        <tr><td colspan="3" class="empty-row">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ── Analytics ─────────────────────────────────────── -->
         <section class="section" id="section-analytics">
             <div class="cards-grid">
                 <div class="card">
-                    <div class="card-label">Total Commands Executed</div>
+                    <div class="card-label">Total Executed</div>
                     <div class="card-value" id="totalCommands">—</div>
                 </div>
                 <div class="card">
@@ -88,36 +112,283 @@
             </div>
             <div class="table-card">
                 <div class="table-title">Top Used Commands</div>
-                <table class="data-table" id="topCommandsTable">
-                    <thead>
-                        <tr><th>#</th><th>Command</th><th>Count</th></tr>
-                    </thead>
+                <table class="data-table">
+                    <thead><tr><th>#</th><th>Command</th><th>Count</th></tr></thead>
                     <tbody id="topCommandsBody">
-                        <tr><td colspan="3" class="empty-row">Loading…</td></tr>
+                        <tr><td colspan="3" class="empty-row">No data yet</td></tr>
                     </tbody>
                 </table>
             </div>
         </section>
 
-        <!-- History Section -->
+        <!-- ── History ────────────────────────────────────────── -->
         <section class="section" id="section-history">
             <div class="cards-grid">
                 <div class="card">
-                    <div class="card-label">Total History Entries</div>
+                    <div class="card-label">Total Entries</div>
                     <div class="card-value" id="historyTotal">—</div>
                 </div>
             </div>
             <div class="table-card">
                 <div class="table-title">Recent History (last 20)</div>
                 <div class="history-list" id="historyList">
-                    <div class="empty-row">Loading…</div>
+                    <div class="empty-row">Loading...</div>
                 </div>
             </div>
         </section>
 
-        <!-- Boost Section -->
+        <!-- ── Boost ─────────────────────────────────────────── -->
         <section class="section" id="section-boost">
-            <div class="boost-raw" id="boostRaw">Loading…</div>
+            <div class="table-card">
+                <div class="table-title">Boost State</div>
+                <div class="boost-raw" id="boostRaw">Loading...</div>
+            </div>
+        </section>
+
+        <!-- ── Users (Dashboard Login Accounts) ──────────────────── -->
+        <section class="section" id="section-users">
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-label">Dashboard Accounts</div>
+                    <div class="card-value" id="dashUsersTotal">—</div>
+                </div>
+            </div>
+            <div class="table-card" style="margin-top:16px">
+                <div class="table-title">Registered Dashboard Users</div>
+                <table class="data-table">
+                    <thead><tr><th>User ID</th><th>Username</th><th>Instance</th><th>Action</th></tr></thead>
+                    <tbody id="dashUsersBody">
+                        <tr><td colspan="4" class="empty-row">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="settings-panel" style="margin-top:20px">
+                <div class="settings-title">Add / Update Dashboard Login</div>
+                <div class="setting-row">
+                    <label class="setting-label">User ID (Discord)</label>
+                    <div class="setting-controls">
+                        <input type="text" id="newDashUserId" class="setting-input" placeholder="Discord user ID">
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <label class="setting-label">Username (display)</label>
+                    <div class="setting-controls">
+                        <input type="text" id="newDashUsername" class="setting-input" placeholder="e.g. john.doe">
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <label class="setting-label">Password</label>
+                    <div class="setting-controls">
+                        <input type="password" id="newDashPassword" class="setting-input" placeholder="Set password">
+                        <button class="btn-action" onclick="addDashUser()" style="margin-left:8px">Save</button>
+                    </div>
+                </div>
+                <div id="dashUsersMsg" class="settings-msg"></div>
+            </div>
+        </section>
+
+        <!-- ── Settings ───────────────────────────────────────── -->
+        <section class="section" id="section-settings">
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-label">Current Prefix</div>
+                    <div class="card-value mono" id="cfgPrefix">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Auto-Delete</div>
+                    <div class="card-value" id="cfgAutoDelete">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Auto-Delete Delay</div>
+                    <div class="card-value" id="cfgDelay">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Status</div>
+                    <div class="card-value" id="cfgStatus">—</div>
+                </div>
+            </div>
+
+            <div class="settings-panel">
+                <div class="settings-title">Change Settings</div>
+
+                <div class="setting-row">
+                    <label class="setting-label">New Prefix</label>
+                    <div class="setting-controls">
+                        <input type="text" id="newPrefixInput" class="setting-input" placeholder="e.g.  $  !  ;" maxlength="5">
+                        <button class="btn-action" onclick="applyPrefix()">Apply</button>
+                    </div>
+                </div>
+
+                <div class="setting-row">
+                    <label class="setting-label">Auto-Delete Delay (seconds)</label>
+                    <div class="setting-controls">
+                        <input type="number" id="newDelayInput" class="setting-input small" placeholder="20" min="1" max="600">
+                        <button class="btn-action" onclick="applyDelay()">Apply</button>
+                    </div>
+                </div>
+
+                <div class="setting-row">
+                    <label class="setting-label">Auto-Delete Enabled</label>
+                    <div class="setting-controls">
+                        <select id="newAutoDeleteToggle" class="setting-input small">
+                            <option value="true">On</option>
+                            <option value="false">Off</option>
+                        </select>
+                        <button class="btn-action" onclick="applyAutoDelete()">Apply</button>
+                    </div>
+                </div>
+
+                <div id="settingsMsg" class="settings-msg"></div>
+            </div>
+        </section>
+
+        <!-- ── RPC ────────────────────────────────────────────── -->
+        <section class="section" id="section-rpc">
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-label">RPC Active</div>
+                    <div class="card-value" id="rpcActive">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Mode</div>
+                    <div class="card-value mono" id="rpcMode">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Activity Name</div>
+                    <div class="card-value" id="rpcName">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Details</div>
+                    <div class="card-value" id="rpcDetails">—</div>
+                </div>
+            </div>
+
+            <div class="settings-panel">
+                <div class="settings-title">Quick Set Presence</div>
+
+                <div class="setting-row">
+                    <label class="setting-label">Type</label>
+                    <div class="setting-controls">
+                        <select id="rpcType" class="setting-input small">
+                            <option value="0">Playing (0)</option>
+                            <option value="1">Streaming (1)</option>
+                            <option value="2">Listening (2)</option>
+                            <option value="3">Watching (3)</option>
+                            <option value="5">Competing (5)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="setting-row">
+                    <label class="setting-label">Name</label>
+                    <div class="setting-controls">
+                        <input type="text" id="rpcNameInput" class="setting-input" placeholder="e.g. Spotify">
+                    </div>
+                </div>
+
+                <div class="setting-row">
+                    <label class="setting-label">Details</label>
+                    <div class="setting-controls">
+                        <input type="text" id="rpcDetailsInput" class="setting-input" placeholder="e.g. Song title">
+                    </div>
+                </div>
+
+                <div class="setting-row">
+                    <label class="setting-label">State</label>
+                    <div class="setting-controls">
+                        <input type="text" id="rpcStateInput" class="setting-input" placeholder="e.g. by Artist">
+                    </div>
+                </div>
+
+                <div class="setting-row">
+                    <label class="setting-label">Actions</label>
+                    <div class="setting-controls">
+                        <button class="btn-action" onclick="applyRpc()">Set RPC</button>
+                        <button class="btn-action btn-danger" onclick="clearRpc()" style="margin-left:8px">Stop RPC</button>
+                    </div>
+                </div>
+
+                <div id="rpcMsg" class="settings-msg"></div>
+            </div>
+        </section>
+
+        <!-- ── Presence ───────────────────────────────────────── -->
+        <section class="section" id="section-presence">
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-label">Current Status</div>
+                    <div class="card-value" id="presenceStatus">—</div>
+                </div>
+            </div>
+
+            <div class="settings-panel">
+                <div class="settings-title">Set Presence Status</div>
+
+                <div class="setting-row">
+                    <label class="setting-label">Status</label>
+                    <div class="setting-controls">
+                        <button class="btn-action btn-online" onclick="setPresence('online')">Online</button>
+                        <button class="btn-action btn-idle" onclick="setPresence('idle')" style="margin-left:8px">Idle</button>
+                        <button class="btn-action btn-dnd" onclick="setPresence('dnd')" style="margin-left:8px">DND</button>
+                        <button class="btn-action btn-invisible" onclick="setPresence('invisible')" style="margin-left:8px">Invisible</button>
+                    </div>
+                </div>
+
+                <div id="presenceMsg" class="settings-msg"></div>
+            </div>
+
+            <div class="settings-panel" style="margin-top:20px">
+                <div class="settings-title">AFK</div>
+                <div class="setting-row">
+                    <label class="setting-label">Current</label>
+                    <div class="setting-controls">
+                        <span class="card-value" id="afkStatus">—</span>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <label class="setting-label">AFK Message</label>
+                    <div class="setting-controls">
+                        <input type="text" id="afkMessageInput" class="setting-input" placeholder="AFK">
+                        <button class="btn-action" onclick="toggleAfk('enable')" style="margin-left:8px">Go AFK</button>
+                        <button class="btn-action btn-danger" onclick="toggleAfk('disable')" style="margin-left:8px">Back</button>
+                    </div>
+                </div>
+                <div id="afkMsg" class="settings-msg"></div>
+            </div>
+        </section>
+
+        <!-- ── Hosted Users ───────────────────────────────────── -->
+        <section class="section" id="section-hosted">
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-label">Total Hosted</div>
+                    <div class="card-value" id="hostedTotal">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Currently Active</div>
+                    <div class="card-value" id="hostedActive">—</div>
+                </div>
+            </div>
+            <div class="table-card" style="margin-top:16px">
+                <div class="table-title">Hosted Users</div>
+                <table class="data-table">
+                    <thead><tr><th>Token ID</th><th>Username</th><th>Owner</th><th>Prefix</th><th>Active</th></tr></thead>
+                    <tbody id="hostedBody">
+                        <tr><td colspan="5" class="empty-row">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ── Logs ───────────────────────────────────────────── -->
+        <section class="section" id="section-logs">
+            <div class="search-row">
+                <span class="search-hint">Live console output (last 100 lines)</span>
+                <button class="btn-action" onclick="loadLogs()" style="margin-left:auto">Refresh</button>
+            </div>
+            <div class="log-container" id="logContainer">
+                <div class="log-loading">Loading logs...</div>
+            </div>
         </section>
     </div>
 

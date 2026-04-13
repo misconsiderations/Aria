@@ -195,9 +195,9 @@ class BrowserProfile:
             {"timezone": "America/Chicago", "locale": "en-US"},
             {"timezone": "America/Denver", "locale": "en-US"},
             {"timezone": "America/Los_Angeles", "locale": "en-US"},
+            {"timezone": "America/Phoenix", "locale": "en-US"},
             {"timezone": "Europe/London", "locale": "en-GB"},
-            {"timezone": "Europe/Paris", "locale": "fr-FR"},
-            {"timezone": "Asia/Tokyo", "locale": "ja-JP"},
+            {"timezone": "America/Toronto", "locale": "en-CA"},
             {"timezone": "Australia/Sydney", "locale": "en-AU"},
         ]
 

@@ -1162,8 +1162,17 @@ def main():
         _dashboard_authed_users = set(_authed_users)
         _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
 
+    # The master owner ID always has full control over every instance.
+    # The token user (bot.user_id) is ALWAYS treated as owner of their own instance.
+    _MASTER_OWNER_ID = str(bot.ownerId)
+
+    def _token_user_id() -> str:
+        """Returns the connected token user's ID, updated after READY."""
+        return str(bot.user_id or "")
+
     def is_owner_user(user_id):
-        return str(user_id) == owner_user_id
+        uid = str(user_id)
+        return uid == owner_user_id or (bool(_token_user_id()) and uid == _token_user_id())
 
     def is_developer_user(user_id):
         return str(user_id) == developer_user_id
@@ -1173,28 +1182,24 @@ def main():
 
     def is_owner_like_user(user_id):
         uid = str(user_id)
-        return uid == _MASTER_OWNER_ID or uid == owner_user_id or uid in _admin_users
+        return uid == _MASTER_OWNER_ID or uid == owner_user_id or (bool(_token_user_id()) and uid == _token_user_id()) or uid in _admin_users
 
     def is_strict_owner_user(user_id):
         uid = str(user_id)
-        return uid == _MASTER_OWNER_ID or uid == owner_user_id
+        return uid == _MASTER_OWNER_ID or uid == owner_user_id or (bool(_token_user_id()) and uid == _token_user_id())
 
     def is_authed_user(user_id):
         return str(user_id) in _authed_users
-
-    # The master owner ID always has full control over every instance,
-    # including all hosted bots — regardless of whose token is running.
-    _MASTER_OWNER_ID = str(bot.ownerId)
 
     def is_control_user(user_id):
         uid = str(user_id)
         # Master owner controls everything always
         if uid == _MASTER_OWNER_ID:
             return True
-        # On hosted instances: only the master owner has cross-control.
-        # The hosted user's own account already passes via the bot.user_id check
-        # in message processing, so they don't need extra permissions here.
-        # Nobody else (no authed users, no other hosted users) can run commands.
+        # Token user is always owner of their own instance
+        if bool(_token_user_id()) and uid == _token_user_id():
+            return True
+        # On hosted instances: only master owner + token user have cross-control.
         if HOSTED_MODE:
             return False
         # Main instance: owner/admin/developer/authed users

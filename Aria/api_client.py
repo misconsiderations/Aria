@@ -31,7 +31,8 @@ class DiscordAPIClient:
         self.cache = DiscordCache(token)
         self.user_id: Optional[str] = None
         self.user_data: Optional[Dict[str, Any]] = None
-        # Initialize captcha solver (enabled even without API key for retry logic)
+        self.captcha_enabled: bool = bool(captcha_enabled)
+        # Initialize captcha solver
         self.captcha_solver = CaptchaSolver(captcha_api_key, "2captcha") if captcha_api_key else CaptchaSolver()
         self.captcha_max_retries = 3
         self.last_captcha_solve = 0
@@ -94,12 +95,16 @@ class DiscordAPIClient:
                     self.auth_failed = True
                 return response
 
-            # Handle 403 - may be a transient header/fingerprint issue, retry once
-            if response.status_code == 403 and retry_count < 1:
-                print(f"[AUTH-ERROR] 403 on {endpoint} - refreshing headers and retrying...")
-                self.header_spoofer.rotate_profile()
-                time.sleep(0.5)
-                return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
+            # Handle 403 - message operations (delete/edit) return 403 for missing perms; skip silently
+            if response.status_code == 403:
+                import re as _re
+                if _re.search(r'/channels/\d+/messages/\d+', endpoint):
+                    return response  # missing perms on message op — not retryable
+                if retry_count < 1:
+                    print(f"[AUTH-ERROR] 403 on {endpoint} - refreshing headers and retrying...")
+                    self.header_spoofer.rotate_profile()
+                    time.sleep(0.5)
+                    return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
 
             # Handle 400 errors - often include captcha challenges
             if response.status_code == 400 and retry_count < max_retries:
@@ -107,7 +112,7 @@ class DiscordAPIClient:
                     response_data = response.json()
                     captcha_info = self.captcha_solver.detect_captcha_type(response_data)
 
-                    if captcha_info and self.captcha_solver.is_enabled():
+                    if captcha_info and self.captcha_enabled and self.captcha_solver.is_enabled():
                         print(f"[CAPTCHA] Detected in {endpoint}: {captcha_info.get('type', 'unknown')}")
                         captcha_token = self.captcha_solver.solve_captcha_challenge(captcha_info, url)
 

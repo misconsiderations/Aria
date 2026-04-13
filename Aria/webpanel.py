@@ -6,7 +6,8 @@ import threading
 import time
 from typing import Any
 
-from flask import Flask, jsonify, redirect, send_from_directory, request
+import hashlib
+from flask import Flask, jsonify, redirect, send_from_directory, request, session
 
 
 class WebPanel:
@@ -31,7 +32,9 @@ class WebPanel:
 
         # Flask serves /static/* from the new web_ui/static directory.
         self.app = Flask(__name__, static_folder=self._webui_static, static_url_path="/static")
-        self.app.secret_key = os.getenv("ARIA_WEBPANEL_SECRET", f"aria-webpanel-{instance_id}-{owner_id}")
+        # Deterministic secret so sessions survive restarts
+        _secret_seed = f"aria-{instance_id}-{owner_id}"
+        self.app.secret_key = os.getenv("ARIA_WEBPANEL_SECRET", hashlib.sha256(_secret_seed.encode()).hexdigest())
 
         self._setup_routes()
 
@@ -46,18 +49,79 @@ class WebPanel:
         wrapper.__name__ = f.__name__
         return wrapper
 
-    def _verify_auth(self, auth_token: str) -> bool:
+    def _verify_auth(self, auth_token: str, remote_addr: str = "127.0.0.1") -> bool:
         """Verify that the request is from the owner."""
         if not self.owner_id:
             return True  # Main bot instance, allow all
+        # Always allow requests from localhost (browser accessing the dashboard)
+        if remote_addr in ("127.0.0.1", "::1", "localhost"):
+            return True
+        # Session-based auth
+        if session.get("instance_id") == self.instance_id:
+            return True
         # Token format: "Bearer <owner_id>_<instance_id>"
-        if not auth_token.startswith("Bearer "):
-            return False
-        token_parts = auth_token[7:].split("_")
-        if len(token_parts) != 2:
-            return False
-        token_owner, token_instance = token_parts
-        return token_owner == str(self.owner_id) and token_instance == self.instance_id
+        if auth_token.startswith("Bearer "):
+            token_parts = auth_token[7:].split("_")
+            if len(token_parts) == 2:
+                token_owner, token_instance = token_parts
+                return token_owner == str(self.owner_id) and token_instance == self.instance_id
+        return False
+
+    def _is_local(self) -> bool:
+        """True when request comes from localhost."""
+        return request.remote_addr in ("127.0.0.1", "::1", "localhost")
+
+    def _require_session(self) -> bool:
+        """Return True if user is authenticated (local or valid session)."""
+        if self._is_local():
+            return True
+        return bool(session.get("instance_id") == self.instance_id and session.get("user_id"))
+
+    # ── Dashboard user registry (for hosted multi-user login) ────────────────
+    def _dashboard_users_path(self) -> str:
+        return os.path.join(self._base_dir, "dashboard_users.json")
+
+    def _load_dashboard_users(self) -> dict:
+        try:
+            with open(self._dashboard_users_path(), "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_dashboard_users(self, users: dict) -> None:
+        with open(self._dashboard_users_path(), "w", encoding="utf-8") as f:
+            json.dump(users, f, indent=2)
+
+    @staticmethod
+    def _hash_pw(password: str) -> str:
+        return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+    # ── Template helpers (reads from Aria/ base dir) ─────────────────────────
+    def _read_raw_template(self, name: str) -> str:
+        path = os.path.join(self._base_dir, name)
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+
+    def _render_login(self, title: str, subtitle: str, error: str = "", next_url: str = "/dashboard") -> str:
+        html = self._read_raw_template("login_template.html")
+        error_block = f'<div class="error">{error}</div>' if error else ""
+        replacements = {
+            "__TITLE__": title,
+            "__SUBTITLE__": subtitle,
+            "__ERROR_BLOCK__": error_block,
+            "__MODE__": "signin",
+            "__USERNAME_FIELD__": "",
+            "__BOT_TOKEN_FIELD__": "",
+            "__REMEMBER_CHECKED__": "",
+            "__SAFE_NEXT__": next_url,
+            "__BUTTON_TEXT__": "Sign In",
+            "__TOGGLE_PREFIX__": "Read our ",
+            "__TOGGLE_LINK__": "/tos",
+            "__TOGGLE_TEXT__": "Terms of Service",
+        }
+        for k, v in replacements.items():
+            html = html.replace(k, v)
+        return html
 
     def _template_path(self, name: str) -> str:
         return os.path.join(self._webui_templates, name)
@@ -151,18 +215,121 @@ class WebPanel:
         except Exception:
             return {}
 
+    def _commands_data(self) -> dict:
+        """Return list of all registered commands from the bot."""
+        b = self.bot
+        if b is None:
+            return {"commands": [], "total": 0}
+        cmds = getattr(b, "commands", {}) or {}
+        result = []
+        for name, cmd in sorted(cmds.items()):
+            result.append({
+                "name": name,
+                "aliases": list(getattr(cmd, "aliases", []) or []),
+                "description": str(getattr(cmd, "description", "") or ""),
+            })
+        return {"commands": result, "total": len(result)}
+
+    def _config_data(self) -> dict:
+        """Return live bot config values."""
+        b = self.bot
+        if b is None:
+            return {}
+        return {
+            "prefix": getattr(b, "prefix", "$"),
+            "status": getattr(b, "_current_status", "online"),
+            "auto_delete_enabled": getattr(b, "_auto_delete_enabled", True),
+            "auto_delete_delay": getattr(b, "_auto_delete_delay", 20),
+            "username": getattr(b, "username", "") or "",
+            "user_id": getattr(b, "user_id", "") or "",
+            "connected": getattr(b, "connection_active", False),
+        }
+
     # ------------------------------------------------------------------
     # Routes
     # ------------------------------------------------------------------
 
     def _setup_routes(self) -> None:
         @self.app.get("/")
+        def index() -> Any:
+            try:
+                return self._read_raw_template("home_template.html"), 200, {"Content-Type": "text/html; charset=utf-8"}
+            except Exception:
+                return redirect("/dashboard")
+
         @self.app.get("/home")
         def home() -> Any:
-            return redirect("/dashboard")
+            try:
+                return self._read_raw_template("home_template.html"), 200, {"Content-Type": "text/html; charset=utf-8"}
+            except Exception:
+                return redirect("/dashboard")
+
+        @self.app.get("/tos")
+        @self.app.get("/terms")
+        def tos() -> Any:
+            try:
+                return self._read_raw_template("tos_template.html"), 200, {"Content-Type": "text/html; charset=utf-8"}
+            except Exception:
+                return "Terms of Service not found.", 404
+
+        @self.app.get("/privacy")
+        def privacy() -> Any:
+            try:
+                return self._read_raw_template("privacy_template.html"), 200, {"Content-Type": "text/html; charset=utf-8"}
+            except Exception:
+                return "Privacy Policy not found.", 404
+
+        @self.app.get("/login")
+        def login_get() -> Any:
+            if self._require_session():
+                return redirect(request.args.get("next") or "/dashboard")
+            next_url = request.args.get("next", "/dashboard")
+            error = request.args.get("error", "")
+            try:
+                html = self._render_login("Sign In", "Access your Aria dashboard", error, next_url)
+                return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+            except Exception as e:
+                return f"<h1>Login</h1><p>Template unavailable: {e}</p>"
+
+        @self.app.post("/login")
+        def login_post() -> Any:
+            form = request.form
+            user_id = str(form.get("user_id", "")).strip()
+            password = str(form.get("password", "")).strip()
+            remember = bool(form.get("remember_me"))
+            next_url = str(form.get("next") or "/dashboard")
+            # Basic safety: only allow relative paths
+            if not next_url.startswith("/"):
+                next_url = "/dashboard"
+            if not user_id or not password:
+                return redirect(f"/login?error=User+ID+and+password+required&next={next_url}")
+            # Owner shortcut: if running locally, always let through
+            if self._is_local():
+                session.permanent = remember
+                session["user_id"] = user_id
+                session["instance_id"] = self.instance_id
+                return redirect(next_url)
+            users = self._load_dashboard_users()
+            entry = users.get(user_id)
+            if not entry or entry.get("password_hash") != self._hash_pw(password):
+                return redirect(f"/login?error=Invalid+user+ID+or+password&next={next_url}")
+            inst = entry.get("instance_id", self.instance_id)
+            if inst != self.instance_id:
+                return redirect(f"/login?error=Account+not+found+on+this+instance&next={next_url}")
+            session.permanent = remember
+            session["user_id"] = user_id
+            session["instance_id"] = self.instance_id
+            return redirect(next_url)
+
+        @self.app.get("/logout")
+        def logout() -> Any:
+            session.clear()
+            return redirect("/login")
 
         @self.app.get("/dashboard")
         def dashboard() -> Any:
+            if not self._require_session():
+                return redirect("/login?next=/dashboard")
             return self._render_dashboard()
 
         @self.app.get("/status")
@@ -180,28 +347,231 @@ class WebPanel:
 
         @self.app.get("/api/bot")
         def api_bot() -> Any:
-            if self.owner_id and not self._verify_auth(request.headers.get("Authorization", "")):
+            if self.owner_id and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
                 return jsonify({"ok": False, "error": "Unauthorized"}), 403
             return jsonify({"ok": True, "data": self._bot_data()})
 
         @self.app.get("/api/analytics")
         def api_analytics() -> Any:
-            if self.owner_id and not self._verify_auth(request.headers.get("Authorization", "")):
+            if self.owner_id and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
                 return jsonify({"ok": False, "error": "Unauthorized"}), 403
             return jsonify({"ok": True, "data": self._analytics_data()})
 
         @self.app.get("/api/history")
         def api_history() -> Any:
-            if self.owner_id and not self._verify_auth(request.headers.get("Authorization", "")):
+            if self.owner_id and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
                 return jsonify({"ok": False, "error": "Unauthorized"}), 403
             return jsonify({"ok": True, "data": self._history_data()})
 
         @self.app.get("/api/boost")
         def api_boost() -> Any:
-            if self.owner_id and not self._verify_auth(request.headers.get("Authorization", "")):
+            if self.owner_id and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
                 return jsonify({"ok": False, "error": "Unauthorized"}), 403
             return jsonify({"ok": True, "data": self._boost_data()})
 
+        @self.app.get("/api/commands")
+        def api_commands() -> Any:
+            return jsonify({"ok": True, "data": self._commands_data()})
+
+        @self.app.get("/api/config")
+        def api_config_get() -> Any:
+            return jsonify({"ok": True, "data": self._config_data()})
+
+        @self.app.post("/api/config")
+        def api_config_set() -> Any:
+            data = request.get_json(force=True) or {}
+            b = self.bot
+            if b is None:
+                return jsonify({"ok": False, "error": "No bot instance"}), 400
+            changed = []
+            if "prefix" in data:
+                new_prefix = str(data["prefix"])[:5].strip()
+                if new_prefix:
+                    b.prefix = new_prefix
+                    if hasattr(b, "globalPrefix"):
+                        b.globalPrefix = new_prefix
+                    if isinstance(getattr(b, "config", None), dict):
+                        b.config["prefix"] = new_prefix
+                    changed.append("prefix")
+            if "auto_delete_delay" in data:
+                try:
+                    delay = int(data["auto_delete_delay"])
+                    if 1 <= delay <= 600:
+                        b._auto_delete_delay = delay
+                        changed.append("auto_delete_delay")
+                except (ValueError, TypeError):
+                    pass
+            if "auto_delete_enabled" in data:
+                b._auto_delete_enabled = bool(data["auto_delete_enabled"])
+                changed.append("auto_delete_enabled")
+            return jsonify({"ok": True, "changed": changed, "data": self._config_data()})
+
+        # ── RPC ───────────────────────────────────────────────────────────
+        @self.app.get("/api/rpc")
+        def api_rpc_get() -> Any:
+            b = self.bot
+            activity = getattr(b, "activity", None) if b else None
+            runtime_rpc: dict = {}
+            try:
+                rp = os.path.join(self._base_dir, "runtime_state.json")
+                with open(rp, "r", encoding="utf-8") as f:
+                    runtime_rpc = json.load(f).get("rpc", {})
+            except Exception:
+                pass
+            return jsonify({
+                "ok": True,
+                "active": bool(activity),
+                "activity": activity if isinstance(activity, dict) else None,
+                "mode": runtime_rpc.get("mode", "none"),
+                "saved_at": runtime_rpc.get("saved_at"),
+            })
+
+        @self.app.post("/api/rpc")
+        def api_rpc_set() -> Any:
+            data = request.get_json(force=True) or {}
+            b = self.bot
+            if b is None:
+                return jsonify({"ok": False, "error": "No bot instance"}), 400
+            action = data.get("action", "set")
+            if action == "stop":
+                try:
+                    b.set_activity(None)
+                except Exception as e:
+                    return jsonify({"ok": False, "error": str(e)}), 500
+                return jsonify({"ok": True, "action": "stopped"})
+            # action == "set"
+            activity = data.get("activity")
+            if not isinstance(activity, dict):
+                return jsonify({"ok": False, "error": "activity must be a dict"}), 400
+            try:
+                b.set_activity(activity)
+            except Exception as e:
+                return jsonify({"ok": False, "error": str(e)}), 500
+            return jsonify({"ok": True, "action": "set", "activity": activity})
+
+        # ── Presence Status ───────────────────────────────────────────────
+        @self.app.get("/api/presence")
+        def api_presence_get() -> Any:
+            b = self.bot
+            return jsonify({
+                "ok": True,
+                "status": getattr(b, "_current_status", "online") if b else "unknown",
+            })
+
+        @self.app.post("/api/presence")
+        def api_presence_set() -> Any:
+            data = request.get_json(force=True) or {}
+            b = self.bot
+            if b is None:
+                return jsonify({"ok": False, "error": "No bot instance"}), 400
+            new_status = str(data.get("status", "")).lower()
+            valid = {"online", "idle", "dnd", "invisible"}
+            if new_status not in valid:
+                return jsonify({"ok": False, "error": f"status must be one of {sorted(valid)}"}), 400
+            try:
+                ok = b.set_status(new_status)
+            except Exception as e:
+                return jsonify({"ok": False, "error": str(e)}), 500
+            return jsonify({"ok": bool(ok), "status": new_status})
+
+        # ── Hosted users ──────────────────────────────────────────────────
+        @self.app.get("/api/hosted")
+        def api_hosted() -> Any:
+            try:
+                from host import host_manager as hm
+                active = {}
+                saved = {}
+                try:
+                    active = dict(getattr(hm, "active_tokens", {}) or {})
+                except Exception:
+                    pass
+                try:
+                    saved = dict(getattr(hm, "saved_users", {}) or {})
+                except Exception:
+                    pass
+                result = []
+                for tid, info in saved.items():
+                    is_active = tid in active
+                    result.append({
+                        "token_id": tid[:8] + "...",  # truncate for safety
+                        "owner": str(info.get("owner", "—")),
+                        "prefix": str(info.get("prefix", "$")),
+                        "username": str(info.get("username", "—")),
+                        "active": is_active,
+                    })
+                return jsonify({"ok": True, "hosted": result, "total": len(result), "active_count": len(active)})
+            except Exception as e:
+                return jsonify({"ok": True, "hosted": [], "total": 0, "active_count": 0, "note": str(e)})
+
+        # ── Logs ──────────────────────────────────────────────────────────
+        @self.app.get("/api/logs")
+        def api_logs() -> Any:
+            lines_param = request.args.get("lines", "100")
+            try:
+                n = max(10, min(500, int(lines_param)))
+            except (ValueError, TypeError):
+                n = 100
+            log_dir = os.path.join(self._base_dir, "logs")
+            lines: list = []
+            try:
+                from datetime import datetime as _dt
+                today = _dt.now().strftime("%Y%m%d")
+                log_path = os.path.join(log_dir, f"aria-runtime-{today}.log")
+                if not os.path.exists(log_path):
+                    # Fall back to most recent log file
+                    all_logs = sorted(
+                        [f for f in os.listdir(log_dir) if f.endswith(".log")],
+                        reverse=True,
+                    )
+                    log_path = os.path.join(log_dir, all_logs[0]) if all_logs else None
+                if log_path and os.path.exists(log_path):
+                    with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                        all_lines = f.readlines()
+                    lines = [l.rstrip("\n") for l in all_lines[-n:]]
+            except Exception as e:
+                lines = [f"[log read error] {e}"]
+            return jsonify({"ok": True, "lines": lines, "count": len(lines)})
+
+        # ── AFK ───────────────────────────────────────────────────────────
+        @self.app.get("/api/afk")
+        def api_afk_get() -> Any:
+            b = self.bot
+            try:
+                afk_ref = getattr(b, "_afk_system_ref", None) if b else None
+                uid = str(getattr(b, "user_id", "") or "")
+                if afk_ref and uid:
+                    active = bool(afk_ref.is_afk(uid))
+                    message = afk_ref.get_afk_message(uid) if hasattr(afk_ref, "get_afk_message") else ""
+                    return jsonify({"ok": True, "active": active, "message": message or ""})
+            except Exception:
+                pass
+            return jsonify({"ok": True, "active": False, "message": ""})
+
+        @self.app.post("/api/afk")
+        def api_afk_set() -> Any:
+            data = request.get_json(force=True) or {}
+            b = self.bot
+            if b is None:
+                return jsonify({"ok": False, "error": "No bot instance"}), 400
+            try:
+                afk_ref = getattr(b, "_afk_system_ref", None)
+                uid = str(getattr(b, "user_id", "") or "")
+                if not afk_ref or not uid:
+                    return jsonify({"ok": False, "error": "AFK system unavailable"}), 400
+                action = data.get("action", "toggle")
+                if action == "enable" or (action == "toggle" and not afk_ref.is_afk(uid)):
+                    msg = str(data.get("message", "AFK")).strip() or "AFK"
+                    afk_ref.set_afk(uid, msg)
+                    afk_ref.save_state()
+                    return jsonify({"ok": True, "active": True, "message": msg})
+                else:
+                    afk_ref.remove_afk(uid)
+                    afk_ref.save_state()
+                    return jsonify({"ok": True, "active": False})
+            except Exception as e:
+                return jsonify({"ok": False, "error": str(e)}), 500
+
+        # ── Public stats ──────────────────────────────────────────────────
         @self.app.get("/api/public/stats")
         def public_stats() -> Any:
             bot_d = self._bot_data()
@@ -214,6 +584,48 @@ class WebPanel:
                     "instance": self.instance_id,
                 },
             })
+
+        # ── Dashboard user management (owner-only) ────────────────────────
+        @self.app.post("/api/dash/register")
+        def api_dash_register() -> Any:
+            if not self._is_local() and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
+                return jsonify({"ok": False, "error": "Unauthorized"}), 403
+            data = request.get_json(force=True) or {}
+            uid = str(data.get("user_id", "")).strip()
+            pw = str(data.get("password", "")).strip()
+            if not uid or not pw:
+                return jsonify({"ok": False, "error": "user_id and password required"}), 400
+            users = self._load_dashboard_users()
+            users[uid] = {
+                "password_hash": self._hash_pw(pw),
+                "instance_id": self.instance_id,
+                "username": str(data.get("username", uid)),
+                "created_at": int(time.time()),
+            }
+            self._save_dashboard_users(users)
+            return jsonify({"ok": True, "user_id": uid, "instance_id": self.instance_id})
+
+        @self.app.delete("/api/dash/register/<user_id>")
+        def api_dash_unregister(user_id: str) -> Any:
+            if not self._is_local() and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
+                return jsonify({"ok": False, "error": "Unauthorized"}), 403
+            users = self._load_dashboard_users()
+            if user_id in users:
+                del users[user_id]
+                self._save_dashboard_users(users)
+                return jsonify({"ok": True, "removed": user_id})
+            return jsonify({"ok": False, "error": "User not found"}), 404
+
+        @self.app.get("/api/dash/users")
+        def api_dash_users() -> Any:
+            if not self._is_local() and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
+                return jsonify({"ok": False, "error": "Unauthorized"}), 403
+            users = self._load_dashboard_users()
+            safe = [
+                {"user_id": uid, "username": v.get("username", uid), "instance_id": v.get("instance_id", ""), "created_at": v.get("created_at", 0)}
+                for uid, v in users.items()
+            ]
+            return jsonify({"ok": True, "users": safe, "total": len(safe)})
 
         @self.app.get("/favicon.ico")
         def favicon() -> Any:
