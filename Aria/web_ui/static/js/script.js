@@ -80,6 +80,20 @@ async function loadOverview() {
     setText('commandsRegistered', d.commands_registered);
     setText('connectionStatus', d.connected ? 'Online' : 'Offline');
     setText('botStatus', d.status || 'online');
+    setText('clientType', d.client_type || 'mobile');
+    setText('clientOptions', (d.available_clients || []).join(', ') || 'web, desktop, mobile, vr');
+    setText('uiVersion', d.ui_version || 'v2');
+
+    const avatar = document.getElementById('userAvatar');
+    if (avatar) {
+        avatar.onerror = () => {
+            avatar.onerror = null;
+            avatar.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
+        };
+        avatar.src = d.avatar_url || 'https://cdn.discordapp.com/embed/avatars/0.png';
+    }
+    const profileHint = document.getElementById('profileHint');
+    if (profileHint) profileHint.textContent = d.user_id && d.user_id !== '—' ? `UID ${d.user_id}` : 'Profile';
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
@@ -172,10 +186,12 @@ async function loadHistory() {
     feed.innerHTML = d.entries.slice().reverse().map(e => {
         if (typeof e === 'object' && e !== null) {
             const cmd   = e.command || e.cmd || e.name || '';
+            const user  = e.user || e.author || e.author_id || '';
             const guild = e.guild_id || e.server || '';
             const chan  = e.channel_id || e.channel || '';
             const ts    = e.timestamp || e.time || '';
             const status = e.status || e.result || '';
+            const dur = e.duration_ms != null ? `${Math.round(Number(e.duration_ms) || 0)}ms` : '';
             const statusBadge = status === 'success' || status === 'ok'
                 ? '<span class="badge badge-ok">ok</span>'
                 : status ? `<span class="badge badge-warn">${esc(status)}</span>` : '';
@@ -185,9 +201,11 @@ async function loadHistory() {
                     <span class="history-cmd">${esc(cmd || '(unknown)')}</span>
                     ${statusBadge}
                     <div class="history-meta">${[
+                        user  ? '👤 ' + user : '',
                         guild ? '🏠 ' + guild : '',
                         chan  ? '# ' + chan   : '',
-                        ts   ? '🕐 ' + ts    : ''
+                        ts   ? '🕐 ' + ts    : '',
+                        dur  ? '⚡ ' + dur   : ''
                     ].filter(Boolean).join(' &nbsp;·&nbsp; ')}</div>
                 </div>
             </div>`;
@@ -208,6 +226,10 @@ function toggleBoostRaw() {
 }
 
 const BOOST_LABELS = {
+    boost_status:    'Boost Status',
+    tracked_servers: 'Tracked Servers',
+    boosted_servers: 'Boosted Servers',
+    total_boosts:    'Total Boosts',
     guild_id:        'Guild ID',
     guild_name:      'Guild',
     boost_count:     'Boosts Applied',
@@ -229,9 +251,22 @@ async function loadBoost() {
         return;
     }
     const data = res.data;
+    const serverBoosts = data.server_boosts || {};
+    const boostValues = Object.values(serverBoosts).map(v => Number(v) || 0);
+    const trackedServers = boostValues.length;
+    const boostedServers = boostValues.filter(v => v > 0).length;
+    const totalBoosts = boostValues.reduce((a, b) => a + b, 0);
+    const status = totalBoosts > 0 ? 'Active' : 'Idle';
+
     // populate pretty cards
     if (cards) {
-        const entries = Object.entries(data);
+        const entries = [
+            ['boost_status', status],
+            ['tracked_servers', trackedServers],
+            ['boosted_servers', boostedServers],
+            ['total_boosts', totalBoosts],
+            ...Object.entries(data),
+        ];
         cards.innerHTML = entries.map(([k, v]) => {
             const label = BOOST_LABELS[k] || k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
             const display = v === null || v === undefined ? '—'
@@ -346,6 +381,11 @@ async function loadRpc() {
         const typeNum = act.type != null ? act.type : -1;
         previewType.textContent = typeNum >= 0 ? (RPC_TYPE_LABELS[typeNum] || 'Activity') : 'inactive';
     }
+    const versionBadge = document.getElementById('rpcVersionBadge');
+    if (versionBadge) {
+        const mode = res.mode ? String(res.mode).toLowerCase() : 'none';
+        versionBadge.textContent = `Preview ${String(res.version || 'v2').toUpperCase()} · ${mode}`;
+    }
 }
 
 function showRpcMsg(msg, ok) {
@@ -457,7 +497,7 @@ async function loadHosted() {
     const tbody = document.getElementById('hostedBody');
     if (!tbody) return;
     if (!res.hosted || res.hosted.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty-row">No hosted users found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No hosted users found</td></tr>';
         return;
     }
     tbody.innerHTML = res.hosted.map(u =>
@@ -466,6 +506,7 @@ async function loadHosted() {
             <td>${esc(u.username || '—')}</td>
             <td class="cmd-aliases">${esc(u.owner || '—')}</td>
             <td class="cmd-aliases">${esc(u.prefix || '—')}</td>
+            <td class="cmd-aliases">${esc(u.client_type || 'unknown')}</td>
             <td><span class="badge ${u.active ? 'badge-ok' : 'badge-off'}">${u.active ? '● Active' : '○ Inactive'}</span></td>
         </tr>`
     ).join('');

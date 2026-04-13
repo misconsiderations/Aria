@@ -256,6 +256,21 @@ body::before {
 .card-value.plain { -webkit-text-fill-color: var(--text); background: none; font-size: 1.1rem; }
 .card-value.mono  { font-family: var(--mono); font-size: 0.78rem; -webkit-text-fill-color: #c4b5fd; background: none; word-break: break-all; }
 .card-sub { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.identity-row {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.user-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid rgba(139,92,246,.38);
+    box-shadow: 0 0 0 2px rgba(139,92,246,.08);
+    object-fit: cover;
+    background: rgba(15,23,42,.8);
+}
 
 /* stat card variant */
 .stat-card {

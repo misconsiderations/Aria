@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Aria x Stackss.lol — Dashboard</title>
-    <link rel="icon" type="image/png" href="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012">
-    <link rel="apple-touch-icon" href="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012">
+    <link rel="icon" type="image/png" href="/favicon.ico">
+    <link rel="apple-touch-icon" href="/favicon.ico">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -64,6 +64,10 @@
                     <div class="card-icon">👤</div>
                     <div class="card-label">Username</div>
                     <div class="card-value plain" id="username">—</div>
+                    <div class="identity-row">
+                        <img id="userAvatar" class="user-avatar" src="https://cdn.discordapp.com/embed/avatars/0.png" alt="Profile icon" loading="lazy" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                        <span class="card-sub" id="profileHint">Profile</span>
+                    </div>
                 </div>
                 <div class="card">
                     <div class="card-icon">🪪</div>
@@ -99,6 +103,17 @@
                     <div class="card-icon">🔴</div>
                     <div class="card-label">Status</div>
                     <div class="card-value plain" id="botStatus">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">💻</div>
+                    <div class="card-label">Client</div>
+                    <div class="card-value plain" id="clientType">—</div>
+                    <div class="card-sub" id="clientOptions">web, desktop, mobile, vr</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🧩</div>
+                    <div class="card-label">Dashboard</div>
+                    <div class="card-value plain" id="uiVersion">v2</div>
                 </div>
             </div>
         </section>
@@ -233,6 +248,7 @@
                 </div>
                 <div style="margin-left:auto;display:flex;flex-direction:column;gap:8px;align-items:flex-end">
                     <span class="badge badge-off" id="rpcActiveBadge">Inactive</span>
+                    <span class="badge badge-ok" id="rpcVersionBadge">Preview v2</span>
                 </div>
             </div>
 
@@ -355,9 +371,9 @@
                     <span class="table-badge" id="hostedBadge">0</span>
                 </div>
                 <table class="data-table">
-                    <thead><tr><th>Token ID</th><th>Username</th><th>Owner</th><th>Prefix</th><th>Status</th></tr></thead>
+                    <thead><tr><th>Token ID</th><th>Username</th><th>Owner</th><th>Prefix</th><th>Client</th><th>Status</th></tr></thead>
                     <tbody id="hostedBody">
-                        <tr><td colspan="5" class="empty-row">Loading…</td></tr>
+                        <tr><td colspan="6" class="empty-row">Loading…</td></tr>
                     </tbody>
                 </table>
             </div>

@@ -20,6 +20,8 @@ class HostManager:
         self.hosting_enabled = True  # owner toggle — allows non-owners to use +host
         self._stop_events = {}    # token_id -> threading.Event for keepalive control
         self.rate_limits = {}     # owner_command -> datetime
+        self._restore_lock = threading.Lock()
+        self._restore_in_progress = False
         self._load_saved_users()
         # Removed: self._print_startup_summary()  <- This was causing duplicate loading
 
@@ -53,6 +55,34 @@ class HostManager:
                 json.dump(self.saved_users, f, indent=4)
         except Exception as e:
             print(f"Host save error: {e}")
+
+    def _remove_duplicate_saved_tokens_locked(self):
+        """Drop duplicate saved entries that point to the same token."""
+        seen = {}
+        dup_ids = []
+        for token_id, data in self.saved_users.items():
+            token = str(data.get("token") or "").strip()
+            if not token:
+                continue
+            if token in seen:
+                dup_ids.append(token_id)
+            else:
+                seen[token] = token_id
+        for token_id in dup_ids:
+            self.saved_users.pop(token_id, None)
+        return len(dup_ids)
+
+    def _has_existing_token_locked(self, token):
+        token = str(token or "").strip()
+        if not token:
+            return False
+        for data in self.active_tokens.values():
+            if str(data.get("token") or "").strip() == token:
+                return True
+        for data in self.saved_users.values():
+            if str(data.get("token") or "").strip() == token:
+                return True
+        return False
 
     # ------------------------------------------------------------------
 
@@ -122,9 +152,12 @@ class HostManager:
             return False, "Bad token"
 
         with self.lock:
-            for tid, data in self.active_tokens.items():
-                if data["token"] == token:
-                    return False, "Already hosted"
+            removed = self._remove_duplicate_saved_tokens_locked()
+            if removed:
+                self._save_users()
+
+            if self._has_existing_token_locked(token):
+                return False, "Already hosted"
 
             token_id = str(int(time.time() * 1000))
             config_file = f"hosted_{token_id}.json"
@@ -582,55 +615,74 @@ subprocess.run([sys.executable, os.path.join(TEMP_DIR, "main.py")], cwd=TEMP_DIR
 
     def restore_hosted_users(self):
         """Restart persisted hosted users on startup in the main controller process."""
-        with self.lock:
-            saved_entries = [(token_id, data.copy()) for token_id, data in self.saved_users.items()]
+        with self._restore_lock:
+            if self._restore_in_progress:
+                return 0
+            self._restore_in_progress = True
 
-        restored = 0
-
-        for token_id, data in saved_entries:
-            token = data.get("token")
-            if not self._is_token_valid(token):
-                continue
-
+        try:
             with self.lock:
-                if token_id in self.active_tokens:
+                removed = self._remove_duplicate_saved_tokens_locked()
+                if removed:
+                    self._save_users()
+                saved_entries = [(token_id, data.copy()) for token_id, data in self.saved_users.items()]
+
+            restored = 0
+
+            for token_id, data in saved_entries:
+                token = data.get("token")
+                if not self._is_token_valid(token):
                     continue
 
-            prefix = data.get("prefix", ";")
-            config_file = f"hosted_{token_id}.json"
-            process = self._run_their_bot(
-                config_file,
-                token,
-                prefix=prefix,
-                hosted_uid=data.get("uid") or token_id,
-                owner_id=data.get("owner"),
-                user_id=data.get("user_id"),
-                username=data.get("username"),
-            )
-            if not process:
-                continue
+                with self.lock:
+                    if token_id in self.active_tokens:
+                        continue
+                    # Do not spawn if same token is already active under another ID.
+                    token_active = any(
+                        str(existing.get("token") or "").strip() == str(token or "").strip()
+                        for existing in self.active_tokens.values()
+                    )
+                    if token_active:
+                        continue
 
-            entry = {
-                "uid": data.get("uid") or token_id,
-                "user_id": data.get("user_id", ""),
-                "username": data.get("username", ""),
-                "token": token,
-                "prefix": prefix,
-                "owner": data.get("owner", ""),
-                "config": config_file,
-            }
+                prefix = data.get("prefix", ";")
+                config_file = f"hosted_{token_id}.json"
+                process = self._run_their_bot(
+                    config_file,
+                    token,
+                    prefix=prefix,
+                    hosted_uid=data.get("uid") or token_id,
+                    owner_id=data.get("owner"),
+                    user_id=data.get("user_id"),
+                    username=data.get("username"),
+                )
+                if not process:
+                    continue
 
-            with self.lock:
-                self.active_tokens[token_id] = entry
-                self.processes[token_id] = process
+                entry = {
+                    "uid": data.get("uid") or token_id,
+                    "user_id": data.get("user_id", ""),
+                    "username": data.get("username", ""),
+                    "token": token,
+                    "prefix": prefix,
+                    "owner": data.get("owner", ""),
+                    "config": config_file,
+                }
 
-            self._start_keepalive(token_id)
-            restored += 1
+                with self.lock:
+                    self.active_tokens[token_id] = entry
+                    self.processes[token_id] = process
 
-        if restored:
-            pass  # restore count suppressed
+                self._start_keepalive(token_id)
+                restored += 1
 
-        return restored
+            if restored:
+                pass  # restore count suppressed
+
+            return restored
+        finally:
+            with self._restore_lock:
+                self._restore_in_progress = False
     
     def _cleanup(self, runner_file, config_file, process):
         process.wait()

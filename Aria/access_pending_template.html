@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Aria — Access Pending</title>
+  <title>Aria — Request Access</title>
   <link rel="icon" type="image/png" href="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012" />
   <link rel="apple-touch-icon" href="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012" />
   <style>
@@ -82,16 +82,97 @@
     .a-p:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(236,72,153,.32); }
     .a-g { background: rgba(15,23,42,.8); border: 1px solid rgba(148,163,184,.14); color: #94a3b8; }
     .a-g:hover { color: #f1f5f9; border-color: rgba(148,163,184,.3); }
+    .alert {
+      border-radius: 10px;
+      padding: 11px 12px;
+      margin-bottom: 14px;
+      font-size: .84rem;
+      font-weight: 700;
+    }
+    .alert-error {
+      background: rgba(239,68,68,.10);
+      border: 1px solid rgba(239,68,68,.35);
+      color: #fca5a5;
+    }
+    .alert-success {
+      background: rgba(16,185,129,.10);
+      border: 1px solid rgba(16,185,129,.35);
+      color: #6ee7b7;
+    }
+    .form {
+      background: rgba(3,7,18,.5);
+      border: 1px solid rgba(148,163,184,.1);
+      border-radius: 11px;
+      padding: 14px;
+      margin-bottom: 20px;
+    }
+    .field { margin-bottom: 10px; }
+    .field:last-child { margin-bottom: 0; }
+    .field label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: .73rem;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: #94a3b8;
+      font-weight: 800;
+    }
+    .field input,
+    .field textarea {
+      width: 100%;
+      padding: 10px 11px;
+      border-radius: 9px;
+      border: 1px solid rgba(148,163,184,.2);
+      background: rgba(15,23,42,.8);
+      color: #f1f5f9;
+      font: inherit;
+      font-size: .86rem;
+    }
+    .field textarea { min-height: 90px; resize: vertical; }
+    .field input:focus,
+    .field textarea:focus {
+      outline: none;
+      border-color: rgba(139,92,246,.7);
+      box-shadow: 0 0 0 3px rgba(139,92,246,.12);
+    }
+    .submit {
+      width: 100%;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-weight: 800;
+      font-size: .87rem;
+      color: #fff;
+      background: linear-gradient(135deg, #ec4899, #8b5cf6);
+      cursor: pointer;
+      transition: all .22s;
+    }
+    .submit:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(236,72,153,.32); }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="icon">⏳</div>
-    <h1>Access Pending</h1>
-    <p class="desc">Your account is logged in but has not yet been authorised to access the full dashboard.</p>
+    <h1>Request Access</h1>
+    <p class="desc">Need dashboard access? Send a quick request and the owner can whitelist your account.</p>
+
+    __ERROR_BLOCK__
+    __SUCCESS_BLOCK__
+
+    <form class="form" method="post" action="/request-access">
+      <div class="field">
+        <label for="username">Discord username</label>
+        <input id="username" name="username" type="text" maxlength="64" required />
+      </div>
+      <div class="field">
+        <label for="reason">Reason for access</label>
+        <textarea id="reason" name="reason" maxlength="512" required></textarea>
+      </div>
+      <button class="submit" type="submit">Send Access Request</button>
+    </form>
 
     <div class="note">
-      <strong>How to get access:</strong> Contact <strong>@misconsiderations</strong> and provide your Discord user ID to be whitelisted.
+      <strong>Owner contact:</strong> Message <strong>@misconsiderations</strong> and include your Discord user ID for faster approval.
     </div>
 
     <div class="steps">
@@ -102,7 +183,7 @@
     </div>
 
     <div class="actions">
-      <a class="a-p" href="/logout">Log Out</a>
+      <a class="a-p" href="/login">Back to Login</a>
       <a class="a-g" href="/home">Back to Home</a>
     </div>
   </div>

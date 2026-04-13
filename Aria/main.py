@@ -11977,7 +11977,15 @@ Example Usage:
     
     # Cleanup function for bot shutdown
     original_stop = bot.stop
+    _stop_once_lock = threading.Lock()
+    _stop_once_state = {"done": False}
+
     def new_stop():
+        with _stop_once_lock:
+            if _stop_once_state["done"]:
+                return
+            _stop_once_state["done"] = True
+
         print("[AccountData] Stopping local stats job...")
 
         stop_rpc_keepalive(bot=bot, clear_activity=False)
@@ -11985,6 +11993,14 @@ Example Usage:
             _stop_slash_bot()
         except Exception:
             pass
+
+        # Main controller shutdown should also stop all hosted child instances.
+        if not HOSTED_MODE:
+            try:
+                host_manager.cleanup()
+            except Exception:
+                pass
+
         account_data_manager.stop_stats_job()
         account_data_manager.stop_auto_scrape()
         history_manager.stop_background_scraping()

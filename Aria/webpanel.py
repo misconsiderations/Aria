@@ -192,19 +192,50 @@ class WebPanel:
         b = self.bot
         if b is None:
             return {}
+
+        user_data = None
+        try:
+            api = getattr(b, "api", None)
+            if api is not None:
+                user_data = getattr(api, "user_data", None)
+                if not isinstance(user_data, dict):
+                    user_data = api.get_user_info(force=False)
+        except Exception:
+            user_data = None
+
+        user_id = str(getattr(b, "user_id", "") or (user_data or {}).get("id", "") or "")
+        username = str(getattr(b, "username", "") or (user_data or {}).get("username", "") or "—")
+        avatar_hash = str((user_data or {}).get("avatar") or "").strip()
+        avatar_url = ""
+        if user_id and avatar_hash:
+            avatar_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.png?size=128"
+        elif user_id:
+            avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
+
+        available_clients = ["web", "desktop", "mobile", "vr"]
+        try:
+            from core.client.platform import CLIENT_PROFILES
+            available_clients = sorted(list((CLIENT_PROFILES or {}).keys())) or available_clients
+        except Exception:
+            pass
+
         uptime_secs = int(time.time() - self._start_time)
         hours, rem = divmod(uptime_secs, 3600)
         mins, secs = divmod(rem, 60)
         uptime_str = f"{hours}h {mins}m {secs}s"
 
         return {
-            "username": getattr(b, "username", None) or "—",
-            "user_id": getattr(b, "user_id", None) or "—",
+            "username": username,
+            "user_id": user_id or "—",
+            "avatar_url": avatar_url,
             "prefix": getattr(b, "prefix", None) or "$",
             "status": getattr(b, "_current_status", "online"),
             "connected": getattr(b, "connection_active", False),
             "command_count": getattr(b, "command_count", 0),
             "commands_registered": len(getattr(b, "commands", {})),
+            "client_type": getattr(b, "_client_type", "mobile"),
+            "available_clients": available_clients,
+            "ui_version": "v2",
             "uptime": uptime_str,
             "instance_id": self.instance_id,
             "owner_restricted": bool(self.owner_id),
@@ -236,19 +267,54 @@ class WebPanel:
             return {"total_commands": 0, "success_rate": 100.0, "avg_response_ms": 0, "top_commands": []}
 
     def _history_data(self) -> dict:
-        """Read history_data.json if available."""
+        """Build command history from runtime logs, fallback to history_data.json."""
+        log_entries: list[dict[str, Any]] = []
+        try:
+            log_dir = os.path.join(self._base_dir, "logs")
+            from datetime import datetime as _dt
+
+            today = _dt.now().strftime("%Y%m%d")
+            log_path = os.path.join(log_dir, f"aria-runtime-{today}.log")
+            if not os.path.exists(log_path):
+                all_logs = sorted([f for f in os.listdir(log_dir) if f.endswith(".log")], reverse=True)
+                log_path = os.path.join(log_dir, all_logs[0]) if all_logs else ""
+
+            if log_path and os.path.exists(log_path):
+                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                    lines = [self._strip_ansi(l.rstrip("\n")) for l in f.readlines()[-500:]]
+                structured = self._parse_structured_logs(lines)
+                for ev in structured.get("events", {}).get("commands", []):
+                    log_entries.append(
+                        {
+                            "command": ev.get("command", ""),
+                            "user": ev.get("user", ""),
+                            "guild": ev.get("guild", ""),
+                            "timestamp": ev.get("time", ""),
+                            "duration_ms": ev.get("duration_ms", 0),
+                            "status": "success",
+                            "source": "runtime_log",
+                        }
+                    )
+        except Exception:
+            log_entries = []
+
+        if log_entries:
+            return {"entries": log_entries[-50:], "total": len(log_entries)}
+
         path = os.path.join(self._base_dir, "history_data.json")
         try:
             with open(path, "r", encoding="utf-8") as f:
                 raw = json.load(f)
-            # Normalise: can be a list or a dict
             if isinstance(raw, list):
                 entries = raw[-20:]
+                total = len(raw)
             elif isinstance(raw, dict):
                 entries = list(raw.values())[-20:]
+                total = len(raw)
             else:
                 entries = []
-            return {"entries": entries, "total": len(raw) if isinstance(raw, (list, dict)) else 0}
+                total = 0
+            return {"entries": entries, "total": total}
         except Exception:
             return {"entries": [], "total": 0}
 
@@ -387,15 +453,6 @@ class WebPanel:
             except Exception:
                 return redirect("/dashboard")
 
-        @self.app.get("/favicon.ico")
-        def favicon() -> Any:
-            default_img = "https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012"
-            cfg = getattr(self.bot, "config", {}) if self.bot is not None else {}
-            favicon_url = ""
-            if isinstance(cfg, dict):
-                favicon_url = str(cfg.get("favicon_url") or cfg.get("brand_image_url") or "").strip()
-            return redirect(favicon_url or default_img, code=302)
-
         @self.app.get("/tos")
         @self.app.get("/terms")
         def tos() -> Any:
@@ -457,8 +514,12 @@ class WebPanel:
             try:
                 html = self._read_raw_template("access_pending_template.html")
                 html = html.replace("__MODE__", "request")
-                html = html.replace("__ERROR_BLOCK__", "")
-                html = html.replace("__SUCCESS_BLOCK__", "")
+                error = str(request.args.get("error", "")).strip()
+                success = str(request.args.get("success", "")).strip()
+                error_block = f'<div class="alert alert-error">{error}</div>' if error else ""
+                success_block = f'<div class="alert alert-success">{success}</div>' if success else ""
+                html = html.replace("__ERROR_BLOCK__", error_block)
+                html = html.replace("__SUCCESS_BLOCK__", success_block)
                 return html, 200, {"Content-Type": "text/html; charset=utf-8"}
             except Exception:
                 # Inline fallback form
@@ -479,6 +540,8 @@ class WebPanel:
             reason   = str(form.get("reason", "")).strip()[:512]
             if not username:
                 return redirect("/request-access?error=Name+is+required")
+            if not reason:
+                return redirect("/request-access?error=Reason+is+required")
             reqs = self._load_access_requests()
             req_id = secrets.token_hex(8)
             reqs.append({
@@ -490,13 +553,7 @@ class WebPanel:
                 "status": "pending",
             })
             self._save_access_requests(reqs)
-            return """<!DOCTYPE html><html><head><title>Access Requested</title></head>
-<body style="background:#030712;color:#f1f5f9;font-family:sans-serif;display:grid;place-items:center;min-height:100vh;text-align:center">
-<div style="background:#0f172a;border-radius:12px;padding:40px;max-width:440px">
-  <h2 style="color:#10b981;margin-bottom:12px">Request Sent ✓</h2>
-  <p style="color:#94a3b8">Your access request has been sent to the admin. You'll receive credentials once approved.</p>
-  <a href="/login" style="display:inline-block;margin-top:20px;color:#8b5cf6;text-decoration:none;font-weight:700">Back to Login</a>
-</div></body></html>""", 200, {"Content-Type": "text/html; charset=utf-8"}
+            return redirect("/request-access?success=Request+sent+to+admin")
 
         @self.app.get("/logout")
         def logout() -> Any:
@@ -595,12 +652,16 @@ class WebPanel:
                     runtime_rpc = json.load(f).get("rpc", {})
             except Exception:
                 pass
+            runtime_activity = runtime_rpc.get("activity") if isinstance(runtime_rpc, dict) else None
+            final_activity = activity if isinstance(activity, dict) else runtime_activity if isinstance(runtime_activity, dict) else None
             return jsonify({
                 "ok": True,
-                "active": bool(activity),
-                "activity": activity if isinstance(activity, dict) else None,
+                "active": bool(final_activity),
+                "activity": final_activity,
                 "mode": runtime_rpc.get("mode", "none"),
                 "saved_at": runtime_rpc.get("saved_at"),
+                "version": "v2",
+                "available_types": [0, 1, 2, 3, 5],
             })
 
         @self.app.post("/api/rpc")
@@ -669,11 +730,13 @@ class WebPanel:
                 result = []
                 for tid, info in saved.items():
                     is_active = tid in active
+                    active_info = active.get(tid, {}) if isinstance(active.get(tid, {}), dict) else {}
                     result.append({
                         "token_id": tid[:8] + "...",  # truncate for safety
                         "owner": str(info.get("owner", "—")),
                         "prefix": str(info.get("prefix", "$")),
                         "username": str(info.get("username", "—")),
+                        "client_type": str(active_info.get("client_type") or info.get("client_type") or "unknown"),
                         "active": is_active,
                     })
                 return jsonify({"ok": True, "hosted": result, "total": len(result), "active_count": len(active)})
@@ -873,7 +936,12 @@ class WebPanel:
 
         @self.app.get("/favicon.ico")
         def favicon() -> Any:
-            return "", 204
+            default_img = "https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012"
+            cfg = getattr(self.bot, "config", {}) if self.bot is not None else {}
+            favicon_url = ""
+            if isinstance(cfg, dict):
+                favicon_url = str(cfg.get("favicon_url") or cfg.get("brand_image_url") or "").strip()
+            return redirect(favicon_url or default_img, code=302)
 
         @self.app.get("/static/<path:asset_path>")
         def static_assets(asset_path: str) -> Any:
