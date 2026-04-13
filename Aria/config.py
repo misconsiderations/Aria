@@ -30,7 +30,7 @@ class Config:
             "discord_client_secret": "u969UvYVRgaYG8kGleosNl3JkQxUHHnd",
             "dashboard_url": "",
             "oauth_redirect_uri": "",
-            "discord_bot_token": "MTQ5MTMwNzQzNjE0ODEyOTgyMg.GcU03l.0K3Rw6Eoy4_NkqrD_zSaYKLxj8Sy5HgPgOJ9O4",
+            "discord_bot_token": "",
             "discord_slash_guild_id": "",
             "auto_start_slash_bot": True,
             "slash_hide_replies": True,
