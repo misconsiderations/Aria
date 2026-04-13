@@ -2,18 +2,24 @@
 const navItems = document.querySelectorAll('.nav-item');
 const sections = document.querySelectorAll('.section');
 const pageTitle = document.getElementById('pageTitle');
+let _meProfile = null;
+const _liveOverviewState = { lastCount: null, lastTs: null };
 
 navItems.forEach(item => {
     item.addEventListener('click', () => {
+        if (item.dataset.hiddenByRole === 'true') return;
         const target = item.dataset.section;
         navItems.forEach(n => n.classList.remove('active'));
         sections.forEach(s => s.classList.remove('active'));
         item.classList.add('active');
-        document.getElementById('section-' + target).classList.add('active');
+        const targetSection = document.getElementById('section-' + target);
+        if (!targetSection) return;
+        targetSection.classList.add('active');
         // strip emoji from title — take last text node
         const rawText = item.childNodes[item.childNodes.length - 1].textContent.trim();
         pageTitle.textContent = rawText;
         loadSection(target);
+        trackDashboardAction('navigate', `Opened ${target}`);
     });
 });
 
@@ -56,6 +62,14 @@ function esc(s) {
         .replace(/"/g, '&quot;');
 }
 
+function fmtTs(ts) {
+    const n = Number(ts || 0);
+    if (!n) return '—';
+    const d = new Date(n * 1000);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString();
+}
+
 // ── Status dot ───────────────────────────────────────────────────────────────
 function setGlobalStatus(connected) {
     const dot = document.getElementById('globalStatus');
@@ -83,17 +97,122 @@ async function loadOverview() {
     setText('clientType', d.client_type || 'mobile');
     setText('clientOptions', (d.available_clients || []).join(', ') || 'web, desktop, mobile, vr');
     setText('uiVersion', d.ui_version || 'v2');
+    updateLiveOverviewMetrics(d);
 
     const avatar = document.getElementById('userAvatar');
     if (avatar) {
         avatar.onerror = () => {
             avatar.onerror = null;
-            avatar.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
+            avatar.src = '/static/images/aria-favicon.svg';
         };
-        avatar.src = d.avatar_url || 'https://cdn.discordapp.com/embed/avatars/0.png';
+        avatar.src = d.avatar_url || '/static/images/aria-favicon.svg';
     }
     const profileHint = document.getElementById('profileHint');
     if (profileHint) profileHint.textContent = d.user_id && d.user_id !== '—' ? `UID ${d.user_id}` : 'Profile';
+
+    await loadClientSwitcher(d);
+}
+
+function animateMetricValue(id, newVal, decimals = 0) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const prev = Number(el.dataset.value || 0);
+    const next = Number(newVal || 0);
+    const duration = 420;
+    const start = performance.now();
+    const isInt = decimals === 0;
+
+    function tick(now) {
+        const p = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - p, 3);
+        const cur = prev + (next - prev) * eased;
+        el.textContent = isInt ? String(Math.round(cur)) : cur.toFixed(decimals);
+        if (p < 1) requestAnimationFrame(tick);
+        else el.dataset.value = String(next);
+    }
+    requestAnimationFrame(tick);
+}
+
+function updateLiveOverviewMetrics(botData) {
+    const cmdCount = Number(botData.command_count || 0);
+    const now = Date.now();
+
+    let delta = 0;
+    let perMin = 0;
+    if (_liveOverviewState.lastCount != null && _liveOverviewState.lastTs != null) {
+        delta = Math.max(0, cmdCount - _liveOverviewState.lastCount);
+        const mins = Math.max((now - _liveOverviewState.lastTs) / 60000, 0.001);
+        perMin = delta / mins;
+    }
+
+    _liveOverviewState.lastCount = cmdCount;
+    _liveOverviewState.lastTs = now;
+
+    animateMetricValue('liveCmdRate', perMin, 1);
+    animateMetricValue('liveCmdDelta', delta, 0);
+
+    const rateBar = document.getElementById('liveCmdRateBar');
+    const deltaBar = document.getElementById('liveCmdDeltaBar');
+    if (rateBar) rateBar.style.width = Math.min(100, Math.round(perMin * 8)) + '%';
+    if (deltaBar) deltaBar.style.width = Math.min(100, Math.round(delta * 12)) + '%';
+
+    const pulse = document.getElementById('livePulse');
+    const pulseLabel = document.getElementById('livePulseLabel');
+    if (pulse) pulse.classList.toggle('live', !!botData.connected);
+    if (pulseLabel) pulseLabel.textContent = botData.connected ? 'live stream' : 'offline';
+
+    const clock = document.getElementById('liveClock');
+    if (clock) {
+        const d = new Date();
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        const ss = String(d.getSeconds()).padStart(2, '0');
+        clock.textContent = `${hh}:${mm}:${ss}`;
+    }
+}
+
+async function loadClientSwitcher(overviewData = null) {
+    const select = document.getElementById('clientTypeSelect');
+    if (!select) return;
+
+    let data = overviewData;
+    if (!data) {
+        const res = await fetchJSON('/api/client');
+        if (!res || !res.ok) return;
+        data = res;
+    }
+
+    const current = String(data.client_type || 'mobile');
+    const available = Array.isArray(data.available_clients) && data.available_clients.length
+        ? data.available_clients
+        : ['web', 'desktop', 'mobile', 'vr'];
+
+    select.innerHTML = available.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    select.value = available.includes(current) ? current : available[0];
+}
+
+function showClientMsg(msg, ok) {
+    const el = document.getElementById('clientMsg');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'settings-msg ' + (ok ? 'ok' : 'err');
+    setTimeout(() => { el.textContent = ''; el.className = 'settings-msg'; }, 2800);
+}
+
+async function applyClientType() {
+    const select = document.getElementById('clientTypeSelect');
+    if (!select) return;
+    const clientType = String(select.value || '').trim();
+    if (!clientType) return;
+
+    const res = await postJSON('/api/client', { client_type: clientType });
+    if (res && res.ok) {
+        showClientMsg(`Client switched to ${res.client_type}`, true);
+        trackDashboardAction('client_switch', `Switched client to ${res.client_type}`);
+        loadOverview();
+    } else {
+        showClientMsg((res && res.error) || 'Failed to switch client', false);
+    }
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
@@ -215,15 +334,6 @@ async function loadHistory() {
 }
 
 // ── Boost ─────────────────────────────────────────────────────────────────────
-let _boostRawShown = false;
-
-function toggleBoostRaw() {
-    _boostRawShown = !_boostRawShown;
-    const pre = document.getElementById('boostRawPre');
-    const btn = document.getElementById('boostRawBtn');
-    if (pre) pre.style.display = _boostRawShown ? 'block' : 'none';
-    if (btn) btn.textContent = _boostRawShown ? 'Hide Raw JSON' : 'Show Raw JSON';
-}
 
 const BOOST_LABELS = {
     boost_status:    'Boost Status',
@@ -245,28 +355,32 @@ const BOOST_LABELS = {
 async function loadBoost() {
     const res = await fetchJSON('/api/boost');
     const cards = document.getElementById('boostCards');
-    const pre   = document.getElementById('boostRawPre');
     if (!res || !res.data || Object.keys(res.data).length === 0) {
         if (cards) cards.innerHTML = '<div class="log-loading" style="grid-column:1/-1">No boost state data available.</div>';
         return;
     }
     const data = res.data;
+    const live = data.live || {};
     const serverBoosts = data.server_boosts || {};
     const boostValues = Object.values(serverBoosts).map(v => Number(v) || 0);
-    const trackedServers = boostValues.length;
-    const boostedServers = boostValues.filter(v => v > 0).length;
-    const totalBoosts = boostValues.reduce((a, b) => a + b, 0);
-    const status = totalBoosts > 0 ? 'Active' : 'Idle';
+    const trackedServers = Number(live.tracked_servers ?? boostValues.length);
+    const boostedServers = Number(live.boosted_servers ?? boostValues.filter(v => v > 0).length);
+    const totalBoosts = Number(live.total_boosts ?? boostValues.reduce((a, b) => a + b, 0));
+    const status = String(live.status || (totalBoosts > 0 ? 'active' : 'idle'));
 
     // populate pretty cards
     if (cards) {
         const entries = [
-            ['boost_status', status],
+            ['boost_status', status.toUpperCase()],
             ['tracked_servers', trackedServers],
             ['boosted_servers', boostedServers],
             ['total_boosts', totalBoosts],
+            ['total_slots', live.total_slots ?? '—'],
+            ['slots_available', live.slots_available ?? '—'],
+            ['slots_used', live.slots_used ?? '—'],
+            ['slots_cooldown', live.slots_cooldown ?? '—'],
             ...Object.entries(data),
-        ];
+        ].filter(([k]) => k !== 'server_boosts' && k !== 'live');
         cards.innerHTML = entries.map(([k, v]) => {
             const label = BOOST_LABELS[k] || k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
             const display = v === null || v === undefined ? '—'
@@ -279,8 +393,6 @@ async function loadBoost() {
             </div>`;
         }).join('');
     }
-    // populate raw
-    if (pre) pre.textContent = JSON.stringify(data, null, 2);
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -311,6 +423,7 @@ async function applyPrefix() {
     const res = await postJSON('/api/config', { prefix: val });
     if (res && res.ok) {
         showSettingsMsg('Prefix updated to: ' + res.data.prefix, true);
+        trackDashboardAction('config_prefix', `Updated prefix to ${res.data.prefix}`);
         loadSettings();
         loadOverview();
     } else {
@@ -324,6 +437,7 @@ async function applyDelay() {
     const res = await postJSON('/api/config', { auto_delete_delay: val });
     if (res && res.ok) {
         showSettingsMsg('Delay updated to: ' + res.data.auto_delete_delay + 's', true);
+        trackDashboardAction('config_delay', `Updated auto-delete delay to ${res.data.auto_delete_delay}s`);
         loadSettings();
     } else {
         showSettingsMsg('Failed to update delay.', false);
@@ -335,6 +449,7 @@ async function applyAutoDelete() {
     const res = await postJSON('/api/config', { auto_delete_enabled: val });
     if (res && res.ok) {
         showSettingsMsg('Auto-delete ' + (val ? 'enabled' : 'disabled'), true);
+        trackDashboardAction('config_autodelete', `Set auto-delete ${val ? 'enabled' : 'disabled'}`);
         loadSettings();
     } else {
         showSettingsMsg('Failed to update.', false);
@@ -377,15 +492,39 @@ async function loadRpc() {
     const previewState = document.getElementById('rpcPreviewState');
     if (previewState) previewState.textContent = act.state || '';
     const previewType = document.getElementById('rpcPreviewType');
+    const typeNum = act.type != null ? act.type : -1;
     if (previewType) {
-        const typeNum = act.type != null ? act.type : -1;
         previewType.textContent = typeNum >= 0 ? (RPC_TYPE_LABELS[typeNum] || 'Activity') : 'inactive';
     }
+    setText('rpcPreviewTypeId', typeNum >= 0 ? typeNum : '—');
+    setText('rpcPreviewMode', res.mode || 'none');
+    setText('rpcPreviewAppId', act.application_id || '—');
+    setText('rpcPreviewButtons', Array.isArray(act.buttons) ? act.buttons.length : 0);
     const versionBadge = document.getElementById('rpcVersionBadge');
     if (versionBadge) {
         const mode = res.mode ? String(res.mode).toLowerCase() : 'none';
         versionBadge.textContent = `Preview ${String(res.version || 'v2').toUpperCase()} · ${mode}`;
     }
+}
+
+function applyRpcPreset(preset) {
+    const presets = {
+        spotify: { type: 2, name: 'Spotify', details: 'Listening to music', state: 'Premium Session' },
+        twitch: { type: 1, name: 'Twitch', details: 'Streaming live', state: 'Just Chatting' },
+        netflix: { type: 3, name: 'Netflix', details: 'Watching series', state: 'Episode marathon' },
+        youtube: { type: 3, name: 'YouTube', details: 'Watching videos', state: 'Subscriptions feed' },
+        valorant: { type: 0, name: 'VALORANT', details: 'In queue', state: 'Competitive' },
+        custom: { type: 0, name: '', details: '', state: '' },
+    };
+    const p = presets[preset] || presets.custom;
+    const typeEl = document.getElementById('rpcType');
+    const nameEl = document.getElementById('rpcNameInput');
+    const detailsEl = document.getElementById('rpcDetailsInput');
+    const stateEl = document.getElementById('rpcStateInput');
+    if (typeEl) typeEl.value = String(p.type);
+    if (nameEl) nameEl.value = p.name;
+    if (detailsEl) detailsEl.value = p.details;
+    if (stateEl) stateEl.value = p.state;
 }
 
 function showRpcMsg(msg, ok) {
@@ -408,6 +547,7 @@ async function applyRpc() {
     const res = await postJSON('/api/rpc', { action: 'set', activity });
     if (res && res.ok) {
         showRpcMsg('RPC set.', true);
+        trackDashboardAction('rpc_set', `Set RPC ${name}`);
         loadRpc();
     } else {
         showRpcMsg((res && res.error) || 'Failed to set RPC.', false);
@@ -418,6 +558,7 @@ async function clearRpc() {
     const res = await postJSON('/api/rpc', { action: 'stop' });
     if (res && res.ok) {
         showRpcMsg('RPC cleared.', true);
+        trackDashboardAction('rpc_clear', 'Stopped RPC activity');
         loadRpc();
     } else {
         showRpcMsg('Failed to stop RPC.', false);
@@ -468,6 +609,7 @@ async function setPresence(status) {
     const res = await postJSON('/api/presence', { status });
     if (res && res.ok) {
         showPresenceMsg('presenceMsg', 'Status set to: ' + status, true);
+        trackDashboardAction('presence_set', `Set status to ${status}`);
         loadPresence();
         loadOverview();
     } else {
@@ -480,6 +622,7 @@ async function toggleAfk(action) {
     const res = await postJSON('/api/afk', { action, message });
     if (res && res.ok) {
         showPresenceMsg('afkMsg', res.active ? ('AFK enabled: ' + (res.message || '')) : 'AFK cleared.', true);
+        trackDashboardAction('afk_toggle', res.active ? 'Enabled AFK' : 'Disabled AFK');
         loadPresence();
     } else {
         showPresenceMsg('afkMsg', (res && res.error) || 'AFK system unavailable.', false);
@@ -514,8 +657,14 @@ async function loadHosted() {
 
 // ── Dashboard Users (login management) ───────────────────────────────────────
 async function loadDashUsers() {
+    await loadDashProfile();
+    await loadMyActivityTimeline();
     const res = await fetchJSON('/api/dash/users');
-    if (!res) return;
+    if (!res) {
+        const tbody = document.getElementById('dashUsersBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="empty-row">Admin only</td></tr>';
+        return;
+    }
     const count = res.total ?? 0;
     const el = document.getElementById('dashUsersTotal');
     if (el) el.textContent = count + (count === 1 ? ' account' : ' accounts');
@@ -533,6 +682,213 @@ async function loadDashUsers() {
             <td><button class="btn btn-danger-soft" onclick="removeDashUser('${esc(u.user_id)}')" style="padding:4px 12px;font-size:11px">Remove</button></td>
         </tr>`
     ).join('');
+
+    await loadAccessRequests();
+}
+
+function showDashAccountMsg(msg, ok) {
+    const el = document.getElementById('dashAccountMsg');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'settings-msg ' + (ok ? 'ok' : 'err');
+    setTimeout(() => { el.textContent = ''; el.className = 'settings-msg'; }, 4000);
+}
+
+function showAccessReqBulkMsg(msg, ok) {
+    const el = document.getElementById('accessReqBulkMsg');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'settings-msg ' + (ok ? 'ok' : 'err');
+    setTimeout(() => { el.textContent = ''; el.className = 'settings-msg'; }, 5000);
+}
+
+function applyRoleVisibility(profile) {
+    const isAdmin = !!(profile && profile.is_admin);
+    const adminOnly = document.querySelectorAll('[data-admin-only="true"], .admin-only');
+    adminOnly.forEach(el => {
+        if (isAdmin) {
+            el.style.display = '';
+            if (el.classList.contains('nav-item')) el.dataset.hiddenByRole = 'false';
+        } else {
+            el.style.display = 'none';
+            if (el.classList.contains('nav-item')) el.dataset.hiddenByRole = 'true';
+        }
+    });
+
+    const usersTitle = document.getElementById('dashUsersTotal');
+    if (usersTitle && !isAdmin) usersTitle.textContent = 'My account';
+
+    const active = document.querySelector('.nav-item.active');
+    if (active && active.dataset.hiddenByRole === 'true') {
+        const fallback = document.querySelector('.nav-item[data-section="overview"]');
+        if (fallback) fallback.click();
+    }
+}
+
+async function loadDashProfile() {
+    const res = await fetchJSON('/api/dash/me');
+    if (!res || !res.ok) {
+        setText('meUsername', '—');
+        setText('meUserId', '—');
+        setText('meRole', '—');
+        setText('meInstance', '—');
+        setText('pendingRequests', 0);
+        setText('meLastLogin', '—');
+        setText('meLastSeen', '—');
+        return;
+    }
+
+    const p = res.profile || {};
+    _meProfile = p;
+    const s = res.summary || {};
+    setText('meUsername', p.username || '—');
+    setText('meUserId', p.user_id || '—');
+    setText('meRole', p.role || 'user');
+    setText('meInstance', p.instance_id || '—');
+    setText('pendingRequests', s.pending_requests ?? 0);
+    setText('meLastLogin', fmtTs(p.last_login_at));
+    setText('meLastSeen', fmtTs(p.last_seen_at));
+
+    const card = document.getElementById('accessRequestsCard');
+    if (card) card.style.display = p.is_admin ? 'block' : 'none';
+    applyRoleVisibility(p);
+}
+
+async function loadMyActivityTimeline() {
+    const feed = document.getElementById('activityTimelineFeed');
+    const badge = document.getElementById('activityTimelineBadge');
+    if (!feed || !badge) return;
+
+    const res = await fetchJSON('/api/dash/activity');
+    if (!res || !res.ok) {
+        badge.textContent = '0';
+        feed.innerHTML = '<div class="log-loading">Unable to load timeline.</div>';
+        return;
+    }
+
+    const timeline = Array.isArray(res.timeline) ? res.timeline : [];
+    badge.textContent = String(timeline.length);
+    if (!timeline.length) {
+        feed.innerHTML = '<div class="log-loading">No recent account actions yet.</div>';
+        return;
+    }
+
+    feed.innerHTML = timeline.slice().reverse().map(t => {
+        const action = esc(t.action || 'activity');
+        const details = esc(t.details || '');
+        const ts = fmtTs(t.ts);
+        return `<div class="history-item">
+            <div class="history-dot"></div>
+            <div class="history-content">
+                <span class="history-cmd">${action}</span>
+                <div class="history-meta">🕐 ${esc(ts)}</div>
+                ${details ? `<div class="history-raw">${details}</div>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+async function changeMyPassword() {
+    const oldPassword = document.getElementById('oldPasswordInput').value;
+    const newPassword = document.getElementById('newPasswordInput').value;
+    if (!oldPassword || !newPassword) {
+        showDashAccountMsg('Enter both current and new password.', false);
+        return;
+    }
+    const res = await postJSON('/api/dash/change-password', {
+        old_password: oldPassword,
+        new_password: newPassword,
+    });
+    if (res && res.ok) {
+        showDashAccountMsg('Password updated.', true);
+        trackDashboardAction('password_change', 'Updated dashboard password');
+        document.getElementById('oldPasswordInput').value = '';
+        document.getElementById('newPasswordInput').value = '';
+        loadMyActivityTimeline();
+    } else {
+        showDashAccountMsg((res && res.error) || 'Failed to update password.', false);
+    }
+}
+
+async function loadAccessRequests() {
+    const card = document.getElementById('accessRequestsCard');
+    const body = document.getElementById('accessReqBody');
+    const badge = document.getElementById('accessReqBadge');
+    if (!card || !body || !badge) return;
+
+    const res = await fetchJSON('/api/dash/requests');
+    if (!res || !res.ok) {
+        body.innerHTML = '<tr><td colspan="4" class="empty-row">Admin only</td></tr>';
+        return;
+    }
+
+    const reqs = res.requests || [];
+    badge.textContent = String(reqs.length);
+    if (!reqs.length) {
+        body.innerHTML = '<tr><td colspan="4" class="empty-row">No access requests</td></tr>';
+        return;
+    }
+
+    body.innerHTML = reqs.slice().reverse().map(r => {
+        const id = esc(r.id || '');
+        const status = String(r.status || 'pending').toLowerCase();
+        const statusClass = status === 'approved' ? 'badge-ok' : status === 'denied' ? 'badge-pink' : 'badge-warn';
+        const actions = status === 'pending'
+            ? `<button class="btn btn-primary" style="padding:4px 10px;font-size:11px" onclick="approveAccessRequest('${id}')">Approve</button>
+               <button class="btn btn-danger-soft" style="padding:4px 10px;font-size:11px" onclick="denyAccessRequest('${id}')">Deny</button>`
+            : '<span style="color:var(--muted);font-size:12px">Complete</span>';
+
+        return `<tr>
+            <td style="font-weight:600">${esc(r.username || '—')}</td>
+            <td style="color:var(--muted)">${esc(r.reason || '—')}</td>
+            <td><span class="badge ${statusClass}">${esc(status)}</span></td>
+            <td>${actions}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function approveAccessRequest(reqId) {
+    const customUserId = prompt('Optional: set custom user_id (leave empty for auto)') || '';
+    const customPassword = prompt('Optional: set custom password (leave empty for auto)') || '';
+    const body = {};
+    if (customUserId.trim()) body.user_id = customUserId.trim();
+    if (customPassword.trim()) body.password = customPassword.trim();
+
+    try {
+        const r = await fetch(`/api/dash/requests/${encodeURIComponent(reqId)}/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const res = await r.json();
+        if (res && res.ok) {
+            showDashUsersMsg(`Approved: ${res.user_id} (pw: ${res.password})`, true);
+            trackDashboardAction('request_approve', `Approved request ${reqId}`);
+            loadAccessRequests();
+            loadDashUsers();
+        } else {
+            showDashUsersMsg((res && res.error) || 'Approve failed.', false);
+        }
+    } catch {
+        showDashUsersMsg('Approve request failed.', false);
+    }
+}
+
+async function denyAccessRequest(reqId) {
+    try {
+        const r = await fetch(`/api/dash/requests/${encodeURIComponent(reqId)}/deny`, { method: 'POST' });
+        const res = await r.json();
+        if (res && res.ok) {
+            showDashUsersMsg('Request denied.', true);
+            trackDashboardAction('request_deny', `Denied request ${reqId}`);
+            loadAccessRequests();
+            loadDashUsers();
+        } else {
+            showDashUsersMsg((res && res.error) || 'Deny failed.', false);
+        }
+    } catch {
+        showDashUsersMsg('Deny request failed.', false);
+    }
 }
 
 function showDashUsersMsg(msg, ok) {
@@ -551,6 +907,7 @@ async function addDashUser() {
     const res = await postJSON('/api/dash/register', { user_id: uid, username: uname || uid, password: pw });
     if (res && res.ok) {
         showDashUsersMsg(`Login created for ${uid}`, true);
+        trackDashboardAction('account_create', `Created account ${uid}`);
         document.getElementById('newDashPassword').value = '';
         loadDashUsers();
     } else {
@@ -562,9 +919,44 @@ async function removeDashUser(uid) {
     try {
         const r = await fetch(`/api/dash/register/${uid}`, { method: 'DELETE' });
         const res = await r.json();
-        if (res && res.ok) { showDashUsersMsg(`Removed ${uid}`, true); loadDashUsers(); }
+        if (res && res.ok) { showDashUsersMsg(`Removed ${uid}`, true); trackDashboardAction('account_remove', `Removed account ${uid}`); loadDashUsers(); }
         else showDashUsersMsg((res && res.error) || 'Failed.', false);
     } catch(e) { showDashUsersMsg('Request failed.', false); }
+}
+
+async function approveAllPendingRequests() {
+    const res = await postJSON('/api/dash/requests/approve-all-pending', {});
+    if (res && res.ok) {
+        const count = Number(res.approved_count || 0);
+        const sample = Array.isArray(res.approved) && res.approved.length
+            ? ` First: ${res.approved[0].user_id}/${res.approved[0].password}`
+            : '';
+        showAccessReqBulkMsg(`Approved ${count} pending request(s).${sample}`, true);
+        trackDashboardAction('request_bulk_approve', `Bulk approved ${count} requests`);
+        loadAccessRequests();
+        loadDashUsers();
+    } else {
+        showAccessReqBulkMsg((res && res.error) || 'Bulk approve failed.', false);
+    }
+}
+
+async function denyAllPendingRequests() {
+    const res = await postJSON('/api/dash/requests/deny-all-pending', {});
+    if (res && res.ok) {
+        const count = Number(res.denied_count || 0);
+        showAccessReqBulkMsg(`Denied ${count} pending request(s).`, true);
+        trackDashboardAction('request_bulk_deny', `Bulk denied ${count} requests`);
+        loadAccessRequests();
+        loadDashUsers();
+    } else {
+        showAccessReqBulkMsg((res && res.error) || 'Bulk deny failed.', false);
+    }
+}
+
+async function trackDashboardAction(action, details = '') {
+    if (!_meProfile) return;
+    if (!action) return;
+    await postJSON('/api/dash/activity', { action, details });
 }
 
 // ── Logs ──────────────────────────────────────────────────────────────────────
@@ -692,5 +1084,12 @@ setInterval(() => {
     if (active) loadSection(active.dataset.section);
 }, 30000);
 
+// Faster overview heartbeat for more "live" feeling metrics.
+setInterval(() => {
+    const active = document.querySelector('.nav-item.active');
+    if (active && active.dataset.section === 'overview') loadOverview();
+}, 7000);
+
 // ── Initial load ──────────────────────────────────────────────────────────────
 loadOverview();
+loadDashProfile();

@@ -101,6 +101,58 @@ class WebPanel:
         with open(self._dashboard_users_path(), "w", encoding="utf-8") as f:
             json.dump(users, f, indent=2)
 
+    def _record_user_activity(self, user_id: str, action: str, details: str = "", remote_addr: str = "") -> None:
+        """Persist a lightweight per-user activity timeline."""
+        uid = str(user_id or "").strip()
+        act = str(action or "").strip()
+        if not uid or not act:
+            return
+        users = self._load_dashboard_users()
+        entry = users.get(uid)
+        if not isinstance(entry, dict):
+            return
+
+        now = int(time.time())
+        entry["last_seen_at"] = now
+        if remote_addr:
+            entry["last_seen_ip"] = str(remote_addr)
+
+        activity = {
+            "ts": now,
+            "action": act[:64],
+            "details": str(details or "")[:180],
+            "ip": str(remote_addr or "")[:64],
+        }
+        timeline = entry.get("last_actions")
+        if not isinstance(timeline, list):
+            timeline = []
+        timeline.append(activity)
+        entry["last_actions"] = timeline[-50:]
+        users[uid] = entry
+        self._save_dashboard_users(users)
+
+    def _mark_login_success(self, user_id: str, remote_addr: str = "") -> None:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return
+        users = self._load_dashboard_users()
+        entry = users.get(uid)
+        if not isinstance(entry, dict):
+            return
+        now = int(time.time())
+        entry["last_login_at"] = now
+        entry["last_seen_at"] = now
+        if remote_addr:
+            entry["last_login_ip"] = str(remote_addr)
+            entry["last_seen_ip"] = str(remote_addr)
+        timeline = entry.get("last_actions")
+        if not isinstance(timeline, list):
+            timeline = []
+        timeline.append({"ts": now, "action": "login", "details": "Dashboard sign in", "ip": str(remote_addr or "")[:64]})
+        entry["last_actions"] = timeline[-50:]
+        users[uid] = entry
+        self._save_dashboard_users(users)
+
     @staticmethod
     def _hash_pw(password: str) -> str:
         return hashlib.sha256(password.encode("utf-8")).hexdigest()
@@ -319,7 +371,46 @@ class WebPanel:
             return {"entries": [], "total": 0}
 
     def _boost_data(self) -> dict:
-        """Read boost_state.json if available."""
+        """Return boost state, preferring live manager data when available."""
+        b = self.bot
+        bm = getattr(b, "boost_manager", None) if b is not None else None
+        if bm is not None:
+            try:
+                now = time.time()
+                last_fetch = float(getattr(bm, "_panel_last_fetch", 0.0) or 0.0)
+                if now - last_fetch >= 120:
+                    try:
+                        bm.fetch_server_boosts()
+                    except Exception:
+                        pass
+                    setattr(bm, "_panel_last_fetch", now)
+
+                detailed = bm.get_detailed_boost_info()
+                server_boosts = dict(getattr(bm, "server_boosts", {}) or {})
+                vals = [int(v or 0) for v in server_boosts.values()]
+                total_boosts = sum(vals)
+                boosted_servers = sum(1 for v in vals if v > 0)
+
+                return {
+                    "server_boosts": server_boosts,
+                    "available_boosts": int(getattr(bm, "available_boosts", 0) or 0),
+                    "rotation_servers": list(getattr(bm, "rotation_servers", []) or []),
+                    "rotation_hours": int(getattr(bm, "rotation_hours", 24) or 24),
+                    "live": {
+                        "status": "active" if total_boosts > 0 else "idle",
+                        "tracked_servers": len(server_boosts),
+                        "boosted_servers": boosted_servers,
+                        "total_boosts": total_boosts,
+                        "total_slots": int(detailed.get("total_slots", 0) or 0),
+                        "slots_available": int(detailed.get("available", 0) or 0),
+                        "slots_used": int(detailed.get("used", 0) or 0),
+                        "slots_cooldown": int(detailed.get("on_cooldown", 0) or 0),
+                        "last_checked": int(time.time()),
+                    },
+                }
+            except Exception:
+                pass
+
         path = os.path.join(self._base_dir, "boost_state.json")
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -506,9 +597,11 @@ class WebPanel:
             session["user_id"] = user_id
             session["instance_id"] = self.instance_id
             session["role"] = role
+            self._mark_login_success(user_id, request.remote_addr or "")
             return redirect(next_url)
 
         @self.app.get("/request-access")
+        @self.app.get("/access-pending")
         def request_access_get() -> Any:
             """Visitor access request form."""
             try:
@@ -696,6 +789,41 @@ class WebPanel:
                 "status": getattr(b, "_current_status", "online") if b else "unknown",
             })
 
+        @self.app.get("/api/client")
+        def api_client_get() -> Any:
+            b = self.bot
+            if b is None:
+                return jsonify({"ok": False, "error": "No bot instance"}), 400
+            available_clients = ["web", "desktop", "mobile", "vr"]
+            try:
+                from core.client.platform import CLIENT_PROFILES
+                if isinstance(CLIENT_PROFILES, dict) and CLIENT_PROFILES:
+                    available_clients = sorted(CLIENT_PROFILES.keys())
+            except Exception:
+                pass
+            return jsonify({
+                "ok": True,
+                "client_type": getattr(b, "_client_type", "mobile"),
+                "available_clients": available_clients,
+            })
+
+        @self.app.post("/api/client")
+        def api_client_set() -> Any:
+            b = self.bot
+            if b is None:
+                return jsonify({"ok": False, "error": "No bot instance"}), 400
+            data = request.get_json(force=True) or {}
+            client_type = str(data.get("client_type", "")).strip().lower()
+            if not client_type:
+                return jsonify({"ok": False, "error": "client_type required"}), 400
+            try:
+                ok = bool(b.set_client_type(client_type))
+            except Exception as e:
+                return jsonify({"ok": False, "error": str(e)}), 500
+            if not ok:
+                return jsonify({"ok": False, "error": "Invalid client type"}), 400
+            return jsonify({"ok": True, "client_type": getattr(b, "_client_type", client_type)})
+
         @self.app.post("/api/presence")
         def api_presence_set() -> Any:
             data = request.get_json(force=True) or {}
@@ -843,8 +971,12 @@ class WebPanel:
                 "username": str(data.get("username", uid)),
                 "role": "user",
                 "created_at": int(time.time()),
+                "last_login_at": 0,
+                "last_seen_at": 0,
+                "last_actions": [],
             }
             self._save_dashboard_users(users)
+            self._record_user_activity(session.get("user_id", ""), "account_create", f"Created user {uid}", request.remote_addr or "")
             return jsonify({"ok": True, "user_id": uid, "instance_id": self.instance_id})
 
         @self.app.delete("/api/dash/register/<user_id>")
@@ -855,6 +987,7 @@ class WebPanel:
             if user_id in users:
                 del users[user_id]
                 self._save_dashboard_users(users)
+                self._record_user_activity(session.get("user_id", ""), "account_remove", f"Removed user {user_id}", request.remote_addr or "")
                 return jsonify({"ok": True, "removed": user_id})
             return jsonify({"ok": False, "error": "User not found"}), 404
 
@@ -885,6 +1018,71 @@ class WebPanel:
                 return jsonify({"ok": False, "error": "Current password incorrect"}), 403
             entry["password_hash"] = self._hash_pw(new_pw)
             self._save_dashboard_users(users)
+            self._record_user_activity(uid, "password_change", "Changed dashboard password", request.remote_addr or "")
+            return jsonify({"ok": True})
+
+        @self.app.get("/api/dash/me")
+        def api_dash_me() -> Any:
+            if not self._require_session():
+                return jsonify({"ok": False, "error": "Not logged in"}), 403
+
+            uid = str(session.get("user_id", "") or "")
+            users = self._load_dashboard_users()
+            entry = users.get(uid, {}) if isinstance(users, dict) else {}
+            role = str(session.get("role") or entry.get("role") or "user")
+            profile = {
+                "user_id": uid,
+                "username": str(entry.get("username", uid) or uid),
+                "role": role,
+                "instance_id": str(entry.get("instance_id", self.instance_id) or self.instance_id),
+                "created_at": int(entry.get("created_at", 0) or 0),
+                "last_login_at": int(entry.get("last_login_at", 0) or 0),
+                "last_seen_at": int(entry.get("last_seen_at", 0) or 0),
+                "is_admin": bool(self._require_admin()),
+            }
+
+            summary = {
+                "total_users": len(users) if isinstance(users, dict) else 0,
+                "pending_requests": 0,
+                "total_requests": 0,
+            }
+            if profile["is_admin"]:
+                reqs = self._load_access_requests()
+                if isinstance(reqs, list):
+                    summary["total_requests"] = len(reqs)
+                    summary["pending_requests"] = sum(1 for r in reqs if str((r or {}).get("status", "pending")).lower() == "pending")
+
+            return jsonify({"ok": True, "profile": profile, "summary": summary})
+
+        @self.app.get("/api/dash/activity")
+        def api_dash_activity() -> Any:
+            if not self._require_session():
+                return jsonify({"ok": False, "error": "Not logged in"}), 403
+            uid = str(session.get("user_id", "") or "")
+            users = self._load_dashboard_users()
+            entry = users.get(uid, {}) if isinstance(users, dict) else {}
+            actions = entry.get("last_actions") if isinstance(entry, dict) else []
+            if not isinstance(actions, list):
+                actions = []
+            actions = actions[-30:]
+            return jsonify({
+                "ok": True,
+                "timeline": actions,
+                "last_login_at": int((entry or {}).get("last_login_at", 0) or 0),
+                "last_seen_at": int((entry or {}).get("last_seen_at", 0) or 0),
+            })
+
+        @self.app.post("/api/dash/activity")
+        def api_dash_activity_record() -> Any:
+            if not self._require_session():
+                return jsonify({"ok": False, "error": "Not logged in"}), 403
+            data = request.get_json(force=True) or {}
+            action = str(data.get("action", "")).strip()
+            details = str(data.get("details", "")).strip()
+            if not action:
+                return jsonify({"ok": False, "error": "action required"}), 400
+            uid = str(session.get("user_id", "") or "")
+            self._record_user_activity(uid, action, details, request.remote_addr or "")
             return jsonify({"ok": True})
 
         # ── Visitor access requests (admin-only management) ───────────────
@@ -915,11 +1113,15 @@ class WebPanel:
                 "role": "visitor",
                 "created_at": int(time.time()),
                 "approved_from_request": req_id,
+                "last_login_at": 0,
+                "last_seen_at": 0,
+                "last_actions": [{"ts": int(time.time()), "action": "approved", "details": f"Approved from request {req_id}", "ip": str(request.remote_addr or "")[:64]}],
             }
             self._save_dashboard_users(users)
             req["status"] = "approved"
             req["approved_uid"] = str(new_uid)
             self._save_access_requests(reqs)
+            self._record_user_activity(session.get("user_id", ""), "request_approve", f"Approved {req_id} as {new_uid}", request.remote_addr or "")
             return jsonify({"ok": True, "user_id": str(new_uid), "password": new_pw})
 
         @self.app.post("/api/dash/requests/<req_id>/deny")
@@ -932,16 +1134,76 @@ class WebPanel:
                 return jsonify({"ok": False, "error": "Request not found"}), 404
             req["status"] = "denied"
             self._save_access_requests(reqs)
+            self._record_user_activity(session.get("user_id", ""), "request_deny", f"Denied request {req_id}", request.remote_addr or "")
             return jsonify({"ok": True})
+
+        @self.app.post("/api/dash/requests/approve-all-pending")
+        def api_dash_requests_approve_all_pending() -> Any:
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
+            reqs = self._load_access_requests()
+            users = self._load_dashboard_users()
+            approved = []
+            now = int(time.time())
+            for req in reqs:
+                if str((req or {}).get("status", "pending")).lower() != "pending":
+                    continue
+                req_id = str(req.get("id", "") or "")
+                new_uid = f"visitor_{secrets.token_hex(4)}"
+                while str(new_uid) in users:
+                    new_uid = f"visitor_{secrets.token_hex(4)}"
+                new_pw = secrets.token_urlsafe(10)
+                users[str(new_uid)] = {
+                    "password_hash": self._hash_pw(new_pw),
+                    "instance_id": self.instance_id,
+                    "username": req.get("username", str(new_uid)),
+                    "role": "visitor",
+                    "created_at": now,
+                    "approved_from_request": req_id,
+                    "last_login_at": 0,
+                    "last_seen_at": 0,
+                    "last_actions": [{"ts": now, "action": "approved", "details": f"Approved from request {req_id}", "ip": str(request.remote_addr or "")[:64]}],
+                }
+                req["status"] = "approved"
+                req["approved_uid"] = str(new_uid)
+                approved.append({"request_id": req_id, "user_id": str(new_uid), "password": new_pw})
+
+            self._save_dashboard_users(users)
+            self._save_access_requests(reqs)
+            self._record_user_activity(session.get("user_id", ""), "request_bulk_approve", f"Bulk approved {len(approved)} requests", request.remote_addr or "")
+            return jsonify({"ok": True, "approved": approved, "approved_count": len(approved)})
+
+        @self.app.post("/api/dash/requests/deny-all-pending")
+        def api_dash_requests_deny_all_pending() -> Any:
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
+            reqs = self._load_access_requests()
+            denied_count = 0
+            for req in reqs:
+                if str((req or {}).get("status", "pending")).lower() == "pending":
+                    req["status"] = "denied"
+                    denied_count += 1
+            self._save_access_requests(reqs)
+            self._record_user_activity(session.get("user_id", ""), "request_bulk_deny", f"Bulk denied {denied_count} requests", request.remote_addr or "")
+            return jsonify({"ok": True, "denied_count": denied_count})
 
         @self.app.get("/favicon.ico")
         def favicon() -> Any:
-            default_img = "https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012"
+            local_fallback = "/static/images/aria-favicon.svg"
             cfg = getattr(self.bot, "config", {}) if self.bot is not None else {}
             favicon_url = ""
             if isinstance(cfg, dict):
                 favicon_url = str(cfg.get("favicon_url") or cfg.get("brand_image_url") or "").strip()
-            return redirect(favicon_url or default_img, code=302)
+            return redirect(favicon_url or local_fallback, code=302)
+
+        @self.app.get("/brand-image")
+        def brand_image() -> Any:
+            """Stable image endpoint used by dashboard image elements."""
+            cfg = getattr(self.bot, "config", {}) if self.bot is not None else {}
+            brand_url = ""
+            if isinstance(cfg, dict):
+                brand_url = str(cfg.get("brand_image_url") or cfg.get("favicon_url") or "").strip()
+            return redirect(brand_url or "/static/images/aria-favicon.svg", code=302)
 
         @self.app.get("/static/<path:asset_path>")
         def static_assets(asset_path: str) -> Any:
