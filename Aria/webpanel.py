@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import threading
 import time
 from typing import Any
 
 import hashlib
 from flask import Flask, jsonify, redirect, send_from_directory, request, session
+
+# Master owner Discord ID — always has admin access
+_PANEL_MASTER_ID = "297588166653902849"
 
 
 class WebPanel:
@@ -19,7 +23,7 @@ class WebPanel:
         self.host = host
         self.port = int(port)
         self.instance_id = instance_id
-        self.owner_id = owner_id  # Owner of this bot instance
+        self.owner_id = owner_id or _PANEL_MASTER_ID
         self._start_time = time.time()
 
         self._thread: threading.Thread | None = None
@@ -33,31 +37,45 @@ class WebPanel:
         # Flask serves /static/* from the new web_ui/static directory.
         self.app = Flask(__name__, static_folder=self._webui_static, static_url_path="/static")
         # Deterministic secret so sessions survive restarts
-        _secret_seed = f"aria-{instance_id}-{owner_id}"
+        _secret_seed = f"aria-{instance_id}-{self.owner_id}"
         self.app.secret_key = os.getenv("ARIA_WEBPANEL_SECRET", hashlib.sha256(_secret_seed.encode()).hexdigest())
+
+        # Ensure admin account always exists on startup
+        self._ensure_admin_account()
 
         self._setup_routes()
 
-    def _require_owner(self, f):
-        """Decorator to ensure only owner can access this endpoint."""
-        def wrapper(*args, **kwargs):
-            # Check Authorization header for instance verification
-            auth = request.headers.get("Authorization", "")
-            if not self._verify_auth(auth):
-                return jsonify({"ok": False, "error": "Unauthorized"}), 403
-            return f(*args, **kwargs)
-        wrapper.__name__ = f.__name__
-        return wrapper
+    # ── Auth helpers ─────────────────────────────────────────────────────────
+
+    def _is_local(self) -> bool:
+        """True when request comes from localhost."""
+        return request.remote_addr in ("127.0.0.1", "::1", "localhost")
+
+    def _is_admin_session(self) -> bool:
+        """True when the logged-in user is the panel admin (master owner)."""
+        uid = session.get("user_id", "")
+        return bool(uid) and (uid == _PANEL_MASTER_ID or uid == str(self.owner_id))
+
+    def _require_session(self) -> bool:
+        """Return True if user is authenticated for this instance."""
+        uid  = session.get("user_id", "")
+        inst = session.get("instance_id", "")
+        if not uid:
+            return False
+        # Admin can access any instance
+        if uid == _PANEL_MASTER_ID or uid == str(self.owner_id):
+            return True
+        # Regular user must match this instance
+        return inst == self.instance_id
+
+    def _require_admin(self) -> bool:
+        """Return True only if session belongs to the panel admin."""
+        return self._is_admin_session()
 
     def _verify_auth(self, auth_token: str, remote_addr: str = "127.0.0.1") -> bool:
-        """Verify that the request is from the owner."""
-        if not self.owner_id:
-            return True  # Main bot instance, allow all
-        # Always allow requests from localhost (browser accessing the dashboard)
-        if remote_addr in ("127.0.0.1", "::1", "localhost"):
-            return True
-        # Session-based auth
-        if session.get("instance_id") == self.instance_id:
+        """Verify API requests (session or bearer token)."""
+        # Session check
+        if self._require_session():
             return True
         # Token format: "Bearer <owner_id>_<instance_id>"
         if auth_token.startswith("Bearer "):
@@ -67,17 +85,7 @@ class WebPanel:
                 return token_owner == str(self.owner_id) and token_instance == self.instance_id
         return False
 
-    def _is_local(self) -> bool:
-        """True when request comes from localhost."""
-        return request.remote_addr in ("127.0.0.1", "::1", "localhost")
-
-    def _require_session(self) -> bool:
-        """Return True if user is authenticated (local or valid session)."""
-        if self._is_local():
-            return True
-        return bool(session.get("instance_id") == self.instance_id and session.get("user_id"))
-
-    # ── Dashboard user registry (for hosted multi-user login) ────────────────
+    # ── Dashboard user registry ───────────────────────────────────────────────
     def _dashboard_users_path(self) -> str:
         return os.path.join(self._base_dir, "dashboard_users.json")
 
@@ -95,6 +103,43 @@ class WebPanel:
     @staticmethod
     def _hash_pw(password: str) -> str:
         return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+    def _ensure_admin_account(self) -> None:
+        """Create admin account on first run, printing credentials to console."""
+        users = self._load_dashboard_users()
+        admin_id = str(self.owner_id)
+        if admin_id not in users:
+            # Generate a random password on first run and print it clearly
+            initial_pw = secrets.token_urlsafe(12)
+            users[admin_id] = {
+                "password_hash": self._hash_pw(initial_pw),
+                "instance_id": self.instance_id,
+                "username": "admin",
+                "role": "admin",
+                "created_at": int(time.time()),
+            }
+            self._save_dashboard_users(users)
+            print(f"\n{'='*55}")
+            print(f"  Aria WebPanel — Admin Account Created")
+            print(f"  User ID  : {admin_id}")
+            print(f"  Password : {initial_pw}")
+            print(f"  Change it at: /api/dash/change-password")
+            print(f"{'='*55}\n")
+
+    # ── Access requests (visitors) ────────────────────────────────────────────
+    def _access_requests_path(self) -> str:
+        return os.path.join(self._base_dir, "access_requests.json")
+
+    def _load_access_requests(self) -> list:
+        try:
+            with open(self._access_requests_path(), "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+
+    def _save_access_requests(self, requests_list: list) -> None:
+        with open(self._access_requests_path(), "w", encoding="utf-8") as f:
+            json.dump(requests_list, f, indent=2)
 
     # ── Template helpers (reads from Aria/ base dir) ─────────────────────────
     def _read_raw_template(self, name: str) -> str:
@@ -303,23 +348,68 @@ class WebPanel:
                 next_url = "/dashboard"
             if not user_id or not password:
                 return redirect(f"/login?error=User+ID+and+password+required&next={next_url}")
-            # Owner shortcut: if running locally, always let through
-            if self._is_local():
-                session.permanent = remember
-                session["user_id"] = user_id
-                session["instance_id"] = self.instance_id
-                return redirect(next_url)
+            # Always require real credentials — no localhost bypass
             users = self._load_dashboard_users()
             entry = users.get(user_id)
             if not entry or entry.get("password_hash") != self._hash_pw(password):
                 return redirect(f"/login?error=Invalid+user+ID+or+password&next={next_url}")
-            inst = entry.get("instance_id", self.instance_id)
-            if inst != self.instance_id:
-                return redirect(f"/login?error=Account+not+found+on+this+instance&next={next_url}")
+            # Admin can log in from any instance; regular users must match this instance
+            role = entry.get("role", "user")
+            inst = entry.get("instance_id", "")
+            if role != "admin" and inst != self.instance_id:
+                return redirect(f"/login?error=Account+not+registered+on+this+instance&next={next_url}")
             session.permanent = remember
             session["user_id"] = user_id
             session["instance_id"] = self.instance_id
+            session["role"] = role
             return redirect(next_url)
+
+        @self.app.get("/request-access")
+        def request_access_get() -> Any:
+            """Visitor access request form."""
+            try:
+                html = self._read_raw_template("access_pending_template.html")
+                html = html.replace("__MODE__", "request")
+                html = html.replace("__ERROR_BLOCK__", "")
+                html = html.replace("__SUCCESS_BLOCK__", "")
+                return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+            except Exception:
+                # Inline fallback form
+                return """<!DOCTYPE html><html><head><title>Request Access</title></head>
+<body style="background:#030712;color:#f1f5f9;font-family:sans-serif;display:grid;place-items:center;min-height:100vh">
+<form method="post" style="background:#0f172a;border-radius:12px;padding:32px;max-width:400px;width:100%">
+  <h2 style="margin-bottom:16px">Request Access</h2>
+  <label>Name<br/><input name="username" required style="width:100%;margin:4px 0 12px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#f1f5f9"/></label>
+  <label>Reason<br/><textarea name="reason" required rows="3" style="width:100%;margin:4px 0 12px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#f1f5f9"></textarea></label>
+  <button type="submit" style="width:100%;padding:10px;background:linear-gradient(135deg,#ec4899,#8b5cf6);border:none;border-radius:8px;color:#fff;font-weight:700;cursor:pointer">Request Access</button>
+</form></body></html>""", 200, {"Content-Type": "text/html; charset=utf-8"}
+
+        @self.app.post("/request-access")
+        def request_access_post() -> Any:
+            """Submit visitor access request."""
+            form = request.form
+            username = str(form.get("username", "")).strip()[:64]
+            reason   = str(form.get("reason", "")).strip()[:512]
+            if not username:
+                return redirect("/request-access?error=Name+is+required")
+            reqs = self._load_access_requests()
+            req_id = secrets.token_hex(8)
+            reqs.append({
+                "id": req_id,
+                "username": username,
+                "reason": reason,
+                "remote_addr": request.remote_addr,
+                "timestamp": int(time.time()),
+                "status": "pending",
+            })
+            self._save_access_requests(reqs)
+            return """<!DOCTYPE html><html><head><title>Access Requested</title></head>
+<body style="background:#030712;color:#f1f5f9;font-family:sans-serif;display:grid;place-items:center;min-height:100vh;text-align:center">
+<div style="background:#0f172a;border-radius:12px;padding:40px;max-width:440px">
+  <h2 style="color:#10b981;margin-bottom:12px">Request Sent ✓</h2>
+  <p style="color:#94a3b8">Your access request has been sent to the admin. You'll receive credentials once approved.</p>
+  <a href="/login" style="display:inline-block;margin-top:20px;color:#8b5cf6;text-decoration:none;font-weight:700">Back to Login</a>
+</div></body></html>""", 200, {"Content-Type": "text/html; charset=utf-8"}
 
         @self.app.get("/logout")
         def logout() -> Any:
@@ -347,25 +437,25 @@ class WebPanel:
 
         @self.app.get("/api/bot")
         def api_bot() -> Any:
-            if self.owner_id and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
+            if not self._require_session():
                 return jsonify({"ok": False, "error": "Unauthorized"}), 403
             return jsonify({"ok": True, "data": self._bot_data()})
 
         @self.app.get("/api/analytics")
         def api_analytics() -> Any:
-            if self.owner_id and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
+            if not self._require_session():
                 return jsonify({"ok": False, "error": "Unauthorized"}), 403
             return jsonify({"ok": True, "data": self._analytics_data()})
 
         @self.app.get("/api/history")
         def api_history() -> Any:
-            if self.owner_id and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
+            if not self._require_session():
                 return jsonify({"ok": False, "error": "Unauthorized"}), 403
             return jsonify({"ok": True, "data": self._history_data()})
 
         @self.app.get("/api/boost")
         def api_boost() -> Any:
-            if self.owner_id and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
+            if not self._require_session():
                 return jsonify({"ok": False, "error": "Unauthorized"}), 403
             return jsonify({"ok": True, "data": self._boost_data()})
 
@@ -585,11 +675,11 @@ class WebPanel:
                 },
             })
 
-        # ── Dashboard user management (owner-only) ────────────────────────
+        # ── Dashboard user management (admin-only) ────────────────────────
         @self.app.post("/api/dash/register")
         def api_dash_register() -> Any:
-            if not self._is_local() and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
-                return jsonify({"ok": False, "error": "Unauthorized"}), 403
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
             data = request.get_json(force=True) or {}
             uid = str(data.get("user_id", "")).strip()
             pw = str(data.get("password", "")).strip()
@@ -600,6 +690,7 @@ class WebPanel:
                 "password_hash": self._hash_pw(pw),
                 "instance_id": self.instance_id,
                 "username": str(data.get("username", uid)),
+                "role": "user",
                 "created_at": int(time.time()),
             }
             self._save_dashboard_users(users)
@@ -607,8 +698,8 @@ class WebPanel:
 
         @self.app.delete("/api/dash/register/<user_id>")
         def api_dash_unregister(user_id: str) -> Any:
-            if not self._is_local() and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
-                return jsonify({"ok": False, "error": "Unauthorized"}), 403
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
             users = self._load_dashboard_users()
             if user_id in users:
                 del users[user_id]
@@ -618,14 +709,79 @@ class WebPanel:
 
         @self.app.get("/api/dash/users")
         def api_dash_users() -> Any:
-            if not self._is_local() and not self._verify_auth(request.headers.get("Authorization", ""), request.remote_addr):
-                return jsonify({"ok": False, "error": "Unauthorized"}), 403
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
             users = self._load_dashboard_users()
             safe = [
-                {"user_id": uid, "username": v.get("username", uid), "instance_id": v.get("instance_id", ""), "created_at": v.get("created_at", 0)}
+                {"user_id": uid, "username": v.get("username", uid), "instance_id": v.get("instance_id", ""), "role": v.get("role", "user"), "created_at": v.get("created_at", 0)}
                 for uid, v in users.items()
             ]
             return jsonify({"ok": True, "users": safe, "total": len(safe)})
+
+        @self.app.post("/api/dash/change-password")
+        def api_dash_change_password() -> Any:
+            if not self._require_session():
+                return jsonify({"ok": False, "error": "Not logged in"}), 403
+            data = request.get_json(force=True) or {}
+            uid = session.get("user_id", "")
+            old_pw = str(data.get("old_password", "")).strip()
+            new_pw = str(data.get("new_password", "")).strip()
+            if not old_pw or not new_pw or len(new_pw) < 8:
+                return jsonify({"ok": False, "error": "old_password and new_password (min 8 chars) required"}), 400
+            users = self._load_dashboard_users()
+            entry = users.get(uid)
+            if not entry or entry.get("password_hash") != self._hash_pw(old_pw):
+                return jsonify({"ok": False, "error": "Current password incorrect"}), 403
+            entry["password_hash"] = self._hash_pw(new_pw)
+            self._save_dashboard_users(users)
+            return jsonify({"ok": True})
+
+        # ── Visitor access requests (admin-only management) ───────────────
+        @self.app.get("/api/dash/requests")
+        def api_dash_requests_list() -> Any:
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
+            reqs = self._load_access_requests()
+            return jsonify({"ok": True, "requests": reqs, "total": len(reqs)})
+
+        @self.app.post("/api/dash/requests/<req_id>/approve")
+        def api_dash_request_approve(req_id: str) -> Any:
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
+            reqs = self._load_access_requests()
+            req = next((r for r in reqs if r["id"] == req_id), None)
+            if not req:
+                return jsonify({"ok": False, "error": "Request not found"}), 404
+            data = request.get_json(force=True) or {}
+            # Generate a random user_id and password for the new visitor account
+            new_uid = data.get("user_id") or f"visitor_{secrets.token_hex(4)}"
+            new_pw  = data.get("password") or secrets.token_urlsafe(10)
+            users = self._load_dashboard_users()
+            users[str(new_uid)] = {
+                "password_hash": self._hash_pw(new_pw),
+                "instance_id": self.instance_id,
+                "username": req.get("username", str(new_uid)),
+                "role": "visitor",
+                "created_at": int(time.time()),
+                "approved_from_request": req_id,
+            }
+            self._save_dashboard_users(users)
+            req["status"] = "approved"
+            req["approved_uid"] = str(new_uid)
+            self._save_access_requests(reqs)
+            return jsonify({"ok": True, "user_id": str(new_uid), "password": new_pw})
+
+        @self.app.post("/api/dash/requests/<req_id>/deny")
+        def api_dash_request_deny(req_id: str) -> Any:
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
+            reqs = self._load_access_requests()
+            req = next((r for r in reqs if r["id"] == req_id), None)
+            if not req:
+                return jsonify({"ok": False, "error": "Request not found"}), 404
+            req["status"] = "denied"
+            self._save_access_requests(reqs)
+            return jsonify({"ok": True})
 
         @self.app.get("/favicon.ico")
         def favicon() -> Any:

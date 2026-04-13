@@ -40,7 +40,6 @@ class VRRPC:
     _identify_patched = False
     _original_identify = None
     _startup_timeout_seconds = 90
-    _disconnect_timeout_seconds = 45
 
     def __init__(self, config):
         self.config = config
@@ -66,14 +65,13 @@ class VRRPC:
         now = time.time()
         self._gateway_connected = True
         self._last_ready_time = now
-        self._last_disconnect_time = None
         self.running = True
 
     def _mark_gateway_disconnected(self):
-        if not self._last_disconnect_time:
-            self._last_disconnect_time = time.time()
+        # Only track state — do NOT stop the running flag or set disconnect time.
+        # discord.py handles reconnection internally; killing the client here
+        # would interrupt its own reconnect loop and prevent recovery.
         self._gateway_connected = False
-        self.running = False
 
     def _close_client(self, timeout=10):
         if not self.client:
@@ -126,6 +124,8 @@ class VRRPC:
         if not thread_alive:
             return True, "client thread exited"
 
+        # Only restart on startup timeout — discord.py handles all reconnects itself.
+        # Never restart just because of a gateway disconnect event.
         now = time.time()
         if not self._gateway_connected:
             never_connected_since_launch = not self._last_ready_time or (
@@ -133,8 +133,6 @@ class VRRPC:
             )
             if never_connected_since_launch and self._last_launch_time and now - self._last_launch_time >= self._startup_timeout_seconds:
                 return True, "startup timed out waiting for gateway READY"
-            if self._last_disconnect_time and now - self._last_disconnect_time >= self._disconnect_timeout_seconds:
-                return True, "gateway disconnect exceeded recovery window"
 
         return False, None
 
@@ -243,16 +241,19 @@ class VRRPC:
                     traceback.print_exc()
 
             async def on_disconnect(self):
-                outer._mark_gateway_disconnected()
+                # Do NOT mark as non-running — discord.py will reconnect on its own.
+                # Just flip the gateway flag so health checks track state correctly.
+                outer._gateway_connected = False
                 self.ready_logged = False
-                print("[VR RPC] Disconnected from Discord gateway")
+                print("[VR RPC] Disconnected — discord.py will reconnect automatically")
 
             async def on_error(self, event, *args, **kwargs):
                 print(f"[VR RPC] Error in event {event}")
                 traceback.print_exc()
 
-        intents = discord.Intents.default()
-        intents.presences = True
+        # Minimal intents — VR client only needs to connect and set presence,
+        # it doesn't need to receive guild/member/message events.
+        intents = discord.Intents.none()
 
         client = VRClient(self, self.config, intents=intents)
         setattr(client.http, "_is_vr_rpc_client", True)
@@ -315,22 +316,21 @@ class VRRPC:
         self._gateway_connected = False
         self._last_launch_time = time.time()
         self._last_ready_time = None
-        self._last_disconnect_time = None
 
         def run_client():
             try:
                 print(f"[VR RPC] Thread starting, running client.run()...")
-                self.client.run(token)
+                self.client.run(token, reconnect=False)
                 if not self._stop_requested and self._desired_running:
                     print("[VR RPC] Client thread exited unexpectedly")
             except discord.errors.LoginFailure:
                 print(f"[VR RPC] ✗ Authentication failed: Invalid Discord token")
                 self._desired_running = False
-                self._mark_gateway_disconnected()
+                self._gateway_connected = False
             except Exception as e:
                 print(f"[VR RPC] ✗ Client error: {e}")
                 traceback.print_exc()
-                self._mark_gateway_disconnected()
+                self._gateway_connected = False
             finally:
                 self.running = False
                 self._gateway_connected = False
@@ -339,31 +339,17 @@ class VRRPC:
         self.thread.start()
 
     def _detect_auth_mode(self, token):
+        """Detect auth mode instantly from token format (no HTTP calls)."""
         token = (token or "").strip()
         if not token:
             return "bot"
-
-        try:
-            from curl_cffi import requests
-
-            raw_response = requests.get(
-                "https://discord.com/api/v9/users/@me",
-                headers={"Authorization": token},
-                timeout=15,
-            )
-            if raw_response.status_code == 200:
-                return "user"
-
-            bot_response = requests.get(
-                "https://discord.com/api/v9/users/@me",
-                headers={"Authorization": f"Bot {token}"},
-                timeout=15,
-            )
-            if bot_response.status_code == 200:
-                return "bot"
-        except Exception as exc:
-            print(f"[VR RPC] Warning: auth mode detection failed: {exc}")
-
+        # Bot tokens start with "Bot " or are prefixed when used as a Bot header.
+        # User tokens follow the standard 3-segment base64.base64.hmac pattern.
+        if token.lower().startswith("bot ") or token.lower().startswith("bearer "):
+            return "bot"
+        parts = token.split(".")
+        if len(parts) == 3:
+            return "user"  # Standard user token format
         return "bot"
     
     def _patch_discord(self):
@@ -429,7 +415,7 @@ class VRRPC:
             app_id_str = self.config.get('application_id', '0')
             print(f"[VR RPC] Starting with app_id: {app_id_str}, icon_only={icon_only}")
             auth_mode = self._detect_auth_mode(token)
-            print(f"[VR RPC] Auth mode detected: {auth_mode}")
+            print(f"[VR RPC] Auth mode: {auth_mode} (detected from token format)")
             
             # Validate token before attempting to start
             if not token or token == "YOUR_BOT_TOKEN":
@@ -442,7 +428,7 @@ class VRRPC:
             self.start_time = datetime.datetime.now(datetime.timezone.utc)
             self._last_start_args = (token, auth_mode, rpc_name, details, state, large_image, icon_only)
             self._launch_client_thread(*self._last_start_args)
-            self._ensure_supervisor()
+            # No supervisor — we don't want auto-reconnect
             
             mode = "Icon only" if icon_only else f"{rpc_name} | {details}"
             print(f"[VR RPC] ✓ Started: {mode} (waiting for client to connect...)")

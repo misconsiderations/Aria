@@ -1619,7 +1619,7 @@ def main():
         if len(args) < 2:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Spam** :: Usage: {bot.prefix}spam <count> <message>",
+                f"```| Spam |\nUsage: {bot.prefix}spam <count> <message>```",
             )
             return
 
@@ -1681,7 +1681,7 @@ def main():
             if not silent:
                 ctx["api"].send_message(
                     ctx["channel_id"],
-                    f"> **✗ Purge** :: Already running. Use {bot.prefix}spurge to stop.",
+                    f"```| Purge |\nAlready running. Use {bot.prefix}spurge to stop.```",
                 )
             return
 
@@ -1796,7 +1796,7 @@ def main():
         if len(args) < 2:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Mass DM** :: Usage: {bot.prefix}massdm <1|2|3> <message> — 1=DM history  2=Friends  3=Both",
+                f"```| Mass DM |\nUsage: {bot.prefix}massdm <1|2|3> <message>\n1 = DM history  2 = Friends  3 = Both```",
             )
             return
 
@@ -1810,20 +1810,20 @@ def main():
             if not message:
                 msg = ctx["api"].send_message(
                     ctx["channel_id"],
-                    "> **✗ Mass DM** :: Message is empty after plain-text cleanup",
+                    f"```| Mass DM |\nMessage is empty after plain-text cleanup```",
                 )
                 return
             
             option_names = {1: "DM History", 2: "Friends", 3: "Both"}
             if option not in [1, 2, 3]:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Mass DM** :: Invalid option. Use 1, 2, or 3")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Mass DM |\nInvalid option. Use 1, 2, or 3```")
                 return
             
             status_msg = ctx["api"].send_message(ctx["channel_id"], f"> **Mass DM** :: Mode: {option_names[option]} · fetching targets...")
             
             dms_response = ctx["api"].request("GET", "/users/@me/channels")
             if not dms_response or dms_response.status_code != 200:
-                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> **✗ Mass DM** :: Failed to fetch DMs")
+                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```| Mass DM |\nFailed to fetch DMs```")
                 return
             
             dm_data = dms_response.json()
@@ -1860,7 +1860,7 @@ def main():
                                     target_names.append(username)
             
             if not targets:
-                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> **✗ Mass DM** :: No targets found")
+                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "```| Mass DM |\nNo targets found```")
                 return
             
             sent = 0
@@ -1868,7 +1868,7 @@ def main():
             failed = 0
             current_target = ""
             
-            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **Mass DM** :: Mode: {option_names[option]} · Targets: {total} · Status: Starting · Sent: 0/{total} · Failed: 0")
+            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass DM |\nMode: {option_names[option]}\nTargets: {total}\nStatus: Starting\nSent: 0/{total}\nFailed: 0```")
             
             for i, (channel_id, user_id, username) in enumerate(targets):
                 current_target = username
@@ -1879,24 +1879,24 @@ def main():
                     failed += 1
                 
                 if (i + 1) % 3 == 0 or i == total - 1:
-                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **Mass DM** :: Mode: {option_names[option]} · Sent: {sent}/{total} · Failed: {failed} · Sending: {username}")
+                    ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass DM |\nMode: {option_names[option]}\nTargets: {total}\nStatus: Sending\nSent: {sent}/{total}\nFailed: {failed}\nCurrent: {username}```")
                 
                 time.sleep(random.uniform(2.5, 4.0))
             
-            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **✓ Mass DM** :: Mode: {option_names[option]} · Sent: {sent}/{total} · Failed: {failed} · Time: {time.strftime('%H:%M:%S')}")
+            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass DM |\nMode: {option_names[option]}\nSent: {sent}/{total}\nFailed: {failed}\nTime: {time.strftime('%H:%M:%S')}```")
             
         except Exception as e:
             print(f"Mass DM error: {e}")
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Mass DM** :: Usage: {bot.prefix}massdm <1|2|3> <message> — 1=DM history  2=Friends  3=Both",
+                f"```| Mass DM |\nUsage: {bot.prefix}massdm <1|2|3> <message>\n1 = DM history  2 = Friends  3 = Both```",
             )
     @bot.command(name="join", aliases=["acceptinvite"])
     def join_cmd(ctx, args):
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Join** :: Usage: {bot.prefix}join <invite_code_or_url>"
+                "```| Join |\nUsage: join <invite_code_or_url>```"
             )
             return
 
@@ -2500,7 +2500,7 @@ def main():
             if len(args) < 2 or not str(args[1]).isdigit():
                 msg = ctx["api"].send_message(
                     ctx["channel_id"],
-                    f"> **Auto Delete** :: Usage: {bot.prefix}autodelete delay <seconds>",
+                    "```| Auto Delete |\nUsage: autodelete delay <seconds>```",
                 )
                 return
             new_delay = max(1, int(args[1]))
@@ -2517,7 +2517,7 @@ def main():
 
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"> **Auto Delete** :: Usage: {bot.prefix}autodelete on/off | {bot.prefix}autodelete delay <seconds>",
+            "```| Auto Delete |\nUsage: autodelete on/off | autodelete delay <seconds>```",
         )
 
     @bot.command(name="config", aliases=["cf"])
@@ -3131,7 +3131,7 @@ Example Usage:
             ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> **Successfully** loaded **server* template!")
             
         except Exception as e:
-            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **✗ Server Load** :: Error: {str(e)}")
+            ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Server Load |\nError: {str(e)}```")
     
     @bot.command(name="rpc", aliases=["rich_presence"])
     def rich_presence(ctx, args):
@@ -3190,7 +3190,7 @@ Example Usage:
         current_pos = ""
         start_time = ""
         end_time = ""
-        msg_text = "> **✗ RPC** :: Invalid input"
+        msg_text = "```| RPC |\nInvalid input```"
         
         main_text = remaining
 
@@ -3230,7 +3230,12 @@ Example Usage:
                 total = kv.get("total_minutes")
                 image_url = kv.get("image_url")
                 if not (show_name and episode_title and elapsed and total):
-                    msg_text = f"> **Crunchyroll RPC** :: Format: name=<show> episode_title=<ep> elapsed_minutes=<n> total_minutes=<n> [image_url=<url>] — Example: {bot.prefix}rpc crunchyroll name=Solo_Leveling episode_title=Episode_12 elapsed_minutes=6 total_minutes=24"
+                    msg_text = (
+                        "```| Crunchyroll RPC |\n"
+                        "Format: name=<show> episode_title=<ep> elapsed_minutes=<n> total_minutes=<n> [image_url=<url>]\n"
+                        f"Example: {bot.prefix}rpc crunchyroll name=\"Solo Leveling\" episode_title=\"Episode 12\" elapsed_minutes=6 total_minutes=24 image_url=https://img.url"
+                        "```"
+                    )
                 else:
                     elapsed_val = float(elapsed)
                     total_val = float(total)
@@ -3249,11 +3254,18 @@ Example Usage:
                         send_crunchyroll_activity(bot, _show, _episode, cyc_elapsed, _total, _img)
 
                     configure_rpc_keepalive(bot, "crunchyroll", _refresh_crunchyroll)
-                    _cr_fields = [f"show={show_name}", f"episode={episode_title}", f"elapsed={elapsed_val}min", f"total={total_val}min"]
-                    if image_url: _cr_fields.append("image=yes")
-                    msg_text = "> **✓ Crunchyroll RPC** :: " + " · ".join(_cr_fields)
+                    msg_text = (
+                        "```| Crunchyroll RPC |\n"
+                        f"show={show_name}\n"
+                        f"episode_title={episode_title}\n"
+                        f"elapsed_minutes={elapsed_val}\n"
+                        f"total_minutes={total_val}"
+                        "```"
+                    )
+                    if image_url:
+                        msg_text = msg_text.replace("```", "\nimage_url=yes```")
             except Exception as e:
-                msg_text = f"> **✗ Crunchyroll RPC** :: Error: {str(e)}"
+                msg_text = f"```| Crunchyroll RPC |\nError: {str(e)}```"
 
         elif kv:
             if parts == "spotify":
@@ -3387,14 +3399,20 @@ Example Usage:
                         send_spotify_listening_activity(bot, _song, _artist, _album, cyc_elapsed, _total, _img)
 
                     configure_rpc_keepalive(bot, "spotify", _refresh_spotify)
-                    _sp_fields = [f"song={details}", f"artist={state}", f"album={name}", f"elapsed={elapsed_val}min"]
-                    if total_val is not None: _sp_fields.append(f"total={total_val}min")
-                    if image_url: _sp_fields.append("image=yes")
-                    msg_text = "> **✓ Spotify RPC** :: " + " · ".join(_sp_fields)
+                    msg_text = f"```| Spotify RPC |\nsong={details}\nartist={state}\nalbum={name}\nelapsed_minutes={elapsed_val}```"
+                    if total_val is not None:
+                        msg_text = msg_text.replace("```", f"\ntotal_minutes={total_val}```")
+                    if image_url:
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
-                    msg_text = f"> **Spotify RPC** :: Format: song=<name> artist=<name> album=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] — Example: {bot.prefix}rpc spotify song=Blinding_Lights artist=The_Weeknd album=After_Hours elapsed_minutes=1.5 total_minutes=3.5"
+                    msg_text = (
+                        "```| Spotify RPC |\n"
+                        "Format: song=<name> artist=<name> album=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>]\n"
+                        f"Example: {bot.prefix}rpc spotify song=Blinding_Lights artist=The_Weeknd album=After_Hours elapsed_minutes=1.5 total_minutes=3.5 image_url=https://image.url"
+                        "```"
+                    )
             except Exception as e:
-                msg_text = f"> **✗ Spotify RPC** :: Error: {str(e)}"
+                msg_text = f"```| Spotify RPC |\nError: {str(e)}```"
 
         elif parts == "youtube":
             try:
@@ -3421,15 +3439,22 @@ Example Usage:
                         send_youtube_activity(bot, _title, _channel, cyc_elapsed, _total, _img, _btn, _url)
 
                     configure_rpc_keepalive(bot, "youtube", _refresh_youtube)
-                    _yt_fields = [f"title={details}", f"channel={state}", f"elapsed={elapsed_val}min"]
-                    if total_val is not None: _yt_fields.append(f"total={total_val}min")
-                    if button_label: _yt_fields.append(f"button={button_label}")
-                    if image_url: _yt_fields.append("image=yes")
-                    msg_text = "> **✓ YouTube RPC** :: " + " · ".join(_yt_fields)
+                    msg_text = f"```| YouTube RPC |\ntitle={details}\nchannel={state}\nelapsed_minutes={elapsed_val}```"
+                    if total_val is not None:
+                        msg_text = msg_text.replace("```", f"\ntotal_minutes={total_val}```")
+                    if button_label:
+                        msg_text = msg_text.replace("```", f"\nbutton={button_label}```")
+                    if image_url:
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
-                    msg_text = f"> **YouTube RPC** :: Format: title=<name> channel=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL] — Example: {bot.prefix}rpc youtube title=Devlog_12 channel=Aria_Channel elapsed_minutes=2.5"
+                    msg_text = (
+                        "```| YouTube RPC |\n"
+                        "Format: title=<name> channel=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]\n"
+                        f"Example: {bot.prefix}rpc youtube title=Devlog_12 channel=Aria_Channel elapsed_minutes=2.5 total_minutes=10 image_url=https://image.url >> Watch >> https://youtube.com"
+                        "```"
+                    )
             except Exception as e:
-                msg_text = f"> **✗ YouTube RPC** :: Error: {str(e)}"
+                msg_text = f"```| YouTube RPC |\nError: {str(e)}```"
 
         elif parts == "soundcloud":
             try:
@@ -3456,15 +3481,22 @@ Example Usage:
                         send_soundcloud_activity(bot, _track, _artist, cyc_elapsed, _total, _img, _btn, _url)
 
                     configure_rpc_keepalive(bot, "soundcloud", _refresh_soundcloud)
-                    _sc_fields = [f"track={details}", f"artist={state}", f"elapsed={elapsed_val}min"]
-                    if total_val is not None: _sc_fields.append(f"total={total_val}min")
-                    if button_label: _sc_fields.append(f"button={button_label}")
-                    if image_url: _sc_fields.append("image=yes")
-                    msg_text = "> **✓ SoundCloud RPC** :: " + " · ".join(_sc_fields)
+                    msg_text = f"```| SoundCloud RPC |\ntrack={details}\nartist={state}\nelapsed_minutes={elapsed_val}```"
+                    if total_val is not None:
+                        msg_text = msg_text.replace("```", f"\ntotal_minutes={total_val}```")
+                    if button_label:
+                        msg_text = msg_text.replace("```", f"\nbutton={button_label}```")
+                    if image_url:
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
-                    msg_text = f"> **SoundCloud RPC** :: Format: track=<name> artist=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] — Example: {bot.prefix}rpc soundcloud track=Track_Name artist=Artist_Name elapsed_minutes=1.2"
+                    msg_text = (
+                        "```| SoundCloud RPC |\n"
+                        "Format: track=<name> artist=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]\n"
+                        f"Example: {bot.prefix}rpc soundcloud track=Track_Name artist=Artist_Name elapsed_minutes=1.2 total_minutes=4.1 image_url=https://image.url >> Listen >> https://soundcloud.com"
+                        "```"
+                    )
             except Exception as e:
-                msg_text = f"> **✗ SoundCloud RPC** :: Error: {str(e)}"
+                msg_text = f"```| SoundCloud RPC |\nError: {str(e)}```"
 
         elif parts in REAL_RPC_APPS:
             try:
@@ -3494,15 +3526,22 @@ Example Usage:
                         send_real_app_activity(bot, _mode, _title, _state, cyc_elapsed, _total, _img, _btn, _url)
 
                     configure_rpc_keepalive(bot, parts, _refresh_real_app)
-                    _app_fields = [f"title={details}", f"context={state}", f"elapsed={elapsed_val}min"]
-                    if total_val is not None: _app_fields.append(f"total={total_val}min")
-                    if button_label: _app_fields.append(f"button={button_label}")
-                    if image_url: _app_fields.append("image=yes")
-                    msg_text = f"> **✓ {app_label} RPC** :: " + " · ".join(_app_fields)
+                    msg_text = f"```| {app_label} RPC |\ntitle={details}\ncontext={state}\nelapsed_minutes={elapsed_val}```"
+                    if total_val is not None:
+                        msg_text = msg_text.replace("```", f"\ntotal_minutes={total_val}```")
+                    if button_label:
+                        msg_text = msg_text.replace("```", f"\nbutton={button_label}```")
+                    if image_url:
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
-                    msg_text = f"> **{app_label} RPC** :: Format: title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] — Example: {bot.prefix}rpc {parts} title=Title_Here context=Context_Here elapsed_minutes=3.5"
+                    msg_text = (
+                        f"```| {app_label} RPC |\n"
+                        "Format: title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL]\n"
+                        f"Example: {bot.prefix}rpc {parts} title=Title_Here context=Context_Here elapsed_minutes=3.5 total_minutes=22 image_url=https://image.url >> Open >> https://example.com"
+                        "```"
+                    )
             except Exception as e:
-                msg_text = f"> **✗ RPC** :: Error ({parts}): {str(e)}"
+                msg_text = f"```| RPC |\nError ({parts}): {str(e)}```"
 
         elif parts == "listening":
             try:
@@ -3520,16 +3559,19 @@ Example Usage:
                         send_listening_activity(bot, _name, _btn, _url, _img, _state, _details)
 
                     configure_rpc_keepalive(bot, "listening", _refresh_listening)
-                    _li_fields = [f"name={name}"]
-                    if details: _li_fields.append(f"details={details}")
-                    if state: _li_fields.append(f"state={state}")
-                    if button_label: _li_fields.append(f"button={button_label}")
-                    if image_url: _li_fields.append("image=yes")
-                    msg_text = "> **✓ Listening RPC** :: " + " · ".join(_li_fields)
+                    msg_text = f"```| Listening RPC |\nname={name}```"
+                    if details:
+                        msg_text = msg_text.replace("```", f"\ndetails={details}```")
+                    if state:
+                        msg_text = msg_text.replace("```", f"\nstate={state}```")
+                    if button_label:
+                        msg_text = msg_text.replace("```", f"\nbutton={button_label}```")
+                    if image_url:
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
-                    msg_text = f"> **Listening RPC** :: Format: name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Button >> URL] — Example: {bot.prefix}rpc listening name=Spotify"
+                    msg_text = f"```| Listening RPC |\nFormat: name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Button >> URL]\nExample: {bot.prefix}rpc listening name=Spotify details=Playing_playlist state=15_tracks image_url=https://image.url >> Listen_Now >> https://spotify.com```"
             except Exception as e:
-                msg_text = f"> **✗ Listening RPC** :: Error: {str(e)}"
+                msg_text = f"```| Listening RPC |\nError: {str(e)}```"
 
         elif parts == "streaming":
             try:
@@ -3547,16 +3589,19 @@ Example Usage:
                         send_streaming_activity(bot, _name, _btn, _url, _img, _state, _details)
 
                     configure_rpc_keepalive(bot, "streaming", _refresh_streaming)
-                    _st_fields = [f"name={name}"]
-                    if details: _st_fields.append(f"details={details}")
-                    if state: _st_fields.append(f"state={state}")
-                    if button_label: _st_fields.append(f"button={button_label}")
-                    if image_url: _st_fields.append("image=yes")
-                    msg_text = "> **✓ Streaming RPC** :: " + " · ".join(_st_fields)
+                    msg_text = f"```| Streaming RPC |\nname={name}```"
+                    if details:
+                        msg_text = msg_text.replace("```", f"\ndetails={details}```")
+                    if state:
+                        msg_text = msg_text.replace("```", f"\nstate={state}```")
+                    if button_label:
+                        msg_text = msg_text.replace("```", f"\nbutton={button_label}```")
+                    if image_url:
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
-                    msg_text = f"> **Streaming RPC** :: Format: name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Button >> URL] — Example: {bot.prefix}rpc streaming name=Twitch"
+                    msg_text = f"```| Streaming RPC |\nFormat: name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Button >> URL]\nExample: {bot.prefix}rpc streaming name=Twitch details=Playing_GTA_V state=In_session image_url=https://image.url >> Watch_Live >> https://twitch.tv```"
             except Exception as e:
-                msg_text = f"> **✗ Streaming RPC** :: Error: {str(e)}"
+                msg_text = f"```| Streaming RPC |\nError: {str(e)}```"
 
         elif parts == "playing":
             try:
@@ -3574,16 +3619,19 @@ Example Usage:
                         send_playing_activity(bot, _name, _btn, _url, _img, _state, _details)
 
                     configure_rpc_keepalive(bot, "playing", _refresh_playing)
-                    _pl_fields = [f"name={name}"]
-                    if details: _pl_fields.append(f"details={details}")
-                    if state: _pl_fields.append(f"state={state}")
-                    if button_label: _pl_fields.append(f"button={button_label}")
-                    if image_url: _pl_fields.append("image=yes")
-                    msg_text = "> **✓ Playing RPC** :: " + " · ".join(_pl_fields)
+                    msg_text = f"```| Playing RPC |\nname={name}```"
+                    if details:
+                        msg_text = msg_text.replace("```", f"\ndetails={details}```")
+                    if state:
+                        msg_text = msg_text.replace("```", f"\nstate={state}```")
+                    if button_label:
+                        msg_text = msg_text.replace("```", f"\nbutton={button_label}```")
+                    if image_url:
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
-                    msg_text = f"> **Playing RPC** :: Format: name=<name> [details=<text>] [state=<text>] [image_url=<url>] — Example: {bot.prefix}rpc playing name=World_of_Warcraft"
+                    msg_text = f"```| Playing RPC |\nFormat: name=<name> [details=<text>] [state=<text>] [image_url=<url>]\nExample: {bot.prefix}rpc playing name=World_of_Warcraft details=Level_85 state=Questing image_url=https://image.url```"
             except Exception as e:
-                msg_text = f"> **✗ Playing RPC** :: Error: {str(e)}"
+                msg_text = f"```| Playing RPC |\nError: {str(e)}```"
 
         elif parts == "timer":
             try:
@@ -3605,15 +3653,17 @@ Example Usage:
 
                     configure_rpc_keepalive(bot, "timer", _refresh_timer)
                     duration_min = int((end_val - start_val) / 60)
-                    _tm_fields = [f"name={name}", f"duration={duration_min}min"]
-                    if details: _tm_fields.append(f"details={details}")
-                    if state: _tm_fields.append(f"state={state}")
-                    if image_url: _tm_fields.append("image=yes")
-                    msg_text = "> **✓ Timer RPC** :: " + " · ".join(_tm_fields)
+                    msg_text = f"```| Timer RPC |\nname={name}\nduration_minutes={duration_min}```"
+                    if details:
+                        msg_text = msg_text.replace("```", f"\ndetails={details}```")
+                    if state:
+                        msg_text = msg_text.replace("```", f"\nstate={state}```")
+                    if image_url:
+                        msg_text = msg_text.replace("```", f"\nimage_url=yes```")
                 else:
-                    msg_text = f"> **Timer RPC** :: Format: name=<name> details=<text> state=<text> start=<unix> end=<unix> [image_url=<url>] — Example: {bot.prefix}rpc timer name=Gym details=Workout_session"
+                    msg_text = f"```| Timer RPC |\nFormat: name=<name> details=<text> state=<text> start=<unix> end=<unix> [image_url=<url>]\nExample: {bot.prefix}rpc timer name=Gym details=Workout_session state=45_min_left start=1700000000 end=1700003600 image_url=https://image.url```"
             except Exception as e:
-                msg_text = f"> **✗ Timer RPC** :: Error: {str(e)}"
+                msg_text = f"```| Timer RPC |\nError: {str(e)}```"
 
         elif parts == "crunchyroll":
             pass
@@ -3626,7 +3676,7 @@ Example Usage:
                 "netflix", "disneyplus", "primevideo", "plex", "jellyfin", "vscode", "browser",
                 "listening", "streaming", "playing", "timer", "crunchyroll",
             ]
-            msg_text = "> **✗ RPC** :: Invalid type. Use: " + ", ".join(valid_types)
+            msg_text = "```| RPC |\nInvalid type. Use: " + ", ".join(valid_types) + "```"
 
         msg = ctx["api"].send_message(ctx["channel_id"], msg_text)
     @bot.command(name="rpcsave", aliases=["saverpc", "persistrpc"])
@@ -3693,12 +3743,12 @@ Example Usage:
             deny_restricted_command(ctx, "Set Server Banner")
             return
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Set Server Banner** :: Usage: {bot.prefix}setserverbanner <image_url> (Nitro required)")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Set Server Banner |\nUsage: {bot.prefix}setserverbanner <image_url>\n(Nitro required for server banners)```")
             return
 
         guild_id = ctx.get("guild_id") or ctx["message"].get("guild_id")
         if not guild_id:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Set Server Banner** :: Must be used in a server")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Set Server Banner |\nMust be used in a server```")
             return
 
         image_url = args[0]
@@ -3706,7 +3756,7 @@ Example Usage:
         try:
             r = api.session.get(image_url, timeout=15)
             if r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Set Server Banner** :: Failed to download image (HTTP {r.status_code})")
+                msg = api.send_message(ctx["channel_id"], f"```| Set Server Banner |\nFailed to download image (HTTP {r.status_code})```")
                 return
 
             ct = r.headers.get("Content-Type", "").lower()
@@ -3723,12 +3773,12 @@ Example Usage:
             b64 = base64.b64encode(r.content).decode()
             ok, patch, err = _patch_with_retry(api, f"/guilds/{guild_id}/members/@me", {"banner": f"data:image/{fmt};base64,{b64}"}, retries=2)
             if ok:
-                msg = api.send_message(ctx["channel_id"], "> **✓ Set Server Banner** :: Server banner updated")
+                msg = api.send_message(ctx["channel_id"], "```| Set Server Banner |\nServer banner updated```")
             else:
                 code = patch.status_code if patch else "no response"
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Set Server Banner** :: Failed: HTTP {code}{' — ' + err if err else ''} (Nitro required)")
+                msg = api.send_message(ctx["channel_id"], f"```| Set Server Banner |\nFailed: HTTP {code}{' — ' + err if err else ''}\n(Nitro required for server banners)```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Set Server Banner** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Set Server Banner |\nError: {str(e)[:80]}```")
     @bot.command(name="stealpfp", aliases=["copypfp", "takepfp"])
     def stealpfp(ctx, args):
         # Usage: +stealpfp <user_id|@mention> [server]
@@ -4301,7 +4351,7 @@ Example Usage:
     def stealserverbanner_cmd(ctx, args):
         if not args:
             msg = ctx["api"].send_message(ctx["channel_id"],
-                f"> **Steal Server Banner** :: Usage: {bot.prefix}stealserverbanner <user_id|@mention>")
+                f"```| Steal Server Banner |\nUsage: {bot.prefix}stealserverbanner <user_id|@mention>\nSteals their server-specific banner and sets it as YOUR server banner in this server```")
             return
 
         raw = args[0].strip("<@!>")
@@ -4360,7 +4410,7 @@ Example Usage:
     def stealservernick_cmd(ctx, args):
         if not args:
             msg = ctx["api"].send_message(ctx["channel_id"],
-                f"> **Steal Server Nick** :: Usage: {bot.prefix}stealservernick <user_id|@mention>")
+                f"```| Steal Server Nick |\nUsage: {bot.prefix}stealservernick <user_id|@mention>\nSteals their server nickname and sets it as YOUR nickname in this server```")
             return
 
         raw = args[0].strip("<@!>")
@@ -4412,7 +4462,7 @@ Example Usage:
 
         if not guild_id:
             msg = api.send_message(ctx["channel_id"],
-                f"> **Steal Server Icon** :: Usage: {bot.prefix}stealservericon [guild_id] — no guild_id needed when run in the server")
+                f"```| Steal Server Icon |\nUsage: {bot.prefix}stealservericon [guild_id]\nSteals the server's icon and sets it as YOUR global avatar\n(no guild_id needed when used inside the server)```")
             return
 
         try:
@@ -4546,7 +4596,7 @@ Example Usage:
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Mimic** :: Usage: {bot.prefix}mimic <@user|user_id> [custom reply] — Use {bot.prefix}stopmock to stop",
+                f"```| Mimic |\nUsage: {bot.prefix}mimic <@user|user_id> [custom reply]\nUse {bot.prefix}stopmock to stop\nOr: {bot.prefix}mimic <text> for one-off echo```",
             )
             return
 
@@ -4559,7 +4609,7 @@ Example Usage:
         if target_is_bot or target_id == str(ctx["author_id"]) or target_id == str(bot.user_id):
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                "> **✗ Mimic** :: You cannot mimic yourself or a bot",
+                "```| Mimic |\nYou cannot mimic yourself or a bot```",
             )
             return
 
@@ -4593,7 +4643,7 @@ Example Usage:
             p = bot.prefix
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Antinuke** :: Usage: {p}antinuke on|off|status|settings — {p}antinuke actions [add|remove|list] <warn|kick|ban>",
+                f"```| Antinuke |\n{p}antinuke on|off|status|settings\n{p}antinuke actions [add|remove|list] <warn|kick|ban>```",
             )
             return
         
@@ -4676,7 +4726,7 @@ Example Usage:
     @bot.command(name="bump", aliases=["autobump"])
     def bump_cmd(ctx, args):
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Autobump** :: Usage: {bot.prefix}bump config <channel_id> <interval_seconds> | {bot.prefix}bump list | {bot.prefix}bump stop")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Autobump |\n+bump config <channel_id> <interval_seconds>\n+bump list\n+bump stop```")
             return
         
         guild_id = str(ctx["guild_id"])
@@ -4684,28 +4734,28 @@ Example Usage:
         
         if subcommand == "config":
             if len(args) < 3:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Autobump** :: Usage: {bot.prefix}bump config <channel_id> <interval_seconds>")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Autobump |\nUsage: +bump config <channel_id> <interval_seconds>```")
                 return
             
             channel_id = args[1]
             try:
                 interval = int(args[2])
                 if interval < 300:
-                    msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Autobump** :: Interval must be at least 300 seconds (5 minutes)")
+                    msg = ctx["api"].send_message(ctx["channel_id"], "```| Autobump |\nInterval must be at least 300 seconds (5 minutes)```")
                     return
             except ValueError:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Autobump** :: Interval must be a number (seconds)")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Autobump |\nInterval must be a number (seconds)```")
                 return
             
             AUTOBUMP_CONFIG[guild_id] = {"channel_id": channel_id, "interval": interval}
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Autobump** :: Configured — Channel {channel_id} · Interval {interval}s")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Autobump |\nConfigured: Channel {channel_id}, Interval {interval}s```")
         
         elif subcommand == "list":
             cfg = AUTOBUMP_CONFIG.get(guild_id)
             if cfg:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Autobump Config** :: Channel {cfg['channel_id']} · Interval {cfg['interval']}s")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Autobump Config |\nChannel: {cfg['channel_id']}\nInterval: {cfg['interval']}s```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Autobump** :: No autobump configured")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Autobump |\nNo autobump configured```")
         
         elif subcommand == "stop":
             if guild_id in AUTOBUMP_CONFIG:
@@ -7072,7 +7122,7 @@ Example Usage:
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Admin** :: Usage: {bot.prefix}admin add <user_id> | {bot.prefix}admin remove <user_id> | {bot.prefix}admin list",
+                f"```| Admin |\nUsage:\n{bot.prefix}admin add <user_id>\n{bot.prefix}admin remove <user_id>\n{bot.prefix}admin list```",
             )
             return
 
@@ -7081,23 +7131,23 @@ Example Usage:
             uid = str(args[1])
             _admin_users.add(uid)
             _save_id_set(_ADMIN_FILE, _admin_users)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Admin** :: Added admin: {uid}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Admin |\nAdded admin: {uid}```")
             return
 
         if action == "remove" and len(args) >= 2 and args[1].isdigit():
             uid = str(args[1])
             _admin_users.discard(uid)
             _save_id_set(_ADMIN_FILE, _admin_users)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Admin** :: Removed admin: {uid}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Admin |\nRemoved admin: {uid}```")
             return
 
         if action == "list":
             entries = sorted(_admin_users)
             body = "\n".join(f"> {uid}" for uid in entries[:50]) if entries else "No admins configured"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Admin** :: Total: {len(entries)}\n{body}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Admin |\nTotal: {len(entries)}\n{body}```")
             return
 
-        msg = ctx["api"].send_message(ctx["channel_id"], "> **Admin** :: Usage: add/remove/list")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Admin |\nUsage: add/remove/list```")
 
     @bot.command(name="auth", aliases=["authuser"])
     def auth_cmd(ctx, args):
@@ -7107,7 +7157,7 @@ Example Usage:
         if not args or not args[0].isdigit():
             p = bot.prefix
             msg = ctx["api"].send_message(ctx["channel_id"],
-                f"> **Auth** :: Usage: {p}auth <user_id> — grant access | {p}unauth <user_id> — revoke | {p}authlist — list")
+                f"```| Auth |\nUsage: {p}auth <user_id>   — grant user website/dashboard access\n       {p}unauth <user_id> — revoke site access\n       {p}authlist       — list authed users```")
             return
         uid = str(args[0])
         _authed_users.add(uid)
@@ -7116,21 +7166,21 @@ Example Usage:
         _save_authed(_authed_users)
         _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
         _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
-        msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Auth** :: User {uid} granted website/dashboard access")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Auth |\n✓ User {uid} granted website/dashboard access```")
     @bot.command(name="unauth", aliases=["deauth"])
     def unauth_cmd(ctx, args):
         if not is_strict_owner_user(ctx["author_id"]):
             deny_restricted_command(ctx, "Unauth")
             return
         if not args or not args[0].isdigit():
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Unauth** :: Usage: {bot.prefix}unauth <user_id>")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Unauth |\nUsage: {bot.prefix}unauth <user_id>```")
             return
         uid = str(args[0])
         _authed_users.discard(uid)
         _dashboard_authed_users.discard(uid)
         _save_authed(_authed_users)
         _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
-        msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Unauth** :: User {uid} revoked")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Auth |\n✓ User {uid} revoked```")
 
     @bot.command(name="whitelist", aliases=["wl", "sitewl"])
     def whitelist_cmd(ctx, args):
@@ -7141,7 +7191,7 @@ Example Usage:
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Whitelist** :: Usage: {bot.prefix}whitelist add <user_id> | {bot.prefix}whitelist remove <user_id> | {bot.prefix}whitelist list",
+                f"```| Whitelist |\nUsage:\n{bot.prefix}whitelist add <user_id>\n{bot.prefix}whitelist remove <user_id>\n{bot.prefix}whitelist list```",
             )
             return
 
@@ -7154,7 +7204,7 @@ Example Usage:
             _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
             _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
             _save_authed(_authed_users)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Whitelist** :: {uid} site access restored")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Whitelist |\n✓ {uid} site access restored```")
             return
 
         if action == "remove" and len(args) >= 2 and args[1].isdigit():
@@ -7163,16 +7213,16 @@ Example Usage:
             _authed_users.discard(uid)
             _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
             _save_authed(_authed_users)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Whitelist** :: Removed {uid}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Whitelist |\nRemoved {uid}```")
             return
 
         if action == "list":
             lines = sorted(_dashboard_authed_users)
             body = "\n".join(f"> {uid}" for uid in lines[:50]) if lines else "No whitelisted users"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Whitelist** :: Total: {len(lines)}\n{body}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Whitelist |\nTotal: {len(lines)}\n{body}```")
             return
 
-        msg = ctx["api"].send_message(ctx["channel_id"], "> **Whitelist** :: Usage: add/remove/list")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Whitelist |\nUsage: add/remove/list```")
 
     @bot.command(name="blacklist", aliases=["bl", "sitebl"])
     def blacklist_cmd(ctx, args):
@@ -7183,7 +7233,7 @@ Example Usage:
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Blacklist** :: Usage: {bot.prefix}blacklist add <user_id> | {bot.prefix}blacklist remove <user_id> | {bot.prefix}blacklist list",
+                f"```| Blacklist |\nUsage:\n{bot.prefix}blacklist add <user_id>\n{bot.prefix}blacklist remove <user_id>\n{bot.prefix}blacklist list```",
             )
             return
 
@@ -7199,28 +7249,28 @@ Example Usage:
             # Stop and remove all hosted instances for this user
             stopped = host_manager.remove_hosts(all_hosts=True, selectors=[uid])
             stopped_note = f" | Stopped {stopped} instance{'s' if stopped != 1 else ''}" if stopped else ""
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Blacklist** :: {uid} site access revoked{stopped_note}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Blacklist |\n✗ {uid} site access revoked{stopped_note}```")
             return
 
         if action == "remove" and len(args) >= 2 and args[1].isdigit():
             uid = str(args[1])
             _dashboard_blocked_users.discard(uid)
             _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Blacklist** :: Unblocked {uid}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Blacklist |\nUnblocked {uid}```")
             return
 
         if action == "list":
             lines = sorted(_dashboard_blocked_users)
             body = "\n".join(f"> {uid}" for uid in lines[:50]) if lines else "No blacklisted users"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Blacklist** :: Total: {len(lines)}\n{body}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Blacklist |\nTotal: {len(lines)}\n{body}```")
             return
 
-        msg = ctx["api"].send_message(ctx["channel_id"], "> **Blacklist** :: Usage: add/remove/list")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Blacklist |\nUsage: add/remove/list```")
 
     @bot.command(name="host", aliases=["hosttoken", "hostuser", "hostme", "addhost"])
     def host_cmd(ctx, args):
         if HOSTED_MODE:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Host** :: Unavailable on hosted instances")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Host |\nUnavailable on hosted instances```")
             return
 
         requester_id = str(ctx["author_id"])
@@ -7229,7 +7279,7 @@ Example Usage:
         if limited:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **✗ Host** :: Rate limited. Wait {remaining}s before hosting again",
+                f"```| Host |\nRate limited. Wait {remaining}s before hosting again```",
             )
             return
 
@@ -7242,14 +7292,14 @@ Example Usage:
         if requester_id in host_bl and not is_owner_user(requester_id):
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                "> **✗ Host** :: You are blocked from hosting. Contact @misconsiderations",
+                "```| Host |\nYou are blocked from hosting. Contact @misconsiderations```",
             )
             return
 
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Host** :: Usage: {bot.prefix}host <token> [prefix] — Example: {bot.prefix}host mfa.xxxxxx ;",
+                f"```| Host |\nUsage: {bot.prefix}host <token> [prefix]\nExample: {bot.prefix}host mfa.xxxxxx ;```",
             )
             return
 
@@ -7264,11 +7314,11 @@ Example Usage:
                 timeout=12,
             )
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Host** :: Token check failed: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Host |\nToken check failed: {str(e)[:80]}```")
             return
 
         if verify.status_code != 200:
-            msg = api.send_message(ctx["channel_id"], "> **✗ Host** :: Invalid token")
+            msg = api.send_message(ctx["channel_id"], "```| Host |\nInvalid token```")
             return
 
         account = verify.json() or {}
@@ -7292,10 +7342,10 @@ Example Usage:
                     _save_id_set(_DASH_BLOCK_FILE, _dashboard_blocked_users)
                 msg = api.send_message(
                     ctx["channel_id"],
-                    f"> **Host** :: Already hosted — {hosted_username} ({hosted_user_id}) · Dashboard access granted",
+                    f"```| Host |\nAlready hosted — {hosted_username} ({hosted_user_id})\n✓ Dashboard access granted```",
                 )
             else:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Host** :: {detail}")
+                msg = api.send_message(ctx["channel_id"], f"```| Host |\n{detail}```")
             return
 
         # Hosted users are automatically granted dashboard access unless explicitly blocked.
@@ -7315,7 +7365,7 @@ Example Usage:
 
         msg = api.send_message(
             ctx["channel_id"],
-            f"> **✓ Host** :: Hosted: {hosted_username} ({hosted_user_id}) · UID: {hosted_uid} · Prefix: {prefix}",
+            f"```| Host |\nHosted: {hosted_username} ({hosted_user_id})\nUID: {hosted_uid}\nPrefix: {prefix}```",
         )
 
     @bot.command(name="authlist", aliases=["authed"])
@@ -7369,7 +7419,7 @@ Example Usage:
         if limited:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **✗ Hosted** :: Rate limited. Wait {remaining}s before listing again",
+                f"```| Hosted |\nRate limited. Wait {remaining}s before listing again```",
             )
             return
         hosted = host_manager.list_hosted_entries(ctx["author_id"])
@@ -7399,7 +7449,7 @@ Example Usage:
             return
         if not args:
             msg = ctx["api"].send_message(ctx["channel_id"],
-                f"> **Hosted Logs** :: Usage: {bot.prefix}hostedlogs <uid> [lines=50]")
+                f"```| Hosted Logs |\nUsage: {bot.prefix}hostedlogs <uid> [lines=50]```")
             return
         uid = args[0]
         lines_count = 50
@@ -7409,7 +7459,7 @@ Example Usage:
         log_path = os.path.join("hosted_logs", f"hosted_{uid}.log")
         if not os.path.exists(log_path):
             msg = ctx["api"].send_message(ctx["channel_id"],
-                f"> **✗ Hosted Logs** :: No log found for uid: {uid}")
+                f"```| Hosted Logs |\nNo log found for uid: {uid}```")
             return
         try:
             with open(log_path, "r", errors="replace") as f:
@@ -7417,10 +7467,10 @@ Example Usage:
             tail = all_lines[-lines_count:]
             content = "".join(tail).replace("```", "'''")[:1800]
             msg = ctx["api"].send_message(ctx["channel_id"],
-                f"> **Hosted Logs** :: [{uid}] last {len(tail)} lines:\n{content}")
+                f"```| Hosted Logs [{uid}] (last {len(tail)} lines) |\n{content}```")
         except Exception as e:
             msg = ctx["api"].send_message(ctx["channel_id"],
-                f"> **✗ Hosted Logs** :: Error reading log: {str(e)[:80]}")
+                f"```| Hosted Logs |\nError reading log: {str(e)[:80]}```")
     @bot.command(name="hostedstatus", aliases=["hstatus", "hoststat"])
     def hostedstatus_cmd(ctx, args):
         import formatter as fmt
@@ -7459,7 +7509,7 @@ Example Usage:
             deny_restricted_command(ctx, "Clear All Hosted")
             return
         removed = host_manager.remove_hosts(all_hosts=True)
-        msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Clear All Hosted** :: Removed {removed} entries")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Clear All Hosted |\nRemoved {removed} entries```")
     @bot.command(name="stopallhosted", aliases=["stopall", "killallhosted", "sah"])
     def stopallhosted_cmd(ctx, args):
         if not is_strict_owner_user(ctx["author_id"]):
@@ -7468,7 +7518,7 @@ Example Usage:
         stopped = host_manager.stop_all()
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"> **✓ Stop All Hosted** :: Stopped {stopped} running instance{'s' if stopped != 1 else ''}",
+            f"```| Stop All Hosted |\nStopped {stopped} running instance{'s' if stopped != 1 else ''}```",
         )
     @bot.command(name="restartallhosted", aliases=["restartall", "rebootallhosted", "rah"])
     def restartallhosted_cmd(ctx, args):
@@ -7478,7 +7528,7 @@ Example Usage:
         restarted = host_manager.restart_all()
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"> **✓ Restart All Hosted** :: Restarted {restarted} hosted instance{'s' if restarted != 1 else ''}",
+            f"```| Restart All Hosted |\nRestarted {restarted} hosted instance{'s' if restarted != 1 else ''}```",
         )
     @bot.command(name="clearhost", aliases=["ch"])
     def clearhost_cmd(ctx, args):
@@ -7488,14 +7538,14 @@ Example Usage:
         if limited:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **✗ Clear Host** :: Rate limited. Wait {remaining}s before removing hosted entries again",
+                f"```| Clear Host |\nRate limited. Wait {remaining}s before removing hosted entries again```",
             )
             return
         
         # optional uid/index — if omitted clears all of caller's entries
         selectors = args if args else []
         removed = host_manager.remove_hosts(requester_id=ctx["author_id"], selectors=selectors)
-        msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Clear Host** :: Removed {removed} entr{'y' if removed == 1 else 'ies'}")
+        msg = ctx["api"].send_message(ctx["channel_id"], f"```| Clear Host |\nRemoved {removed} entr{'y' if removed == 1 else 'ies'}```")
 
     @bot.command(name="backtoken", aliases=["gettoken", "hostedtoken", "tokenback"])
     def backtoken_cmd(ctx, args):
@@ -7509,13 +7559,13 @@ Example Usage:
         if limited:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **✗ Back Token** :: Rate limited. Wait {remaining}s before requesting another token",
+                f"```| Back Token |\nRate limited. Wait {remaining}s before requesting another token```",
             )
             return
         if not args or not args[0].isdigit():
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Back Token** :: Usage: {bot.prefix}backtoken <user_id> — Returns the stored bot token for a hosted user",
+                f"```| Back Token |\nUsage: {bot.prefix}backtoken <user_id>\nReturns the stored bot token for a hosted user.```",
             )
             return
         target_uid = str(args[0])
@@ -7528,14 +7578,14 @@ Example Usage:
         if not found:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **✗ Back Token** :: No hosted entry found for user_id {target_uid}",
+                f"```| Back Token |\nNo hosted entry found for user_id {target_uid}```",
             )
             return
         token = found.get("token", "unknown")
         username = found.get("username") or "Unknown"
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"> **✓ Back Token** :: User: {username} ({target_uid}) · Token: {token}",
+            f"```| Back Token |\nUser: {username} ({target_uid})\nToken: {token}```",
         )
 
     @bot.command(name="validatehosted", aliases=["validatehosts", "vh"])
@@ -7549,14 +7599,14 @@ Example Usage:
         if limited:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **✗ Validate Hosted** :: Rate limited. Wait {remaining}s before validating again",
+                f"```| Validate Hosted |\nRate limited. Wait {remaining}s before validating again```",
             )
             return
         removed = host_manager.validate_hosted_tokens(requester_id=requester_id, session=ctx["api"].session)
         if not removed:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                "> **✓ Validate Hosted** :: All hosted tokens for your account appear valid",
+                "```| Validate Hosted |\nAll hosted tokens for your account appear valid```",
             )
             return
         lines = [f"UID {entry['uid']} | {entry['username']} ({entry['user_id'] or '?'})" for entry in removed[:20]]
@@ -7564,17 +7614,27 @@ Example Usage:
             lines.append(f"... and {len(removed) - 20} more")
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            "> **✓ Validate Hosted** :: Removed invalid hosted entries:\n" + "\n".join(lines),
+            "```| Validate Hosted |\nRemoved invalid hosted entries:\n" + "\n".join(lines) + "```",
         )
 
     @bot.command(name="hosthelp", aliases=["helphost", "hostinghelp"])
     def hosthelp_cmd(ctx, args):
         help_text = (
-            f"> **Host Help** :: {bot.prefix}host <token> [prefix] | "
-            f"{bot.prefix}listhosted | {bot.prefix}clearhost [uid|index] | "
-            f"{bot.prefix}backtoken <user_id|uid> | {bot.prefix}validatehosted | "
-            f"{bot.prefix}hostedstatus | {bot.prefix}hostedlogs <uid> [lines]\n"
-            "> Rate limits — host: 30s | listhosted: 10s | clearhost: 15s | backtoken: 20s | validatehosted: 60s"
+            "```| Host Help |\n"
+            f"{bot.prefix}host <token> [prefix]\n"
+            f"{bot.prefix}listhosted\n"
+            f"{bot.prefix}clearhost [uid|index]\n"
+            f"{bot.prefix}backtoken <user_id|uid>\n"
+            f"{bot.prefix}validatehosted\n"
+            f"{bot.prefix}hostedstatus\n"
+            f"{bot.prefix}hostedlogs <uid> [lines]\n\n"
+            "Rate limits:\n"
+            "host: 30s\n"
+            "listhosted: 10s\n"
+            "clearhost: 15s\n"
+            "backtoken: 20s\n"
+            "validatehosted: 60s\n"
+            "```"
         )
         msg = ctx["api"].send_message(ctx["channel_id"], help_text)
 
@@ -7603,33 +7663,33 @@ Example Usage:
         
         if args[0] == "user":
             filename = backup_manager.backup_user_data()
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Backup** :: User backup complete · File: {filename}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Backup |\n✓ User backup complete\nFile: {filename}```")
         
         elif args[0] == "messages" and len(args) >= 2:
             channel_id = args[1]
             limit = int(args[2]) if len(args) >= 3 else 1000
             filename = backup_manager.backup_messages(channel_id, limit)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Backup** :: Message backup complete · File: {filename} · Messages: {limit}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Backup |\n✓ Message backup complete\nFile: {filename}\nMessages: {limit}```")
         
         elif args[0] == "full":
             filename = backup_manager.create_full_backup()
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Backup** :: Full backup complete · File: {filename}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Backup |\n✓ Full backup complete\nFile: {filename}```")
         
         elif args[0] == "list":
             backups = backup_manager.list_backups()
             if backups:
                 backup_list = "\n".join([f"• {b['name']} ({b['size']//1024}KB)" for b in backups[:10]])
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Backup List** :: Total: {len(backups)} backups\n{backup_list}")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Backup List |\n{backup_list}\n\nTotal: {len(backups)} backups```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Backup** :: No backups found")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Backup |\nNo backups found```")
         
         elif args[0] == "restore" and len(args) >= 2:
             backup_name = args[1]
             success = backup_manager.restore_backup(backup_name)
             if success:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Backup** :: Restored from {backup_name}")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Backup |\n✓ Restored from {backup_name}```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Backup** :: Backup not found: {backup_name}")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Backup |\n✗ Backup not found: {backup_name}```")
         
         if 'msg' in locals() and msg:
             pass
@@ -7659,7 +7719,7 @@ Example Usage:
         
         guild_id = (ctx.get("guild_id") or (ctx.get("message") or {}).get("guild_id"))
         if not guild_id:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Moderation** :: This command only works in servers")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Moderation |\n✗ This command only works in servers```")
             return
 
         def _parse_ids(raw_ids: str) -> list:
@@ -7673,59 +7733,59 @@ Example Usage:
         if args[0] == "kick" and len(args) >= 2:
             user_ids = _parse_ids(args[1])
             if not user_ids:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Moderation** :: No valid user IDs provided")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Moderation |\n✗ No valid user IDs provided```")
                 return
             count = mod_manager.mass_kick(guild_id, user_ids)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Moderation** :: Kicked {count}/{len(user_ids)} users")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✓ Kicked {count}/{len(user_ids)} users```")
         
         elif args[0] == "ban" and len(args) >= 2:
             user_ids = _parse_ids(args[1])
             if not user_ids:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Moderation** :: No valid user IDs provided")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Moderation |\n✗ No valid user IDs provided```")
                 return
             delete_days = int(args[2]) if len(args) >= 3 else 0
             count = mod_manager.mass_ban(guild_id, user_ids, delete_days)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Moderation** :: Banned {count}/{len(user_ids)} users · Delete days: {delete_days}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✓ Banned {count}/{len(user_ids)} users\nDelete days: {delete_days}```")
         
         elif args[0] == "filter":
             if len(args) >= 3 and args[1] == "add":
                 words = args[2].split(',')
                 count = mod_manager.create_word_filter(guild_id, words)
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Moderation** :: Added {count} words to filter")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✓ Added {count} words to filter```")
             elif len(args) >= 3 and args[1] == "check":
                 text = " ".join(args[2:])
                 match = mod_manager.check_message_filter(guild_id, text)
                 if match:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Moderation** :: Filter matched: {match}")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✗ Filter matched: {match}```")
                 else:
-                    msg = ctx["api"].send_message(ctx["channel_id"], "> **✓ Moderation** :: No filter matches")
+                    msg = ctx["api"].send_message(ctx["channel_id"], "```| Moderation |\n✓ No filter matches```")
         
         elif args[0] == "cleanup":
             if len(args) >= 2 and args[1] == "channels":
                 channels = mod_manager.get_channels(guild_id)
                 channel_ids = [c["id"] for c in channels]
                 count = mod_manager.mass_delete_channels(guild_id, channel_ids)
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Moderation** :: Deleted {count}/{len(channel_ids)} channels")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✓ Deleted {count}/{len(channel_ids)} channels```")
             elif len(args) >= 2 and args[1] == "roles":
                 roles = mod_manager.get_roles(guild_id)
                 role_ids = [r["id"] for r in roles if not r.get("managed", False) and r["name"] != "@everyone"]
                 count = mod_manager.mass_delete_roles(guild_id, role_ids)
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Moderation** :: Deleted {count}/{len(role_ids)} roles")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\n✓ Deleted {count}/{len(role_ids)} roles```")
         
         elif args[0] == "members":
             limit = int(args[1]) if len(args) >= 2 else 100
             members = mod_manager.get_members(guild_id, limit)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Moderation** :: Members: {len(members)}/{limit} — Use IDs for kick/ban commands")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\nMembers: {len(members)}/{limit}\nUse IDs for kick/ban commands```")
         
         elif args[0] == "channels":
             channels = mod_manager.get_channels(guild_id)
             channel_list = "\n".join([f"#{c['name']}: {c['id']}" for c in channels[:15]])
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Moderation** :: Channels: {len(channels)}\n{channel_list}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\nChannels: {len(channels)}\n{channel_list}\n{'...' if len(channels) > 15 else ''}```")
         
         elif args[0] == "roles":
             roles = mod_manager.get_roles(guild_id)
             role_list = "\n".join([f"@{r['name']}: {r['id']}" for r in roles[:15]])
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Moderation** :: Roles: {len(roles)}\n{role_list}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Moderation |\nRoles: {len(roles)}\n{role_list}\n{'...' if len(roles) > 15 else ''}```")
         
         if 'msg' in locals() and msg:
             pass
@@ -8041,7 +8101,7 @@ Example Usage:
             notice = afk_system.build_afk_notice(bot.user_id)
             sent = bot.api.send_message(
                 channel_id,
-                f"> **AFK Notice** :: {notice}",
+                f"```| AFK Notice |\n{notice}```",
                 reply_to=msg_id,
             )
             if sent:
@@ -8129,7 +8189,7 @@ Example Usage:
             history = history_manager.get_user_history(user_id)
             
             if not history:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **User History** :: No history found for user {user_id}")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| User History |\nNo history found for user {user_id}```")
             else:
                 latest = history[-1]
                 import formatter as fmt
@@ -8157,7 +8217,7 @@ Example Usage:
             history = history_manager.get_server_history(server_id)
             
             if not history:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Server History** :: No history found for server {server_id}")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Server History |\nNo history found for server {server_id}```")
             else:
                 latest = history[-1]
                 import formatter as fmt
@@ -8184,9 +8244,9 @@ Example Usage:
                 
                 if profile_data:
                     history_manager.add_profile_snapshot(user_id, profile_data)
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Profile Scraped** :: {profile_data.get('username', 'Unknown')}")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Profile Scraped |\nUser: {profile_data.get('username', 'Unknown')}\nStatus: ✓ Success```")
                 else:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Profile Scrape** :: Failed for user_id {user_id}")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Profile Scrape Failed |\nUser ID: {user_id}\nStatus: ✗ Failed```")
             
             elif args[1] == "server" and len(args) >= 3:
                 server_id = args[2]
@@ -8194,13 +8254,13 @@ Example Usage:
                 
                 if server_data:
                     history_manager.add_server_snapshot(server_id, server_data)
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Server Scraped** :: {server_data.get('name', 'Unknown')}")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Server Scraped |\nServer: {server_data.get('name', 'Unknown')}\nStatus: ✓ Success```")
                 else:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Server Scrape** :: Failed for server_id {server_id}")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Server Scrape Failed |\nServer ID: {server_id}\nStatus: ✗ Failed```")
             
             elif args[1] == "all":
                 # Scrape all accessible servers and some recent users
-                status_msg = ctx["api"].send_message(ctx["channel_id"], "> **Mass Scraping** :: Starting data collection...")
+                status_msg = ctx["api"].send_message(ctx["channel_id"], "```| Mass Scraping |\nStarting data collection...```")
                 
                 servers_scraped = 0
                 users_scraped = 0
@@ -8226,7 +8286,7 @@ Example Usage:
                                     history_manager.add_profile_snapshot(user_id, profile_data)
                                     users_scraped += 1
                 
-                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **✓ Mass Scraping** :: Servers: {servers_scraped} · Users: {users_scraped} · Complete")
+                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass Scraping Complete |\nServers: {servers_scraped}\nUsers: {users_scraped}\nStatus: ✓ Complete```")
                 return
             
             elif args[1] == "queue":
@@ -8239,24 +8299,26 @@ Example Usage:
                         if history_manager.add_user_to_scrape(user_id):
                             queued_count += 1
                     
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Users Queued** :: Added {queued_count} users · Total queued: {len(history_manager.get_users_to_scrape())}")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Users Queued |\nAdded {queued_count} users to scrape queue\nTotal queued: {len(history_manager.get_users_to_scrape())}```")
                 else:
                     queued_users = history_manager.get_users_to_scrape()
                     if queued_users:
-                        queue_lines = [f"> {i}. {uid}" for i, uid in enumerate(list(queued_users)[:10], 1)]
+                        queue_text = f"```| Scrape Queue |\nTotal queued: {len(queued_users)}\n\n"
+                        for i, user_id in enumerate(list(queued_users)[:10], 1):
+                            queue_text += f"{i}. {user_id}\n"
                         if len(queued_users) > 10:
-                            queue_lines.append(f"> ... and {len(queued_users) - 10} more")
-                        queue_text = f"> **Scrape Queue** :: Total queued: {len(queued_users)}\n" + "\n".join(queue_lines)
+                            queue_text += f"... and {len(queued_users) - 10} more\n"
+                        queue_text += "```"
                         msg = ctx["api"].send_message(ctx["channel_id"], queue_text)
                     else:
-                        msg = ctx["api"].send_message(ctx["channel_id"], "> **Scrape Queue** :: No users queued for scraping")
+                        msg = ctx["api"].send_message(ctx["channel_id"], "```| Scrape Queue |\nNo users queued for scraping```")
             
             elif args[1] == "process":
                 # Process the queued users
-                status_msg = ctx["api"].send_message(ctx["channel_id"], "> **Processing Queue** :: Starting profile scraping...")
+                status_msg = ctx["api"].send_message(ctx["channel_id"], "```| Processing Queue |\nStarting profile scraping...```")
                 history_manager.scrape_queued_users()
                 queued_remaining = len(history_manager.get_users_to_scrape())
-                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **✓ Queue Processed** :: Remaining in queue: {queued_remaining}")
+                ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Queue Processed |\nRemaining in queue: {queued_remaining}\nStatus: ✓ Complete```")
                 return
         
         elif args[0] == "changes" and len(args) >= 3:
@@ -8265,14 +8327,17 @@ Example Usage:
                 changes = history_manager.get_user_profile_changes(user_id)
                 
                 if not changes:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"> **User Changes** :: No changes found for user {user_id}")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| User Changes |\nNo changes found for user {user_id}```")
                 else:
-                    change_lines = []
+                    changes_text = f"```| User Profile Changes |\nUser ID: {user_id}\nTotal Changes: {len(changes)}\n\n"
+                    
                     for i, change in enumerate(changes[-5:], 1):  # Show last 5 changes
-                        change_lines.append(f"> Change {i} ({time.strftime('%m/%d %H:%M', time.localtime(change['timestamp']))})")
+                        changes_text += f"[ Change {i} - {time.strftime('%m/%d %H:%M', time.localtime(change['timestamp']))} ]\n"
                         for field, change_data in change['changes'].items():
-                            change_lines.append(f">   {field}: {change_data['from'] or 'None'} → {change_data['to'] or 'None'}")
-                    changes_text = f"> **User Profile Changes** :: {user_id} · Total: {len(changes)}\n" + "\n".join(change_lines)
+                            changes_text += f"> {field}: {change_data['from'] or 'None'} → {change_data['to'] or 'None'}\n"
+                        changes_text += "\n"
+                    
+                    changes_text += "```"
                     msg = ctx["api"].send_message(ctx["channel_id"], changes_text)
             
             elif args[1] == "server" and len(args) >= 3:
@@ -8280,14 +8345,17 @@ Example Usage:
                 changes = history_manager.get_server_changes(server_id)
                 
                 if not changes:
-                    msg = ctx["api"].send_message(ctx["channel_id"], f"> **Server Changes** :: No changes found for server {server_id}")
+                    msg = ctx["api"].send_message(ctx["channel_id"], f"```| Server Changes |\nNo changes found for server {server_id}```")
                 else:
-                    change_lines = []
-                    for i, change in enumerate(changes[-5:], 1):
-                        change_lines.append(f"> Change {i} ({time.strftime('%m/%d %H:%M', time.localtime(change['timestamp']))})")
+                    changes_text = f"```| Server Changes |\nServer ID: {server_id}\nTotal Changes: {len(changes)}\n\n"
+                    
+                    for i, change in enumerate(changes[-5:], 1):  # Show last 5 changes
+                        changes_text += f"[ Change {i} - {time.strftime('%m/%d %H:%M', time.localtime(change['timestamp']))} ]\n"
                         for field, change_data in change['changes'].items():
-                            change_lines.append(f">   {field}: {change_data['from'] or 'None'} → {change_data['to'] or 'None'}")
-                    changes_text = f"> **Server Changes** :: {server_id} · Total: {len(changes)}\n" + "\n".join(change_lines)
+                            changes_text += f"> {field}: {change_data['from'] or 'None'} → {change_data['to'] or 'None'}\n"
+                        changes_text += "\n"
+                    
+                    changes_text += "```"
                     msg = ctx["api"].send_message(ctx["channel_id"], changes_text)
         
         elif args[0] == "stats":
@@ -8296,8 +8364,12 @@ Example Usage:
             total_snapshots = sum(len(snapshots) for snapshots in history_manager.profiles.values()) + \
                             sum(len(snapshots) for snapshots in history_manager.servers.values())
             
-            stats_text = (f"> **History Stats** :: Profiles: {total_profiles} · Servers: {total_servers} · "
-                          f"Snapshots: {total_snapshots} · Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}")
+            stats_text = f"""```| History Statistics
+Total Profiles Tracked: {total_profiles}
+Total Servers Tracked: {total_servers}
+Total Snapshots: {total_snapshots}
+Storage File: history_data.json
+Last Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))}```"""
             
             msg = ctx["api"].send_message(ctx["channel_id"], stats_text)
         
@@ -8350,7 +8422,7 @@ Example Usage:
 
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Local Stats** :: {status} · Guilds: {guilds.get('count', 0)} owned={guilds.get('owned_count', 0)} admin={guilds.get('admin_count', 0)} · Nitro: {'Yes' if account.get('premium_type') else 'No'} · Last Run: {time.strftime('%H:%M:%S', time.localtime(captured_at))}"
+                f"```| Local Stats |\nStatus: {status}\nLast Run: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(captured_at))}\nGuild Count: {guilds.get('count', 0)}\nOwned Guilds: {guilds.get('owned_count', 0)}\nAdmin Guilds: {guilds.get('admin_count', 0)}\nHas Nitro: {'Yes' if account.get('premium_type') else 'No'}\nTop Features: {feature_text}```"
             )
             return
 
@@ -8358,32 +8430,32 @@ Example Usage:
             summary = account_data_manager.refresh_local_summary(force=True)
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **✓ Local Stats** :: Refreshed · Guilds: {summary['guilds']['count']} · Saved to account_stats.json"
+                f"```| Local Stats |\nRefreshed at: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(summary['captured_at']))}\nGuild Count: {summary['guilds']['count']}\nStatus: ✓ Saved to account_stats.json```"
             )
         elif args[0] == "start":
             interval = int(args[1]) if len(args) >= 2 and args[1].isdigit() else 900
             success, message = account_data_manager.start_stats_job(interval)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Local Stats** :: {message}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Local Stats |\n{message}```")
         elif args[0] == "stop":
             success, message = account_data_manager.stop_stats_job()
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Local Stats** :: {message}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Local Stats |\n{message}```")
         elif args[0] == "status":
             status = account_data_manager.get_job_status()
             last_run = status.get("last_run")
             last_run_text = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_run)) if last_run else "Never"
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Local Stats Status** :: Active: {'Yes' if status['active'] else 'No'} · Interval: {status['interval_seconds']}s · Last Run: {last_run_text}"
+                f"```| Local Stats Status |\nActive: {'Yes' if status['active'] else 'No'}\nInterval: {status['interval_seconds']}s\nLast Run: {last_run_text}```"
             )
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Local Stats** :: Usage: {bot.prefix}localstats [run|start <seconds>|stop|status]")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Local Stats |\nUsage: +localstats [run|start <seconds>|stop|status]```")
 
     @bot.command(name="export")
     def export_cmd(ctx, args):
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Export** :: export account|guilds|friends|dms|summary|all | export auto start [target] [seconds] | export auto stop|status|run [target]"
+                "```| Export Commands |\nexport account :: Export current account profile\nexport guilds :: Export current guild list\nexport friends :: Export current relationships\nexport dms :: Export DM channel summaries\nexport summary :: Export the latest non-sensitive local summary\nexport all :: Export all supported runtime datasets\nexport auto start [target] [seconds] :: Start background auto scrape\nexport auto stop :: Stop background auto scrape\nexport auto status :: Show background auto scrape status\nexport auto run [target] :: Run one immediate background scrape cycle\n\nManual exports write JSON under ./exports. Auto scrape stores rolling snapshots in account_stats.json\n```"
             )
             return
 
@@ -8395,7 +8467,7 @@ Example Usage:
                 targets_text = ", ".join(status.get("targets", [])) or "all"
                 msg = ctx["api"].send_message(
                     ctx["channel_id"],
-                    f"> **Export Auto Scrape** :: Active: {'Yes' if status['active'] else 'No'} · Interval: {status['interval_seconds']}s · Targets: {targets_text} · Last Run: {last_run_text}"
+                    f"```| Export Auto Scrape |\nActive: {'Yes' if status['active'] else 'No'}\nInterval: {status['interval_seconds']}s\nTargets: {targets_text}\nLast Run: {last_run_text}```"
                 )
                 return
 
@@ -8412,12 +8484,12 @@ Example Usage:
                     interval = int(args[3])
 
                 success, message = account_data_manager.start_auto_scrape(interval, [target])
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Export Auto Scrape** :: {message}")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Export Auto Scrape |\n{message}```")
                 return
 
             if action == "stop":
                 success, message = account_data_manager.stop_auto_scrape()
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Export Auto Scrape** :: {message}")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Export Auto Scrape |\n{message}```")
                 return
 
             if action == "run":
@@ -8426,15 +8498,15 @@ Example Usage:
                 targets_text = ", ".join(snapshot.get("targets", [])) or target
                 msg = ctx["api"].send_message(
                     ctx["channel_id"],
-                    f"> **✓ Export Auto Scrape** :: Ran immediate scrape · Targets: {targets_text}"
+                    f"```| Export Auto Scrape |\nRan immediate scrape\nTargets: {targets_text}\nCaptured At: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(snapshot['captured_at']))}```"
                 )
                 return
 
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Export Auto Scrape** :: Usage: {bot.prefix}export auto [status|start [target] [seconds]|stop|run [target]]")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Export Auto Scrape |\nUsage: +export auto [status|start [target] [seconds]|stop|run [target]]```")
             return
 
         target = args[0].lower()
-        status_msg = ctx["api"].send_message(ctx["channel_id"], f"> **Export** :: Fetching real-time {target} data...")
+        status_msg = ctx["api"].send_message(ctx["channel_id"], f"```| Export |\nFetching real-time {target} data...```")
         success, message, file_path, payload = account_data_manager.export_requested_data(target)
 
         if not status_msg:
@@ -8461,13 +8533,13 @@ Example Usage:
             ctx["api"].edit_message(
                 ctx["channel_id"],
                 status_msg.get("id"),
-                f"> **✓ Export** :: {target} → {file_path}{detail_block}"
+                f"```| Export Complete |\nTarget: {target}\nFile: {file_path}{detail_block}\nStatus: ✓ Success```"
             )
         else:
             ctx["api"].edit_message(
                 ctx["channel_id"],
                 status_msg.get("id"),
-                f"> **✗ Export** :: {target} failed — {message}"
+                f"```| Export Failed |\nTarget: {target}\nError: {message}```"
             )
 
 
@@ -8479,7 +8551,7 @@ Example Usage:
         if not snapshot:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Background Scrape Summary** :: No snapshot available yet — use {bot.prefix}export auto run all"
+                "```| Background Scrape Summary |\nNo automatic scrape snapshot available yet\nUse +export auto run all or wait for the background cycle```"
             )
             return
 
@@ -8510,7 +8582,7 @@ Example Usage:
 
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"> **Background Scrape Summary** :: Auto: {'Yes' if status['active'] else 'No'} · Interval: {status['interval_seconds']}s · Captured: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(captured_at))} · Targets: {targets_text} · Account: {account_username} · Guilds: {guild_count} · Relationships: {relationship_count} · DM Channels: {channel_count} · Nitro: {'Yes' if premium_type else 'No'}"
+            f"```| Background Scrape Summary |\nAuto Active: {'Yes' if status['active'] else 'No'}\nInterval: {status['interval_seconds']}s\nCaptured: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(captured_at))}\nTargets: {targets_text}\nAccount: {account_username}\nGuilds: {guild_count}\nRelationships: {relationship_count}\nDM Channels: {channel_count}\nNitro: {'Yes' if premium_type else 'No'}```"
         )
 
     @bot.command(name="badges", aliases=["badge"])
@@ -8531,39 +8603,38 @@ Example Usage:
         if args[0] == "decode" and len(args) >= 2:
             decoded = badge_scraper.decode_public_flags(args[1])
             badge_text = ", ".join(decoded) if decoded else "No known badges"
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Badge Decode** :: Flags: {args[1]} · Badges: {badge_text}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Badge Decode |\nFlags: {args[1]}\nBadges: {badge_text}```")
 
         elif args[0] == "user" and len(args) >= 2:
             user_id = args[1]
             record = badge_scraper.scrape_user_badges(user_id)
             if not record:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Badge Scraper** :: Invalid user ID: {user_id}")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Badge Scraper |\nInvalid user ID: {user_id}```")
             else:
                 badge_text = ", ".join(record.get("badges", [])) if record.get("badges") else "No known badges"
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **User Badges** :: {record.get('username', 'Unknown')}#{record.get('discriminator', '0000')} ({record.get('user_id')}) · Flags: {record.get('public_flags', 0)} · {badge_text}")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| User Badges |\nUser: {record.get('username', 'Unknown')}#{record.get('discriminator', '0000')}\nID: {record.get('user_id')}\nFlags: {record.get('public_flags', 0)}\nBadges: {badge_text}```")
 
         elif args[0] in {"server", "export"} and len(args) >= 2:
             server_id = args[1]
             limit = int(args[2]) if len(args) >= 3 and args[2].isdigit() else 1000
-            status_msg = ctx["api"].send_message(ctx["channel_id"], f"> **Badge Scraper** :: Scraping server {server_id} (limit {limit})...")
+            status_msg = ctx["api"].send_message(ctx["channel_id"], f"```| Badge Scraper |\nScraping badges from server {server_id}\nLimit: {limit}```")
 
             payload = badge_scraper.scrape_guild_badges(server_id, limit=limit)
             summary = badge_scraper.summarize_results(payload)
             top_badges = list(summary.items())[:6]
             top_lines = "\n".join(f"> {name}: {count}" for name, count in top_badges) if top_badges else "> None"
 
-            result_text = (f"> **Server Badge Results** :: {payload.get('server_name') or 'Unknown'} ({server_id}) · "
-                           f"Scanned: {payload.get('scanned_members', 0)} · With Badges: {payload.get('matched_members', 0)}\n{top_lines}")
+            result_text = f"```| Server Badge Results |\nServer: {payload.get('server_name') or 'Unknown'}\nServer ID: {server_id}\nScanned Members: {payload.get('scanned_members', 0)}\nMembers With Badges: {payload.get('matched_members', 0)}\n\nTop Badges\n{top_lines}```"
 
             if args[0] == "export":
                 paths = badge_scraper.export_guild_badges(payload)
-                result_text += f"\n> JSON: {paths['json']} · TXT: {paths['txt']}"
+                result_text = result_text[:-3] + f"\n\nFiles\nJSON: {paths['json']}\nTXT: {paths['txt']}```"
 
             ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), result_text)
             return
 
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Badge** :: Invalid command. Use {bot.prefix}badges for help")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Badge Commands |\nInvalid command. Use +badges for help```")
 
         if 'msg' in locals() and msg:
             pass
@@ -8577,7 +8648,7 @@ Example Usage:
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Join Invite** :: Usage: {bot.prefix}joininvite <invite_code> — Example: {bot.prefix}ji abc123",
+                f"```| Join Invite |\nUsage: {bot.prefix}joininvite <invite_code>\nExamples:\n  {bot.prefix}ji abc123\n  {bot.prefix}ji discord.gg/abc123```",
             )
             return
 
@@ -8586,7 +8657,7 @@ Example Usage:
 
         status_msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"> **Join Invite** :: Joining {invite_code}...",
+            f"```| Join Invite |\nJoining {invite_code}...```",
         )
 
         api = ctx["api"]
@@ -8617,7 +8688,7 @@ Example Usage:
         except Exception as e:
             result = f"Request error: {str(e)[:80]}"
             if status_msg:
-                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"> **✓ Join Invite** :: {result}")
+                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Join Invite |\n{result}```")
             return
 
         if join_r.status_code != 200:
@@ -8628,7 +8699,7 @@ Example Usage:
                 pass
             err_msg = err_body.get("message", f"HTTP {join_r.status_code}")
             if status_msg:
-                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"> **✗ Join Invite** :: Failed: {err_msg}")
+                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Join Invite |\nFailed: {err_msg}```")
             return
 
         join_data = join_r.json()
@@ -8654,7 +8725,7 @@ Example Usage:
 
         result_text = " | ".join(parts)
         if status_msg:
-            api.edit_message(ctx["channel_id"], status_msg.get("id"), f"> **Join Invite** :: {result_text}")
+            api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Join Invite |\n{result_text}```")
 
     # -----------------------------------------------------------------------
     # leaveguild — leave a guild by ID
@@ -8669,7 +8740,7 @@ Example Usage:
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Leave Guild** :: Usage: {bot.prefix}leaveguild <guild_id>",
+                f"```| Leave Guild |\nUsage: {bot.prefix}leaveguild <guild_id>```",
             )
             return
 
@@ -8684,16 +8755,16 @@ Example Usage:
                 data={"lurking": False}
             )
             if r and r.status_code in (200, 204):
-                msg = api.send_message(ctx["channel_id"], f"> **✓ Leave Guild** :: Left guild {guild_id}")
+                msg = api.send_message(ctx["channel_id"], f"```| Leave Guild |\nLeft guild {guild_id}```")
             else:
                 err = ""
                 try:
                     err = r.json().get("message", "")
                 except Exception:
                     pass
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Leave Guild** :: Failed ({r.status_code}): {err or 'Unknown error'}")
+                msg = api.send_message(ctx["channel_id"], f"```| Leave Guild |\nFailed ({r.status_code}): {err or 'Unknown error'}```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Leave Guild** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Leave Guild |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # checktoken — validate a Discord token via API
@@ -8708,7 +8779,7 @@ Example Usage:
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Check Token** :: Usage: {bot.prefix}checktoken <token>",
+                f"```| Check Token |\nUsage: {bot.prefix}checktoken <token>```",
             )
             return
 
@@ -8731,14 +8802,14 @@ Example Usage:
                 mfa = "Yes" if data.get("mfa_enabled") else "No"
                 msg = api.send_message(
                     ctx["channel_id"],
-                    f"> **✓ Token Valid** :: {username} ({user_id}) · Email: {email} · Nitro: {nitro} · MFA: {mfa}",
+                    f"```| Token Valid |\nUser: {username} ({user_id})\nEmail: {email}\nNitro: {nitro}\nPhone: {phone}\nMFA: {mfa}```",
                 )
             elif r.status_code == 401:
-                msg = api.send_message(ctx["channel_id"], "> **✗ Check Token** :: Invalid token (401 Unauthorized)")
+                msg = api.send_message(ctx["channel_id"], "```| Check Token |\nInvalid token (401 Unauthorized)```")
             else:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Check Token** :: Unexpected response: HTTP {r.status_code}")
+                msg = api.send_message(ctx["channel_id"], f"```| Check Token |\nUnexpected response: HTTP {r.status_code}```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Check Token** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Check Token |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # myguilds — list guilds the account is currently in
@@ -8759,7 +8830,7 @@ Example Usage:
                 "/users/@me/guilds?with_counts=true"
             )
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ My Guilds** :: Failed: HTTP {r.status_code if r else 'no response'}")
+                msg = api.send_message(ctx["channel_id"], f"```| My Guilds |\nFailed: HTTP {r.status_code if r else 'no response'}```")
                 return
 
             guilds = r.json()
@@ -8788,7 +8859,7 @@ Example Usage:
 
             msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ My Guilds** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| My Guilds |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # hostblacklist — block/unblock users from using +host
@@ -8821,7 +8892,7 @@ Example Usage:
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Host Blacklist** :: {bot.prefix}hostblacklist add <user_id> | remove <user_id> | list",
+                f"```| Host Blacklist |\n{bot.prefix}hostblacklist add <user_id> :: Block a user from hosting\n{bot.prefix}hostblacklist remove <user_id> :: Unblock a user\n{bot.prefix}hostblacklist list :: Show all blacklisted users```",
             )
             return
 
@@ -8832,28 +8903,28 @@ Example Usage:
             uid = args[1]
             bl[uid] = {"blocked_at": int(time.time())}
             _save_bl(bl)
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Host Blacklist** :: Blacklisted user {uid}")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host Blacklist |\nBlacklisted user {uid}```")
 
         elif action == "remove" and len(args) >= 2:
             uid = args[1]
             if uid in bl:
                 del bl[uid]
                 _save_bl(bl)
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Host Blacklist** :: Removed {uid} from blacklist")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host Blacklist |\nRemoved {uid} from blacklist```")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Host Blacklist** :: {uid} is not blacklisted")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"```| Host Blacklist |\n{uid} is not blacklisted```")
 
         elif action == "list":
             if not bl:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **Host Blacklist** :: No blacklisted users")
+                msg = ctx["api"].send_message(ctx["channel_id"], "```| Host Blacklist |\nNo blacklisted users```")
             else:
                 lines = [f"> {uid}" for uid in list(bl.keys())[:20]]
                 msg = ctx["api"].send_message(
                     ctx["channel_id"],
-                    f"> **Host Blacklist** :: Total: {len(bl)}\n" + "\n".join(lines),
+                    f"```| Host Blacklist |\nTotal: {len(bl)}\n" + "\n".join(lines) + "```",
                 )
         else:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Host Blacklist** :: Usage: add/remove/list")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Host Blacklist |\nUsage: add/remove/list```")
 
     # -----------------------------------------------------------------------
     # userinfo — look up any Discord user by ID
@@ -8879,7 +8950,7 @@ Example Usage:
                 r = api.request("GET", f"/users/{uid}")
 
             if not r or r.status_code not in (200, 201):
-                msg = api.send_message(ctx["channel_id"], f"> **✗ User Info** :: User not found: {uid}")
+                msg = api.send_message(ctx["channel_id"], f"```| User Info |\nUser not found: {uid}```")
                 return
 
             d = r.json()
@@ -8942,7 +9013,7 @@ Example Usage:
 
             msg = api.send_message(ctx["channel_id"], output)
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ User Info** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| User Info |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # guildinfo — get info about a guild by ID
@@ -8958,13 +9029,13 @@ Example Usage:
         # Try to get current guild from context if no arg
         guild_id = args[0] if args else ctx.get("guild_id")
         if not guild_id:
-            msg = api.send_message(ctx["channel_id"], f"> **Guild Info** :: Usage: {bot.prefix}guildinfo <guild_id>")
+            msg = api.send_message(ctx["channel_id"], f"```| Guild Info |\nUsage: {bot.prefix}guildinfo <guild_id>```")
             return
 
         try:
             r = api.request("GET", f"/guilds/{guild_id}?with_counts=true")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **\u2717 Guild Info** :: Failed: HTTP {r.status_code if r else 'No response'}")
+                msg = api.send_message(ctx["channel_id"], f"```| Guild Info |\nFailed: HTTP {r.status_code if r else 'No response'}```")
                 return
 
             d = r.json()
@@ -8999,7 +9070,7 @@ Example Usage:
 
             msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **\u2717 Guild Info** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Guild Info |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # channelmsgs — fetch recent messages from a channel
@@ -9025,12 +9096,12 @@ Example Usage:
         try:
             r = api.request("GET", f"/channels/{channel_id}/messages?limit={limit}")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **\u2717 Channel Msgs** :: Failed: HTTP {r.status_code if r else 'No response'}")
+                msg = api.send_message(ctx["channel_id"], f"```| Channel Msgs |\nFailed: HTTP {r.status_code if r else 'No response'}```")
                 return
 
             messages = r.json()
             if not messages:
-                msg = api.send_message(ctx["channel_id"], "> **Channel Msgs** :: No messages found")
+                msg = api.send_message(ctx["channel_id"], "```| Channel Msgs |\nNo messages found```")
                 return
 
             lines = [f"Channel Msgs last {len(messages)} from <{channel_id}>"]
@@ -9051,7 +9122,7 @@ Example Usage:
 
             msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **\u2717 Channel Msgs** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Channel Msgs |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # bulkcheck — validate multiple tokens at once
@@ -9066,14 +9137,14 @@ Example Usage:
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Bulk Check** :: Usage: {bot.prefix}bulkcheck <token1> <token2> ...",
+                f"```| Bulk Check |\nUsage: {bot.prefix}bulkcheck <token1> <token2> ...```",
             )
             return
 
         api = ctx["api"]
         tokens = [a.strip("\"' ") for a in args if a.strip("\"' ")]
 
-        status_msg = api.send_message(ctx["channel_id"], f"> **Bulk Check** :: Checking {len(tokens)} token(s)...")
+        status_msg = api.send_message(ctx["channel_id"], f"```| Bulk Check |\nChecking {len(tokens)} token(s)...```")
 
         results = []
         valid = 0
@@ -9102,10 +9173,10 @@ Example Usage:
                 invalid += 1
 
         summary = f"Valid: {valid} | Invalid: {invalid} | Total: {len(tokens)}"
-        output = f"> **Bulk Check** :: {summary}\n" + "\n".join(results)
+        output = "```| Bulk Check |\n" + summary + "\n" + "\n".join(results) + "```"
         # Split into chunks if needed
         if len(output) > 1950:
-            output = output[:1950] + "\n... (truncated)"
+            output = output[:1950] + "\n... (truncated)```"
 
         if status_msg:
             api.edit_message(ctx["channel_id"], status_msg.get("id"), output)
@@ -9129,7 +9200,7 @@ Example Usage:
                 "/users/@me/guilds?with_counts=true"
             )
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **\u2717 Export Guilds** :: Failed: HTTP {r.status_code if r else 'no response'}")
+                msg = api.send_message(ctx["channel_id"], f"```| Export Guilds |\nFailed: HTTP {r.status_code if r else 'no response'}```")
                 return
 
             guilds = r.json()
@@ -9157,10 +9228,10 @@ Example Usage:
 
             msg = api.send_message(
                 ctx["channel_id"],
-                f"> **\u2713 Export Guilds** :: Exported {len(guilds)} guilds to {filename}",
+                f"```| Export Guilds |\nExported {len(guilds)} guilds to {filename}```",
             )
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **\u2717 Export Guilds** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Export Guilds |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # massleave — leave multiple guilds in one shot
@@ -9179,11 +9250,11 @@ Example Usage:
         if not args:
             msg = api.send_message(
                 ctx["channel_id"],
-                f"> **Mass Leave** :: Usage: {bot.prefix}massleave all | {bot.prefix}massleave <id> <id> ... | {bot.prefix}massleave all except <id> ...",
+                f"```| Mass Leave |\nUsage:\n  {bot.prefix}massleave all            — leave every guild\n  {bot.prefix}massleave <id> <id> ...  — leave specific guilds\n  {bot.prefix}massleave all except <id> <id>  — leave all except listed```",
             )
             return
 
-        status_msg = api.send_message(ctx["channel_id"], "> **Mass Leave** :: Fetching guild list...")
+        status_msg = api.send_message(ctx["channel_id"], "```| Mass Leave |\nFetching guild list...```")
 
         try:
             r = api.request(
@@ -9192,7 +9263,7 @@ Example Usage:
             )
             if not r or r.status_code != 200:
                 if status_msg:
-                    api.edit_message(ctx["channel_id"], status_msg.get("id"), f"> **✗ Mass Leave** :: Failed to fetch guilds: HTTP {r.status_code if r else 'no response'}")
+                    api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass Leave |\nFailed to fetch guilds: HTTP {r.status_code if r else 'no response'}```")
                 return
 
             all_guilds = r.json()
@@ -9213,11 +9284,11 @@ Example Usage:
 
             if not targets:
                 if status_msg:
-                    api.edit_message(ctx["channel_id"], status_msg.get("id"), "> **✗ Mass Leave** :: No eligible guilds to leave")
+                    api.edit_message(ctx["channel_id"], status_msg.get("id"), "```| Mass Leave |\nNo eligible guilds to leave```")
                 return
 
             if status_msg:
-                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"> **Mass Leave** :: Leaving {len(targets)} guild(s)...")
+                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass Leave |\nLeaving {len(targets)} guild(s)...```")
 
             left = 0
             failed = 0
@@ -9242,12 +9313,12 @@ Example Usage:
                 api.edit_message(
                     ctx["channel_id"],
                     status_msg.get("id"),
-                    f"> **✓ Mass Leave** :: Done · Left: {left} | Failed: {failed} | Owned skipped: {len(all_guilds) - len(leavable)}",
+                    f"```| Mass Leave |\nDone\nLeft: {left} | Failed: {failed} | Owned (skipped): {len(all_guilds) - len(leavable)}```",
                 )
 
         except Exception as e:
             if status_msg:
-                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"> **✗ Mass Leave** :: Error: {str(e)[:80]}")
+                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Mass Leave |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # guildmembers — list members in a guild (requires access)
@@ -9266,13 +9337,13 @@ Example Usage:
             limit = min(100, max(1, int(args[1])))
 
         if not guild_id:
-            msg = api.send_message(ctx["channel_id"], f"> **Guild Members** :: Usage: {bot.prefix}members <guild_id> [limit]")
+            msg = api.send_message(ctx["channel_id"], f"```| Guild Members |\nUsage: {bot.prefix}members <guild_id> [limit]```")
             return
 
         try:
             r = api.request("GET", f"/guilds/{guild_id}/members?limit={limit}")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Guild Members** :: Failed: HTTP {r.status_code if r else 'No response'} (need admin access)")
+                msg = api.send_message(ctx["channel_id"], f"```| Guild Members |\nFailed: HTTP {r.status_code if r else 'No response'}\n(Need GUILD_MEMBERS intent / admin access)```")
                 return
 
             members = r.json()
@@ -9289,7 +9360,7 @@ Example Usage:
 
             msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Guild Members** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Guild Members |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # drecentmessages — fetch tracked messages with flexible filtering
@@ -9344,7 +9415,7 @@ Example Usage:
                 bot.db = MessageDatabase(os.path.join(os.path.dirname(__file__), "messages.db"))
 
             if not bot.db or not bot.db.is_active:
-                msg = api.send_message(ctx["channel_id"], "> **✗ Recent Messages** :: Database not available")
+                msg = api.send_message(ctx["channel_id"], "```| Recent Messages |\nDatabase not available```")
                 return
 
             messages = bot.db.get_recent_messages(
@@ -9358,7 +9429,7 @@ Example Usage:
                     no_msg_text = f"No tracked messages found from user {user_id} in this channel"
                 else:
                     no_msg_text = "No tracked messages found in this channel"
-                msg = api.send_message(ctx["channel_id"], f"> **Recent Messages** :: {no_msg_text}")
+                msg = api.send_message(ctx["channel_id"], f"```| Recent Messages |\n{no_msg_text}```")
                 return
             
             # Format output
@@ -9404,7 +9475,7 @@ Example Usage:
             result_msg = api.send_message(ctx["channel_id"], output)
         
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Recent Messages** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Recent Messages |\nError: {str(e)[:80]}```")
     # -----------------------------------------------------------------------
     # friends — list, add, remove friends
     # -----------------------------------------------------------------------
@@ -9427,7 +9498,7 @@ Example Usage:
                     timeout=10,
                 )
                 if r.status_code != 200:
-                    msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Failed: HTTP {r.status_code}")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nFailed: HTTP {r.status_code}```")
                     return
 
                 rels = r.json()
@@ -9454,7 +9525,7 @@ Example Usage:
 
                 msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
             except Exception as e:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Error: {str(e)[:80]}")
+                msg = api.send_message(ctx["channel_id"], f"```| Friends |\nError: {str(e)[:80]}```")
 
         elif action == "add" and len(args) >= 2:
             # add by user ID
@@ -9467,16 +9538,16 @@ Example Usage:
                     timeout=8,
                 )
                 if r.status_code in (200, 204):
-                    msg = api.send_message(ctx["channel_id"], f"> **✓ Friends** :: Friend request sent to {target_id}")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nFriend request sent to {target_id}```")
                 else:
                     err = ""
                     try:
                         err = r.json().get("message", "")
                     except Exception:
                         pass
-                    msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Failed ({r.status_code}): {err or 'Unknown'}")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nFailed ({r.status_code}): {err or 'Unknown'}```")
             except Exception as e:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Error: {str(e)[:80]}")
+                msg = api.send_message(ctx["channel_id"], f"```| Friends |\nError: {str(e)[:80]}```")
 
         elif action == "remove" and len(args) >= 2:
             target_id = args[1]
@@ -9487,11 +9558,11 @@ Example Usage:
                     timeout=8,
                 )
                 if r.status_code in (200, 204):
-                    msg = api.send_message(ctx["channel_id"], f"> **✓ Friends** :: Removed {target_id}")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nRemoved {target_id}```")
                 else:
-                    msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Failed: HTTP {r.status_code}")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nFailed: HTTP {r.status_code}```")
             except Exception as e:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Error: {str(e)[:80]}")
+                msg = api.send_message(ctx["channel_id"], f"```| Friends |\nError: {str(e)[:80]}```")
 
         elif action == "block" and len(args) >= 2:
             target_id = args[1]
@@ -9503,16 +9574,16 @@ Example Usage:
                     timeout=8,
                 )
                 if r.status_code in (200, 204):
-                    msg = api.send_message(ctx["channel_id"], f"> **✓ Friends** :: Blocked {target_id}")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nBlocked {target_id}```")
                 else:
-                    msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Failed: HTTP {r.status_code}")
+                    msg = api.send_message(ctx["channel_id"], f"```| Friends |\nFailed: HTTP {r.status_code}```")
             except Exception as e:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Error: {str(e)[:80]}")
+                msg = api.send_message(ctx["channel_id"], f"```| Friends |\nError: {str(e)[:80]}```")
 
         else:
             msg = api.send_message(
                 ctx["channel_id"],
-                f"> **Friends** :: {bot.prefix}friends list [page] | {bot.prefix}friends add <id> | {bot.prefix}friends remove <id> | {bot.prefix}friends block <id>",
+                f"```| Friends |\n{bot.prefix}friends list [page]     — show friend list\n{bot.prefix}friends add <id>         — send friend request\n{bot.prefix}friends remove <id>      — remove friend\n{bot.prefix}friends block <id>       — block user```",
             )
     # -----------------------------------------------------------------------
     # dmuser — send a DM to any user by ID
@@ -9527,7 +9598,7 @@ Example Usage:
         if len(args) < 2:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **DM User** :: Usage: {bot.prefix}dmuser <user_id> <message>",
+                f"```| DM User |\nUsage: {bot.prefix}dmuser <user_id> <message...>```",
             )
             return
 
@@ -9540,17 +9611,17 @@ Example Usage:
             dm_r = api.request("POST", "/users/@me/channels", data={"recipient_id": target_id})
             if not dm_r or dm_r.status_code != 200:
                 code = dm_r.status_code if dm_r else "No response"
-                msg = api.send_message(ctx["channel_id"], f"> **✗ DM User** :: Failed to open DM: HTTP {code}")
+                msg = api.send_message(ctx["channel_id"], f"```| DM User |\nFailed to open DM: HTTP {code}```")
                 return
 
             dm_channel_id = dm_r.json().get("id")
             sent = api.send_message(dm_channel_id, content)
             if sent:
-                msg = api.send_message(ctx["channel_id"], f"> **✓ DM User** :: Sent to {target_id}")
+                msg = api.send_message(ctx["channel_id"], f"```| DM User |\nSent to {target_id}```")
             else:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ DM User** :: Failed to send message")
+                msg = api.send_message(ctx["channel_id"], f"```| DM User |\nFailed to send message```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ DM User** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| DM User |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # deletehistory — bulk delete your own messages in a channel
@@ -9572,7 +9643,7 @@ Example Usage:
             elif arg.isdigit():
                 limit = min(200, max(1, int(arg)))
 
-        status_msg = api.send_message(ctx["channel_id"], f"> **Delete History** :: Scanning for your messages (limit {limit})...")
+        status_msg = api.send_message(ctx["channel_id"], f"```| Delete History |\nScanning for your messages (limit {limit})...```")
 
         try:
             import time as _time
@@ -9614,12 +9685,12 @@ Example Usage:
                 api.edit_message(
                     ctx["channel_id"],
                     status_msg.get("id"),
-                    f"> **✓ Delete History** :: Deleted {deleted} of your messages",
+                    f"```| Delete History |\nDeleted {deleted} of your messages```",
                 )
 
         except Exception as e:
             if status_msg:
-                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"> **✗ Delete History** :: Error: {str(e)[:80]}")
+                api.edit_message(ctx["channel_id"], status_msg.get("id"), f"```| Delete History |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # snipe — show last deleted message in a channel
@@ -9634,7 +9705,7 @@ Example Usage:
         channel_id = args[0] if args and len(args[0]) > 5 and args[0].isdigit() else ctx["channel_id"]
         snap = bot._snipe_cache.get(channel_id)
         if not snap:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Snipe** :: Nothing sniped in this channel yet")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Snipe |\nNothing sniped in this channel yet```")
             return
 
         m = snap["message"]
@@ -9648,7 +9719,7 @@ Example Usage:
 
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"> **Snipe** :: Deleted at {deleted_str} — **{author}** ({uid}){attach_str}\n> {content}",
+            f"```| Snipe deleted at {deleted_str} |\n{author} ({uid}){attach_str}:\n{content}```",
         )
     # -----------------------------------------------------------------------
     # esnipe — show last edited message (before/after)
@@ -9663,7 +9734,7 @@ Example Usage:
         channel_id = args[0] if args and len(args[0]) > 5 and args[0].isdigit() else ctx["channel_id"]
         snap = bot._esnipe_cache.get(channel_id)
         if not snap:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Edit Snipe** :: No edits sniped in this channel yet")
+            msg = ctx["api"].send_message(ctx["channel_id"], "```| Edit Snipe |\nNo edits sniped in this channel yet```")
             return
 
         before_m = snap["before"]
@@ -9677,7 +9748,7 @@ Example Usage:
 
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"> **Edit Snipe** :: **{author}** ({uid}) at {edited_str}\n> Before: {before_c}\n> After:  {after_c}",
+            f"```| Edit Snipe {author} ({uid}) at {edited_str} |\nBefore\n{before_c}\nAfter \n{after_c}```",
         )
     # -----------------------------------------------------------------------
     # inviteinfo — inspect an invite without joining
@@ -9692,7 +9763,7 @@ Example Usage:
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Invite Info** :: Usage: {bot.prefix}inviteinfo <code_or_url>",
+                f"```| Invite Info |\nUsage: {bot.prefix}inviteinfo <code_or_url>```",
             )
             return
 
@@ -9702,7 +9773,7 @@ Example Usage:
         try:
             r = api.request("GET", f"/invites/{code}?with_counts=true&with_expiration=true")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], "> **✗ Invite Info** :: Invalid or expired invite")
+                msg = api.send_message(ctx["channel_id"], "```| Invite Info |\nInvalid or expired invite```")
                 return
 
             d = r.json()
@@ -9729,7 +9800,7 @@ Example Usage:
             ]
             msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Invite Info** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Invite Info |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # createinvite — create a temp invite in current or target channel
@@ -9761,17 +9832,17 @@ Example Usage:
                 data={"max_age": max_age, "max_uses": max_uses, "temporary": False, "unique": True},
             )
             if not r or r.status_code not in (200, 201):
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Create Invite** :: Failed: HTTP {r.status_code if r else 'No response'}")
+                msg = api.send_message(ctx["channel_id"], f"```| Create Invite |\nFailed: HTTP {r.status_code if r else 'No response'}```")
             else:
                 inv_code = r.json().get("code", "?")
                 age_str = f"{max_age // 3600}h" if max_age >= 3600 else f"{max_age}s"
                 uses_str = str(max_uses) if max_uses else "unlimited"
                 msg = api.send_message(
                     ctx["channel_id"],
-                    f"> **✓ Create Invite** :: discord.gg/{inv_code} · Expires: {age_str} · Uses: {uses_str}",
+                    f"```| Create Invite |\ndiscord.gg/{inv_code}\nExpires: {age_str} | Uses: {uses_str}```",
                 )
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Create Invite** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Create Invite |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # channelinfo — info about a channel
@@ -9789,7 +9860,7 @@ Example Usage:
         try:
             r = api.request("GET", f"/channels/{channel_id}")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Channel Info** :: Failed: HTTP {r.status_code if r else 'No response'}")
+                msg = api.send_message(ctx["channel_id"], f"```| Channel Info |\nFailed: HTTP {r.status_code if r else 'No response'}```")
                 return
 
             d = r.json()
@@ -9826,7 +9897,7 @@ Example Usage:
 
             msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Channel Info** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Channel Info |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # typing — trigger typing indicator in a channel for N seconds
@@ -9862,7 +9933,7 @@ Example Usage:
 
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            f"> **Typing** :: Typing in {channel_id} for {duration}s",
+            f"```| Typing |\nTyping in {channel_id} for {duration}s```",
         )
     # -----------------------------------------------------------------------
     # acceptall — accept all pending incoming friend requests
@@ -9884,14 +9955,14 @@ Example Usage:
                 timeout=10,
             )
             if r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Accept All** :: Failed: HTTP {r.status_code}")
+                msg = api.send_message(ctx["channel_id"], f"```| Accept All |\nFailed: HTTP {r.status_code}```")
                 return
 
             rels = r.json()
             incoming = [rel for rel in rels if rel.get("type") == 3]
 
             if not incoming:
-                msg = api.send_message(ctx["channel_id"], "> **Accept All** :: No pending friend requests")
+                msg = api.send_message(ctx["channel_id"], "```| Accept All |\nNo pending friend requests```")
                 return
 
             accepted = 0
@@ -9916,10 +9987,10 @@ Example Usage:
 
             msg = api.send_message(
                 ctx["channel_id"],
-                f"> **✓ Accept All** :: Accepted: {accepted} | Failed: {failed} | Total: {len(incoming)}",
+                f"```| Accept All |\nAccepted: {accepted} | Failed: {failed} | Total: {len(incoming)}```",
             )
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Accept All** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Accept All |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # react — add a reaction to a message
@@ -9934,7 +10005,7 @@ Example Usage:
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **React** :: Usage: {bot.prefix}react <emoji> | {bot.prefix}react <msg_id> <emoji> | {bot.prefix}react <ch_id> <msg_id> <emoji>",
+                f"```| React |\nUsage: {bot.prefix}react <emoji>\n       {bot.prefix}react <msg_id> <emoji>\n       {bot.prefix}react <ch_id> <msg_id> <emoji>```",
             )
             return
 
@@ -9950,7 +10021,7 @@ Example Usage:
                         target_id = m.get("id")
                         break
             if not target_id:
-                msg = api.send_message(ctx["channel_id"], "> **✗ React** :: No target message found")
+                msg = api.send_message(ctx["channel_id"], "```| React |\nNo target message found```")
                 return
             channel_id = ctx["channel_id"]
             message_id = target_id
@@ -9964,7 +10035,7 @@ Example Usage:
         encoded = urllib.parse.quote(emoji)
         r = api.request("PUT", f"/channels/{channel_id}/messages/{message_id}/reactions/{encoded}/@me")
         if r and r.status_code == 204:
-            msg = api.send_message(ctx["channel_id"], f"> **✓ React** :: Reacted {emoji}")
+            msg = api.send_message(ctx["channel_id"], f"```| React |\nReacted {emoji}```")
         else:
             code = r.status_code if r else "No response"
             err = ""
@@ -9972,7 +10043,7 @@ Example Usage:
                 err = r.json().get("message", "") if r else ""
             except Exception:
                 pass
-            msg = api.send_message(ctx["channel_id"], f"> **✗ React** :: Failed ({code}): {err or 'Unknown'}")
+            msg = api.send_message(ctx["channel_id"], f"```| React |\nFailed ({code}): {err or 'Unknown'}```")
 
     # -----------------------------------------------------------------------
     # pin / unpin — pin or unpin a message
@@ -9994,7 +10065,7 @@ Example Usage:
                         target_id = m.get("id")
                         break
             if not target_id:
-                msg = api.send_message(ctx["channel_id"], "> **✗ Pin** :: No target message found")
+                msg = api.send_message(ctx["channel_id"], "```| Pin |\nNo target message found```")
                 return
             message_id = target_id
         else:
@@ -10002,9 +10073,9 @@ Example Usage:
 
         r = api.request("PUT", f"/channels/{ctx['channel_id']}/pins/{message_id}")
         if r and r.status_code == 204:
-            msg = api.send_message(ctx["channel_id"], f"> **✓ Pin** :: Pinned {message_id}")
+            msg = api.send_message(ctx["channel_id"], f"```| Pin |\nPinned {message_id}```")
         else:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Pin** :: Failed: HTTP {r.status_code if r else 'No response'}")
+            msg = api.send_message(ctx["channel_id"], f"```| Pin |\nFailed: HTTP {r.status_code if r else 'No response'}```")
 
     @bot.command(name="unpin", aliases=["unpinmsg", "unpinmessage"])
     def unpin_cmd(ctx, args):
@@ -10013,15 +10084,15 @@ Example Usage:
             return
 
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Unpin** :: Usage: {bot.prefix}unpin <message_id>")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Unpin |\nUsage: {bot.prefix}unpin <message_id>```")
             return
 
         api = ctx["api"]
         r = api.request("DELETE", f"/channels/{ctx['channel_id']}/pins/{args[0]}")
         if r and r.status_code == 204:
-            msg = api.send_message(ctx["channel_id"], f"> **✓ Unpin** :: Unpinned {args[0]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Unpin |\nUnpinned {args[0]}```")
         else:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Unpin** :: Failed: HTTP {r.status_code if r else 'No response'}")
+            msg = api.send_message(ctx["channel_id"], f"```| Unpin |\nFailed: HTTP {r.status_code if r else 'No response'}```")
 
     # -----------------------------------------------------------------------
     # setnick — change own nickname in the current guild
@@ -10183,25 +10254,25 @@ Example Usage:
             return
 
         if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Role Info** :: Usage: {bot.prefix}roleinfo <role_id>")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```| Role Info |\nUsage: {bot.prefix}roleinfo <role_id>```")
             return
 
         api = ctx["api"]
         role_id = args[0]
         guild_id = ctx.get("guild_id")
         if not guild_id:
-            msg = api.send_message(ctx["channel_id"], "> **✗ Role Info** :: Must be used in a server")
+            msg = api.send_message(ctx["channel_id"], "```| Role Info |\nMust be used in a server```")
             return
 
         try:
             r = api.request("GET", f"/guilds/{guild_id}/roles")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Role Info** :: Failed: HTTP {r.status_code if r else 'No response'}")
+                msg = api.send_message(ctx["channel_id"], f"```| Role Info |\nFailed: HTTP {r.status_code if r else 'No response'}```")
                 return
 
             role = next((ro for ro in r.json() if ro.get("id") == role_id), None)
             if not role:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Role Info** :: Role {role_id} not found")
+                msg = api.send_message(ctx["channel_id"], f"```| Role Info |\nRole {role_id} not found```")
                 return
 
             color = f"#{role.get('color', 0):06X}"
@@ -10218,7 +10289,7 @@ Example Usage:
             ]
             msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Role Info** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Role Info |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # stealemoji — copy an emoji and add it to another guild
@@ -10233,7 +10304,7 @@ Example Usage:
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Steal Emoji** :: Usage: {bot.prefix}stealemoji <:name:id> [target_guild_id]",
+                f"```| Steal Emoji |\nUsage: {bot.prefix}stealemoji <:name:id> [target_guild_id]```",
             )
             return
 
@@ -10242,7 +10313,7 @@ Example Usage:
         target_guild = args[1] if len(args) >= 2 else ctx.get("guild_id")
 
         if not target_guild:
-            msg = api.send_message(ctx["channel_id"], "> **✗ Steal Emoji** :: Provide target guild ID or run in a server")
+            msg = api.send_message(ctx["channel_id"], "```| Steal Emoji |\nProvide target guild ID or run in a server```")
             return
 
         import re as _re
@@ -10256,14 +10327,14 @@ Example Usage:
             emoji_name = f"emoji_{emoji_id}"
             animated = False
         else:
-            msg = api.send_message(ctx["channel_id"], "> **✗ Steal Emoji** :: Paste as <:name:id>, <a:name:id>, or raw ID")
+            msg = api.send_message(ctx["channel_id"], "```| Steal Emoji |\nPaste as <:name:id>, <a:name:id>, or raw ID```")
             return
 
         try:
             ext = "gif" if animated else "png"
             img_r = api.session.get(f"https://cdn.discordapp.com/emojis/{emoji_id}.{ext}?size=256", timeout=10)
             if img_r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Steal Emoji** :: Failed to download: HTTP {img_r.status_code}")
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Emoji |\nFailed to download: HTTP {img_r.status_code}```")
                 return
 
             import base64
@@ -10276,16 +10347,16 @@ Example Usage:
             )
             if upload_r and upload_r.status_code in (200, 201):
                 new_id = upload_r.json().get("id", "?")
-                msg = api.send_message(ctx["channel_id"], f"> **✓ Steal Emoji** :: Added :{emoji_name}: (ID {new_id}) to {target_guild}")
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Emoji |\nAdded :{emoji_name}: (ID {new_id}) to {target_guild}```")
             else:
                 err = ""
                 try:
                     err = upload_r.json().get("message", "")
                 except Exception:
                     pass
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Steal Emoji** :: Upload failed ({upload_r.status_code}): {err or 'Unknown'}")
+                msg = api.send_message(ctx["channel_id"], f"```| Steal Emoji |\nUpload failed ({upload_r.status_code}): {err or 'Unknown'}```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Steal Emoji** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Steal Emoji |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # listinvites — list all active invites for a guild
@@ -10300,18 +10371,18 @@ Example Usage:
         api = ctx["api"]
         guild_id = args[0] if args and args[0].isdigit() else ctx.get("guild_id")
         if not guild_id:
-            msg = api.send_message(ctx["channel_id"], f"> **List Invites** :: Usage: {bot.prefix}listinvites [guild_id]")
+            msg = api.send_message(ctx["channel_id"], f"```| List Invites |\nUsage: {bot.prefix}listinvites [guild_id]```")
             return
 
         try:
             r = api.request("GET", f"/guilds/{guild_id}/invites")
             if not r or r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ List Invites** :: Failed: HTTP {r.status_code if r else 'No response'}")
+                msg = api.send_message(ctx["channel_id"], f"```| List Invites |\nFailed: HTTP {r.status_code if r else 'No response'}```")
                 return
 
             invites = r.json()
             if not invites:
-                msg = api.send_message(ctx["channel_id"], "> **List Invites** :: No active invites")
+                msg = api.send_message(ctx["channel_id"], "```| List Invites |\nNo active invites```")
                 return
 
             lines = [f"List Invites {len(invites)} active"]
@@ -10326,7 +10397,7 @@ Example Usage:
 
             msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ List Invites** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| List Invites |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # webhook — post a message through a webhook URL
@@ -10341,14 +10412,14 @@ Example Usage:
         if len(args) < 2:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Webhook** :: Usage: {bot.prefix}webhook <url> <message> [--name <username>]",
+                f"```| Webhook |\nUsage: {bot.prefix}webhook <url> <message>\n       {bot.prefix}webhook <url> --name <username> <message>```",
             )
             return
 
         api = ctx["api"]
         url = args[0]
         if not (url.startswith("https://discord.com/api/webhooks/") or url.startswith("https://discordapp.com/api/webhooks/")):
-            msg = api.send_message(ctx["channel_id"], "> **✗ Webhook** :: Invalid webhook URL")
+            msg = api.send_message(ctx["channel_id"], "```| Webhook |\nInvalid webhook URL```")
             return
 
         remaining = list(args[1:])
@@ -10376,16 +10447,16 @@ Example Usage:
         try:
             r = api.session.post(url + "?wait=true", json=payload, timeout=10)
             if r.status_code in (200, 204):
-                msg = api.send_message(ctx["channel_id"], "> **✓ Webhook** :: Message sent")
+                msg = api.send_message(ctx["channel_id"], "```| Webhook |\nMessage sent```")
             else:
                 err = ""
                 try:
                     err = r.json().get("message", "")
                 except Exception:
                     pass
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Webhook** :: Failed ({r.status_code}): {err or 'Unknown'}")
+                msg = api.send_message(ctx["channel_id"], f"```| Webhook |\nFailed ({r.status_code}): {err or 'Unknown'}```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Webhook** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Webhook |\nError: {str(e)[:80]}```")
 
     # -----------------------------------------------------------------------
     # reply — reply to a message by ID
@@ -10400,7 +10471,7 @@ Example Usage:
         if len(args) < 2:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **Reply** :: Usage: {bot.prefix}reply <message_id> <content>",
+                f"```| Reply |\nUsage: {bot.prefix}reply <message_id> <content...>```",
             )
             return
 
@@ -10425,9 +10496,9 @@ Example Usage:
                 sent = r.json()
             else:
                 code = r.status_code if r else "No response"
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Reply** :: Failed: HTTP {code}")
+                msg = api.send_message(ctx["channel_id"], f"```| Reply |\nFailed: HTTP {code}```")
         except Exception as e:
-            msg = api.send_message(ctx["channel_id"], f"> **✗ Reply** :: Error: {str(e)[:80]}")
+            msg = api.send_message(ctx["channel_id"], f"```| Reply |\nError: {str(e)[:80]}```")
     bot._handle_message = new_process_message
     
     # Cleanup function for bot shutdown

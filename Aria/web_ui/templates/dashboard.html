@@ -3,30 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aria Dashboard</title>
+    <title>Aria — Dashboard</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <nav class="sidebar">
         <div class="sidebar-logo">
-            <span class="logo-icon">⚡</span>
             <span class="logo-text">Aria</span>
+            <span class="logo-badge">v2</span>
         </div>
         <ul class="sidebar-nav">
-            <li class="nav-item active" data-section="overview">Overview</li>
-            <li class="nav-item" data-section="commands">Commands</li>
-            <li class="nav-item" data-section="analytics">Analytics</li>
-            <li class="nav-item" data-section="history">History</li>
-            <li class="nav-item" data-section="boost">Boost</li>
-            <li class="nav-item" data-section="rpc">RPC</li>
-            <li class="nav-item" data-section="presence">Presence</li>
-            <li class="nav-item" data-section="hosted">Hosted</li>
-            <li class="nav-item" data-section="logs">Logs</li>
-            <li class="nav-item" data-section="users">Users</li>
-            <li class="nav-item" data-section="settings">Settings</li>
+            <li class="nav-item active" data-section="overview"><span class="ni">⚡</span> Overview</li>
+            <li class="nav-item" data-section="commands"><span class="ni">⚙️</span> Commands</li>
+            <li class="nav-item" data-section="analytics"><span class="ni">📊</span> Analytics</li>
+            <li class="nav-item" data-section="history"><span class="ni">💬</span> History</li>
+            <li class="nav-item" data-section="boost"><span class="ni">🚀</span> Boost</li>
+            <li class="nav-item" data-section="rpc"><span class="ni">🎮</span> RPC</li>
+            <li class="nav-item" data-section="presence"><span class="ni">🟢</span> Presence</li>
+            <li class="nav-item" data-section="hosted"><span class="ni">👥</span> Hosted</li>
+            <li class="nav-item" data-section="logs"><span class="ni">📋</span> Logs</li>
+            <li class="nav-item" data-section="users"><span class="ni">🔑</span> Users</li>
+            <li class="nav-item" data-section="settings"><span class="ni">🛠️</span> Settings</li>
         </ul>
         <div class="sidebar-footer">
-            <button class="refresh-btn" id="refreshBtn">Refresh</button>
+            <button class="refresh-btn" id="refreshBtn">↺ Refresh</button>
+            <a href="/logout"><button class="logout-btn">Logout</button></a>
         </div>
     </nav>
 
@@ -34,360 +35,462 @@
         <header class="topbar">
             <h1 class="page-title" id="pageTitle">Overview</h1>
             <div class="topbar-right">
-                <div class="status-dot" id="globalStatus"></div>
-                <span class="status-label" id="globalStatusLabel">Loading...</span>
+                <div class="status-pill">
+                    <div class="status-dot" id="globalStatus"></div>
+                    <span class="status-label" id="globalStatusLabel">Loading…</span>
+                </div>
             </div>
         </header>
 
-        <!-- ── Overview ─────────────────────────────────────── -->
+        <!-- ══════════════════════════════════════════════
+             OVERVIEW
+        ══════════════════════════════════════════════ -->
         <section class="section active" id="section-overview">
-            <div class="cards-grid">
+            <div class="section-header">
+                <div>
+                    <div class="section-title">Bot Overview</div>
+                    <div class="section-sub">Live snapshot of the running instance</div>
+                </div>
+            </div>
+
+            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(155px,1fr))">
                 <div class="card">
+                    <div class="card-icon">👤</div>
                     <div class="card-label">Username</div>
-                    <div class="card-value" id="username">—</div>
+                    <div class="card-value plain" id="username">—</div>
                 </div>
                 <div class="card">
+                    <div class="card-icon">🪪</div>
                     <div class="card-label">User ID</div>
                     <div class="card-value mono" id="userId">—</div>
                 </div>
                 <div class="card">
+                    <div class="card-icon">⌨️</div>
                     <div class="card-label">Prefix</div>
                     <div class="card-value mono" id="prefix">—</div>
                 </div>
                 <div class="card">
+                    <div class="card-icon">⏱️</div>
                     <div class="card-label">Uptime</div>
-                    <div class="card-value" id="uptime">—</div>
+                    <div class="card-value plain" id="uptime">—</div>
                 </div>
                 <div class="card">
+                    <div class="card-icon">🔢</div>
                     <div class="card-label">Commands Run</div>
                     <div class="card-value" id="commandCount">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-label">Registered Commands</div>
+                    <div class="card-icon">📦</div>
+                    <div class="card-label">Registered</div>
                     <div class="card-value" id="commandsRegistered">—</div>
                 </div>
                 <div class="card">
+                    <div class="card-icon">📡</div>
                     <div class="card-label">Connection</div>
-                    <div class="card-value" id="connectionStatus">—</div>
+                    <div class="card-value plain" id="connectionStatus">—</div>
                 </div>
                 <div class="card">
+                    <div class="card-icon">🔴</div>
                     <div class="card-label">Status</div>
-                    <div class="card-value" id="botStatus">—</div>
+                    <div class="card-value plain" id="botStatus">—</div>
                 </div>
             </div>
         </section>
 
-        <!-- ── Commands ──────────────────────────────────────── -->
+        <!-- ══════════════════════════════════════════════
+             COMMANDS
+        ══════════════════════════════════════════════ -->
         <section class="section" id="section-commands">
-            <div class="search-row">
-                <input type="text" id="cmdSearch" class="search-input" placeholder="Search commands...">
-                <span class="search-hint" id="cmdCountLabel">— commands</span>
+            <div class="section-header">
+                <div>
+                    <div class="section-title">Commands</div>
+                    <div class="section-sub">All loaded commands for this instance</div>
+                </div>
             </div>
-            <div class="table-card" style="margin-top:16px">
-                <div class="table-title">All Registered Commands</div>
+            <div class="search-row">
+                <input type="text" id="cmdSearch" class="search-input" placeholder="Search by name, alias, or description…">
+                <span class="search-hint" id="cmdCountLabel"></span>
+            </div>
+            <div class="table-card">
+                <div class="table-header">
+                    <span class="table-title">Registered Commands</span>
+                    <span class="table-badge" id="cmdBadge">—</span>
+                </div>
                 <table class="data-table">
                     <thead><tr><th>Command</th><th>Aliases</th><th>Description</th></tr></thead>
                     <tbody id="commandsBody">
-                        <tr><td colspan="3" class="empty-row">Loading...</td></tr>
+                        <tr><td colspan="3" class="empty-row">Loading…</td></tr>
                     </tbody>
                 </table>
             </div>
         </section>
 
-        <!-- ── Analytics ─────────────────────────────────────── -->
+        <!-- ══════════════════════════════════════════════
+             ANALYTICS
+        ══════════════════════════════════════════════ -->
         <section class="section" id="section-analytics">
-            <div class="cards-grid">
+            <div class="section-header">
+                <div>
+                    <div class="section-title">Analytics</div>
+                    <div class="section-sub">Usage stats since bot start</div>
+                </div>
+            </div>
+            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(185px,1fr));margin-bottom:24px">
                 <div class="card">
+                    <div class="card-icon">📈</div>
                     <div class="card-label">Total Executed</div>
                     <div class="card-value" id="totalCommands">—</div>
                 </div>
                 <div class="card">
+                    <div class="card-icon">✅</div>
                     <div class="card-label">Success Rate</div>
                     <div class="card-value" id="successRate">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-label">Avg Response Time</div>
+                    <div class="card-icon">⚡</div>
+                    <div class="card-label">Avg Response</div>
                     <div class="card-value" id="avgResponseMs">—</div>
                 </div>
             </div>
+
             <div class="table-card">
-                <div class="table-title">Top Used Commands</div>
-                <table class="data-table">
-                    <thead><tr><th>#</th><th>Command</th><th>Count</th></tr></thead>
-                    <tbody id="topCommandsBody">
-                        <tr><td colspan="3" class="empty-row">No data yet</td></tr>
-                    </tbody>
-                </table>
+                <div class="table-header">
+                    <span class="table-title">Top Commands</span>
+                    <span class="table-badge">by usage</span>
+                </div>
+                <div id="topCommandsBody">
+                    <div class="empty-row" style="padding:32px 20px">No data yet</div>
+                </div>
             </div>
         </section>
 
-        <!-- ── History ────────────────────────────────────────── -->
+        <!-- ══════════════════════════════════════════════
+             HISTORY
+        ══════════════════════════════════════════════ -->
         <section class="section" id="section-history">
-            <div class="cards-grid">
-                <div class="card">
-                    <div class="card-label">Total Entries</div>
-                    <div class="card-value" id="historyTotal">—</div>
+            <div class="section-header">
+                <div>
+                    <div class="section-title">Command History</div>
+                    <div class="section-sub">Recent commands executed this session</div>
                 </div>
+                <span class="table-badge" id="historyBadge">—</span>
             </div>
+
             <div class="table-card">
-                <div class="table-title">Recent History (last 20)</div>
-                <div class="history-list" id="historyList">
-                    <div class="empty-row">Loading...</div>
+                <div class="table-header">
+                    <span class="table-title">Recent (last 20)</span>
+                </div>
+                <div class="history-feed" id="historyFeed">
+                    <div class="log-loading">Loading…</div>
                 </div>
             </div>
         </section>
 
-        <!-- ── Boost ─────────────────────────────────────────── -->
+        <!-- ══════════════════════════════════════════════
+             BOOST
+        ══════════════════════════════════════════════ -->
         <section class="section" id="section-boost">
-            <div class="table-card">
-                <div class="table-title">Boost State</div>
-                <div class="boost-raw" id="boostRaw">Loading...</div>
+            <div class="section-header">
+                <div>
+                    <div class="section-title">Boost State</div>
+                    <div class="section-sub">Current nitro / boost session data</div>
+                </div>
+                <button class="btn btn-ghost" onclick="loadBoost()">↺ Refresh</button>
             </div>
+            <div id="boostCards" class="boost-grid">
+                <div class="log-loading" style="grid-column:1/-1">Loading…</div>
+            </div>
+            <div class="boost-raw-toggle">
+                <button class="btn btn-ghost" onclick="toggleBoostRaw()" id="boostRawBtn">Show Raw JSON</button>
+            </div>
+            <pre class="boost-raw-pre" id="boostRawPre" style="display:none;margin-top:10px"></pre>
         </section>
 
-        <!-- ── Users (Dashboard Login Accounts) ──────────────────── -->
-        <section class="section" id="section-users">
-            <div class="cards-grid">
-                <div class="card">
-                    <div class="card-label">Dashboard Accounts</div>
-                    <div class="card-value" id="dashUsersTotal">—</div>
-                </div>
-            </div>
-            <div class="table-card" style="margin-top:16px">
-                <div class="table-title">Registered Dashboard Users</div>
-                <table class="data-table">
-                    <thead><tr><th>User ID</th><th>Username</th><th>Instance</th><th>Action</th></tr></thead>
-                    <tbody id="dashUsersBody">
-                        <tr><td colspan="4" class="empty-row">Loading...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="settings-panel" style="margin-top:20px">
-                <div class="settings-title">Add / Update Dashboard Login</div>
-                <div class="setting-row">
-                    <label class="setting-label">User ID (Discord)</label>
-                    <div class="setting-controls">
-                        <input type="text" id="newDashUserId" class="setting-input" placeholder="Discord user ID">
-                    </div>
-                </div>
-                <div class="setting-row">
-                    <label class="setting-label">Username (display)</label>
-                    <div class="setting-controls">
-                        <input type="text" id="newDashUsername" class="setting-input" placeholder="e.g. john.doe">
-                    </div>
-                </div>
-                <div class="setting-row">
-                    <label class="setting-label">Password</label>
-                    <div class="setting-controls">
-                        <input type="password" id="newDashPassword" class="setting-input" placeholder="Set password">
-                        <button class="btn-action" onclick="addDashUser()" style="margin-left:8px">Save</button>
-                    </div>
-                </div>
-                <div id="dashUsersMsg" class="settings-msg"></div>
-            </div>
-        </section>
-
-        <!-- ── Settings ───────────────────────────────────────── -->
-        <section class="section" id="section-settings">
-            <div class="cards-grid">
-                <div class="card">
-                    <div class="card-label">Current Prefix</div>
-                    <div class="card-value mono" id="cfgPrefix">—</div>
-                </div>
-                <div class="card">
-                    <div class="card-label">Auto-Delete</div>
-                    <div class="card-value" id="cfgAutoDelete">—</div>
-                </div>
-                <div class="card">
-                    <div class="card-label">Auto-Delete Delay</div>
-                    <div class="card-value" id="cfgDelay">—</div>
-                </div>
-                <div class="card">
-                    <div class="card-label">Status</div>
-                    <div class="card-value" id="cfgStatus">—</div>
-                </div>
-            </div>
-
-            <div class="settings-panel">
-                <div class="settings-title">Change Settings</div>
-
-                <div class="setting-row">
-                    <label class="setting-label">New Prefix</label>
-                    <div class="setting-controls">
-                        <input type="text" id="newPrefixInput" class="setting-input" placeholder="e.g.  $  !  ;" maxlength="5">
-                        <button class="btn-action" onclick="applyPrefix()">Apply</button>
-                    </div>
-                </div>
-
-                <div class="setting-row">
-                    <label class="setting-label">Auto-Delete Delay (seconds)</label>
-                    <div class="setting-controls">
-                        <input type="number" id="newDelayInput" class="setting-input small" placeholder="20" min="1" max="600">
-                        <button class="btn-action" onclick="applyDelay()">Apply</button>
-                    </div>
-                </div>
-
-                <div class="setting-row">
-                    <label class="setting-label">Auto-Delete Enabled</label>
-                    <div class="setting-controls">
-                        <select id="newAutoDeleteToggle" class="setting-input small">
-                            <option value="true">On</option>
-                            <option value="false">Off</option>
-                        </select>
-                        <button class="btn-action" onclick="applyAutoDelete()">Apply</button>
-                    </div>
-                </div>
-
-                <div id="settingsMsg" class="settings-msg"></div>
-            </div>
-        </section>
-
-        <!-- ── RPC ────────────────────────────────────────────── -->
+        <!-- ══════════════════════════════════════════════
+             RPC
+        ══════════════════════════════════════════════ -->
         <section class="section" id="section-rpc">
-            <div class="cards-grid">
-                <div class="card">
-                    <div class="card-label">RPC Active</div>
-                    <div class="card-value" id="rpcActive">—</div>
+            <div class="section-header">
+                <div>
+                    <div class="section-title">Rich Presence</div>
+                    <div class="section-sub">Control what Discord shows as your activity</div>
                 </div>
-                <div class="card">
-                    <div class="card-label">Mode</div>
-                    <div class="card-value mono" id="rpcMode">—</div>
+            </div>
+
+            <div class="rpc-preview" id="rpcPreview">
+                <div class="rpc-icon" id="rpcPreviewIcon">🎮</div>
+                <div class="rpc-body">
+                    <div class="rpc-title" id="rpcPreviewName">No RPC set</div>
+                    <div class="rpc-detail" id="rpcPreviewDetails">—</div>
+                    <div class="rpc-detail" id="rpcPreviewState">—</div>
+                    <div class="rpc-type" id="rpcPreviewType">inactive</div>
                 </div>
-                <div class="card">
-                    <div class="card-label">Activity Name</div>
-                    <div class="card-value" id="rpcName">—</div>
-                </div>
-                <div class="card">
-                    <div class="card-label">Details</div>
-                    <div class="card-value" id="rpcDetails">—</div>
+                <div style="margin-left:auto;display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+                    <span class="badge badge-off" id="rpcActiveBadge">Inactive</span>
                 </div>
             </div>
 
             <div class="settings-panel">
-                <div class="settings-title">Quick Set Presence</div>
-
+                <div class="settings-panel-header"><span class="settings-title">Set Rich Presence</span></div>
                 <div class="setting-row">
-                    <label class="setting-label">Type</label>
+                    <div><div class="setting-label">Activity Type</div></div>
                     <div class="setting-controls">
                         <select id="rpcType" class="setting-input small">
-                            <option value="0">Playing (0)</option>
-                            <option value="1">Streaming (1)</option>
-                            <option value="2">Listening (2)</option>
-                            <option value="3">Watching (3)</option>
-                            <option value="5">Competing (5)</option>
+                            <option value="0">Playing</option>
+                            <option value="1">Streaming</option>
+                            <option value="2">Listening to</option>
+                            <option value="3">Watching</option>
+                            <option value="5">Competing in</option>
                         </select>
                     </div>
                 </div>
-
                 <div class="setting-row">
-                    <label class="setting-label">Name</label>
+                    <div><div class="setting-label">Name</div><div class="setting-sub">e.g. Spotify, Valorant</div></div>
                     <div class="setting-controls">
-                        <input type="text" id="rpcNameInput" class="setting-input" placeholder="e.g. Spotify">
+                        <input type="text" id="rpcNameInput" class="setting-input" placeholder="Activity name">
                     </div>
                 </div>
-
                 <div class="setting-row">
-                    <label class="setting-label">Details</label>
+                    <div><div class="setting-label">Details</div><div class="setting-sub">Line 1 under activity name</div></div>
                     <div class="setting-controls">
                         <input type="text" id="rpcDetailsInput" class="setting-input" placeholder="e.g. Song title">
                     </div>
                 </div>
-
                 <div class="setting-row">
-                    <label class="setting-label">State</label>
+                    <div><div class="setting-label">State</div><div class="setting-sub">Line 2 under activity name</div></div>
                     <div class="setting-controls">
                         <input type="text" id="rpcStateInput" class="setting-input" placeholder="e.g. by Artist">
                     </div>
                 </div>
-
                 <div class="setting-row">
-                    <label class="setting-label">Actions</label>
+                    <div></div>
                     <div class="setting-controls">
-                        <button class="btn-action" onclick="applyRpc()">Set RPC</button>
-                        <button class="btn-action btn-danger" onclick="clearRpc()" style="margin-left:8px">Stop RPC</button>
+                        <button class="btn btn-primary" onclick="applyRpc()">Set RPC</button>
+                        <button class="btn btn-danger-soft" onclick="clearRpc()">Stop RPC</button>
                     </div>
                 </div>
-
-                <div id="rpcMsg" class="settings-msg"></div>
+                <div class="settings-msg-wrap"><div id="rpcMsg" class="settings-msg"></div></div>
             </div>
         </section>
 
-        <!-- ── Presence ───────────────────────────────────────── -->
+        <!-- ══════════════════════════════════════════════
+             PRESENCE
+        ══════════════════════════════════════════════ -->
         <section class="section" id="section-presence">
-            <div class="cards-grid">
-                <div class="card">
-                    <div class="card-label">Current Status</div>
-                    <div class="card-value" id="presenceStatus">—</div>
+            <div class="section-header">
+                <div>
+                    <div class="section-title">Presence & AFK</div>
+                    <div class="section-sub">Set your Discord status and AFK state</div>
                 </div>
+                <span class="badge badge-ok" id="presenceBadge" style="margin-left:auto">—</span>
             </div>
 
             <div class="settings-panel">
-                <div class="settings-title">Set Presence Status</div>
-
-                <div class="setting-row">
-                    <label class="setting-label">Status</label>
-                    <div class="setting-controls">
-                        <button class="btn-action btn-online" onclick="setPresence('online')">Online</button>
-                        <button class="btn-action btn-idle" onclick="setPresence('idle')" style="margin-left:8px">Idle</button>
-                        <button class="btn-action btn-dnd" onclick="setPresence('dnd')" style="margin-left:8px">DND</button>
-                        <button class="btn-action btn-invisible" onclick="setPresence('invisible')" style="margin-left:8px">Invisible</button>
-                    </div>
+                <div class="settings-panel-header"><span class="settings-title">Online Status</span></div>
+                <div class="presence-bar">
+                    <button class="btn btn-online" onclick="setPresence('online')">🟢 Online</button>
+                    <button class="btn btn-idle" onclick="setPresence('idle')">🟡 Idle</button>
+                    <button class="btn btn-dnd" onclick="setPresence('dnd')">🔴 Do Not Disturb</button>
+                    <button class="btn btn-invisible" onclick="setPresence('invisible')">⚫ Invisible</button>
                 </div>
-
-                <div id="presenceMsg" class="settings-msg"></div>
+                <div class="settings-msg-wrap"><div id="presenceMsg" class="settings-msg"></div></div>
             </div>
 
-            <div class="settings-panel" style="margin-top:20px">
-                <div class="settings-title">AFK</div>
+            <div class="settings-panel" style="margin-top:16px">
+                <div class="settings-panel-header">
+                    <span class="settings-title">AFK Mode</span>
+                    <span class="badge badge-off" id="afkBadge" style="margin-left:auto">Off</span>
+                </div>
                 <div class="setting-row">
-                    <label class="setting-label">Current</label>
+                    <div>
+                        <div class="setting-label">AFK Message</div>
+                        <div class="setting-sub">Sent when someone pings you while AFK</div>
+                    </div>
                     <div class="setting-controls">
-                        <span class="card-value" id="afkStatus">—</span>
+                        <input type="text" id="afkMessageInput" class="setting-input" placeholder="I'm AFK right now">
                     </div>
                 </div>
                 <div class="setting-row">
-                    <label class="setting-label">AFK Message</label>
+                    <div></div>
                     <div class="setting-controls">
-                        <input type="text" id="afkMessageInput" class="setting-input" placeholder="AFK">
-                        <button class="btn-action" onclick="toggleAfk('enable')" style="margin-left:8px">Go AFK</button>
-                        <button class="btn-action btn-danger" onclick="toggleAfk('disable')" style="margin-left:8px">Back</button>
+                        <button class="btn btn-primary" onclick="toggleAfk('enable')">Enable AFK</button>
+                        <button class="btn btn-danger-soft" onclick="toggleAfk('disable')">Disable</button>
                     </div>
                 </div>
-                <div id="afkMsg" class="settings-msg"></div>
+                <div class="settings-msg-wrap"><div id="afkMsg" class="settings-msg"></div></div>
             </div>
         </section>
 
-        <!-- ── Hosted Users ───────────────────────────────────── -->
+        <!-- ══════════════════════════════════════════════
+             HOSTED USERS
+        ══════════════════════════════════════════════ -->
         <section class="section" id="section-hosted">
-            <div class="cards-grid">
+            <div class="section-header">
+                <div>
+                    <div class="section-title">Hosted Users</div>
+                    <div class="section-sub">Instances managed by this panel</div>
+                </div>
+            </div>
+            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(185px,1fr));margin-bottom:22px">
                 <div class="card">
+                    <div class="card-icon">👥</div>
                     <div class="card-label">Total Hosted</div>
                     <div class="card-value" id="hostedTotal">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-label">Currently Active</div>
+                    <div class="card-icon">✅</div>
+                    <div class="card-label">Active</div>
                     <div class="card-value" id="hostedActive">—</div>
                 </div>
             </div>
-            <div class="table-card" style="margin-top:16px">
-                <div class="table-title">Hosted Users</div>
+            <div class="table-card">
+                <div class="table-header">
+                    <span class="table-title">Instance List</span>
+                    <span class="table-badge" id="hostedBadge">0</span>
+                </div>
                 <table class="data-table">
-                    <thead><tr><th>Token ID</th><th>Username</th><th>Owner</th><th>Prefix</th><th>Active</th></tr></thead>
+                    <thead><tr><th>Token ID</th><th>Username</th><th>Owner</th><th>Prefix</th><th>Status</th></tr></thead>
                     <tbody id="hostedBody">
-                        <tr><td colspan="5" class="empty-row">Loading...</td></tr>
+                        <tr><td colspan="5" class="empty-row">Loading…</td></tr>
                     </tbody>
                 </table>
             </div>
         </section>
 
-        <!-- ── Logs ───────────────────────────────────────────── -->
+        <!-- ══════════════════════════════════════════════
+             LOGS
+        ══════════════════════════════════════════════ -->
         <section class="section" id="section-logs">
-            <div class="search-row">
-                <span class="search-hint">Live console output (last 100 lines)</span>
-                <button class="btn-action" onclick="loadLogs()" style="margin-left:auto">Refresh</button>
+            <div class="section-header">
+                <div>
+                    <div class="section-title">Live Logs</div>
+                    <div class="section-sub">Console output — last 100 lines</div>
+                </div>
+            </div>
+            <div class="log-toolbar">
+                <span class="badge badge-ok" id="logStatusBadge">Live</span>
+                <span class="log-count" id="logLineCount"></span>
+                <button class="btn btn-ghost" onclick="loadLogs()" style="margin-left:auto">↺ Refresh</button>
             </div>
             <div class="log-container" id="logContainer">
-                <div class="log-loading">Loading logs...</div>
+                <div class="log-loading">Fetching logs…</div>
+            </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════════
+             USERS (Dashboard Login Accounts)
+        ══════════════════════════════════════════════ -->
+        <section class="section" id="section-users">
+            <div class="section-header">
+                <div>
+                    <div class="section-title">Dashboard Users</div>
+                    <div class="section-sub">Manage who can log into this panel</div>
+                </div>
+                <span class="table-badge" id="dashUsersTotal">0 accounts</span>
+            </div>
+
+            <div class="table-card" style="margin-bottom:20px">
+                <div class="table-header">
+                    <span class="table-title">Registered Accounts</span>
+                </div>
+                <table class="data-table">
+                    <thead><tr><th>User ID</th><th>Username</th><th>Instance</th><th>Action</th></tr></thead>
+                    <tbody id="dashUsersBody">
+                        <tr><td colspan="4" class="empty-row">Loading…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="settings-panel">
+                <div class="settings-panel-header"><span class="settings-title">Add / Update Account</span></div>
+                <div class="setting-row">
+                    <div><div class="setting-label">Discord User ID</div></div>
+                    <div class="setting-controls">
+                        <input type="text" id="newDashUserId" class="setting-input" placeholder="e.g. 123456789012345678">
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <div><div class="setting-label">Username</div><div class="setting-sub">Display name for login page</div></div>
+                    <div class="setting-controls">
+                        <input type="text" id="newDashUsername" class="setting-input" placeholder="e.g. john_doe">
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <div><div class="setting-label">Password</div></div>
+                    <div class="setting-controls">
+                        <input type="password" id="newDashPassword" class="setting-input" placeholder="Set password">
+                        <button class="btn btn-primary" onclick="addDashUser()" style="margin-left:10px">Save</button>
+                    </div>
+                </div>
+                <div class="settings-msg-wrap"><div id="dashUsersMsg" class="settings-msg"></div></div>
+            </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════════
+             SETTINGS
+        ══════════════════════════════════════════════ -->
+        <section class="section" id="section-settings">
+            <div class="section-header">
+                <div>
+                    <div class="section-title">Bot Settings</div>
+                    <div class="section-sub">Adjust runtime configuration</div>
+                </div>
+            </div>
+
+            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(175px,1fr));margin-bottom:22px">
+                <div class="card">
+                    <div class="card-icon">⌨️</div>
+                    <div class="card-label">Current Prefix</div>
+                    <div class="card-value mono" id="cfgPrefix">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🗑️</div>
+                    <div class="card-label">Auto-Delete</div>
+                    <div class="card-value plain" id="cfgAutoDelete">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">⏱️</div>
+                    <div class="card-label">Delete Delay</div>
+                    <div class="card-value plain" id="cfgDelay">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🟢</div>
+                    <div class="card-label">Bot Status</div>
+                    <div class="card-value plain" id="cfgStatus">—</div>
+                </div>
+            </div>
+
+            <div class="settings-panel">
+                <div class="settings-panel-header"><span class="settings-title">Change Configuration</span></div>
+
+                <div class="setting-row">
+                    <div><div class="setting-label">Command Prefix</div><div class="setting-sub">Max 5 characters</div></div>
+                    <div class="setting-controls">
+                        <input type="text" id="newPrefixInput" class="setting-input small" placeholder="e.g. $ ! ;" maxlength="5">
+                        <button class="btn btn-primary" onclick="applyPrefix()">Apply</button>
+                    </div>
+                </div>
+
+                <div class="setting-row">
+                    <div><div class="setting-label">Auto-Delete Delay</div><div class="setting-sub">Seconds before messages are deleted</div></div>
+                    <div class="setting-controls">
+                        <input type="number" id="newDelayInput" class="setting-input small" placeholder="20" min="1" max="600">
+                        <button class="btn btn-primary" onclick="applyDelay()">Apply</button>
+                    </div>
+                </div>
+
+                <div class="setting-row">
+                    <div><div class="setting-label">Auto-Delete Enabled</div></div>
+                    <div class="setting-controls">
+                        <select id="newAutoDeleteToggle" class="setting-input small">
+                            <option value="true">Enabled</option>
+                            <option value="false">Disabled</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="applyAutoDelete()">Apply</button>
+                    </div>
+                </div>
+
+                <div class="settings-msg-wrap"><div id="settingsMsg" class="settings-msg"></div></div>
             </div>
         </section>
     </div>

@@ -10,7 +10,9 @@ navItems.forEach(item => {
         sections.forEach(s => s.classList.remove('active'));
         item.classList.add('active');
         document.getElementById('section-' + target).classList.add('active');
-        pageTitle.textContent = item.textContent.trim();
+        // strip emoji from title — take last text node
+        const rawText = item.childNodes[item.childNodes.length - 1].textContent.trim();
+        pageTitle.textContent = rawText;
         loadSection(target);
     });
 });
@@ -93,6 +95,8 @@ async function loadCommands() {
 
 function renderCommands(list) {
     const tbody = document.getElementById('commandsBody');
+    const badge = document.getElementById('cmdBadge');
+    if (badge) badge.textContent = list.length + (list.length === 1 ? ' command' : ' commands');
     if (!tbody) return;
     if (!list || list.length === 0) {
         tbody.innerHTML = '<tr><td colspan="3" class="empty-row">No commands found</td></tr>';
@@ -101,8 +105,8 @@ function renderCommands(list) {
     tbody.innerHTML = list.map(c =>
         `<tr>
             <td class="cmd-name">${esc(c.name)}</td>
-            <td class="cmd-aliases">${c.aliases && c.aliases.length ? esc(c.aliases.join(', ')) : '<span style="color:var(--text-muted)">—</span>'}</td>
-            <td>${esc(c.description || '—')}</td>
+            <td class="cmd-aliases">${c.aliases && c.aliases.length ? esc(c.aliases.join(', ')) : '<span style="color:var(--muted)">—</span>'}</td>
+            <td style="color:var(--muted)">${esc(c.description || '—')}</td>
         </tr>`
     ).join('');
 }
@@ -132,14 +136,23 @@ async function loadAnalytics() {
     setText('successRate', (d.success_rate ?? 100) + '%');
     setText('avgResponseMs', (d.avg_response_ms ?? 0) + 's');
 
-    const tbody = document.getElementById('topCommandsBody');
+    const wrap = document.getElementById('topCommandsBody');
+    if (!wrap) return;
     if (!d.top_commands || d.top_commands.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="empty-row">No command data yet</td></tr>';
+        wrap.innerHTML = '<div class="empty-row" style="padding:32px 20px">No command data yet</div>';
         return;
     }
-    tbody.innerHTML = d.top_commands.map((c, i) =>
-        `<tr><td>${i + 1}</td><td>${esc(c.name)}</td><td>${c.count}</td></tr>`
-    ).join('');
+    const maxCount = d.top_commands[0].count || 1;
+    wrap.innerHTML = d.top_commands.map((c, i) => {
+        const pct = Math.round((c.count / maxCount) * 100);
+        const rankClass = i === 0 ? 'top-cmd-rank gold' : 'top-cmd-rank';
+        return `<div class="top-cmd-row">
+            <div class="${rankClass}">${i + 1}</div>
+            <div class="top-cmd-name">${esc(c.name)}</div>
+            <div class="top-cmd-bar-wrap"><div class="top-cmd-bar" style="width:${pct}%"></div></div>
+            <div class="top-cmd-count">${c.count}</div>
+        </div>`;
+    }).join('');
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
@@ -147,28 +160,92 @@ async function loadHistory() {
     const res = await fetchJSON('/api/history');
     if (!res || !res.data) return;
     const d = res.data;
-    setText('historyTotal', d.total ?? 0);
+    const badge = document.getElementById('historyBadge');
+    if (badge) badge.textContent = (d.total ?? 0) + ' entries';
 
-    const list = document.getElementById('historyList');
+    const feed = document.getElementById('historyFeed');
+    if (!feed) return;
     if (!d.entries || d.entries.length === 0) {
-        list.innerHTML = '<div class="empty-row">No history entries found</div>';
+        feed.innerHTML = '<div class="log-loading">No history entries yet</div>';
         return;
     }
-    list.innerHTML = d.entries.map(e => {
-        const txt = typeof e === 'object' ? JSON.stringify(e, null, 2) : String(e);
-        return `<div class="history-entry">${esc(txt)}</div>`;
+    feed.innerHTML = d.entries.slice().reverse().map(e => {
+        if (typeof e === 'object' && e !== null) {
+            const cmd   = e.command || e.cmd || e.name || '';
+            const guild = e.guild_id || e.server || '';
+            const chan  = e.channel_id || e.channel || '';
+            const ts    = e.timestamp || e.time || '';
+            const status = e.status || e.result || '';
+            const statusBadge = status === 'success' || status === 'ok'
+                ? '<span class="badge badge-ok">ok</span>'
+                : status ? `<span class="badge badge-warn">${esc(status)}</span>` : '';
+            return `<div class="history-item">
+                <div class="history-dot"></div>
+                <div class="history-content">
+                    <span class="history-cmd">${esc(cmd || '(unknown)')}</span>
+                    ${statusBadge}
+                    <div class="history-meta">${[
+                        guild ? '🏠 ' + guild : '',
+                        chan  ? '# ' + chan   : '',
+                        ts   ? '🕐 ' + ts    : ''
+                    ].filter(Boolean).join(' &nbsp;·&nbsp; ')}</div>
+                </div>
+            </div>`;
+        }
+        return `<div class="history-item"><div class="history-dot"></div><div class="history-content"><div class="history-raw">${esc(String(e))}</div></div></div>`;
     }).join('');
 }
 
 // ── Boost ─────────────────────────────────────────────────────────────────────
+let _boostRawShown = false;
+
+function toggleBoostRaw() {
+    _boostRawShown = !_boostRawShown;
+    const pre = document.getElementById('boostRawPre');
+    const btn = document.getElementById('boostRawBtn');
+    if (pre) pre.style.display = _boostRawShown ? 'block' : 'none';
+    if (btn) btn.textContent = _boostRawShown ? 'Hide Raw JSON' : 'Show Raw JSON';
+}
+
+const BOOST_LABELS = {
+    guild_id:        'Guild ID',
+    guild_name:      'Guild',
+    boost_count:     'Boosts Applied',
+    slots_total:     'Total Slots',
+    slots_remaining: 'Slots Remaining',
+    nitro_type:      'Nitro Type',
+    active:          'Active',
+    started_at:      'Started',
+    ends_at:         'Expires',
+    token_count:     'Tokens Used',
+};
+
 async function loadBoost() {
     const res = await fetchJSON('/api/boost');
-    const el = document.getElementById('boostRaw');
+    const cards = document.getElementById('boostCards');
+    const pre   = document.getElementById('boostRawPre');
     if (!res || !res.data || Object.keys(res.data).length === 0) {
-        el.textContent = 'No boost state data available.';
+        if (cards) cards.innerHTML = '<div class="log-loading" style="grid-column:1/-1">No boost state data available.</div>';
         return;
     }
-    el.textContent = JSON.stringify(res.data, null, 2);
+    const data = res.data;
+    // populate pretty cards
+    if (cards) {
+        const entries = Object.entries(data);
+        cards.innerHTML = entries.map(([k, v]) => {
+            const label = BOOST_LABELS[k] || k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            const display = v === null || v === undefined ? '—'
+                          : typeof v === 'boolean' ? (v ? '✅ Yes' : '❌ No')
+                          : typeof v === 'object'  ? JSON.stringify(v)
+                          : String(v);
+            return `<div class="boost-card">
+                <div class="boost-key">${esc(label)}</div>
+                <div class="boost-val">${esc(display)}</div>
+            </div>`;
+        }).join('');
+    }
+    // populate raw
+    if (pre) pre.textContent = JSON.stringify(data, null, 2);
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -245,14 +322,30 @@ function loadSection(name) {
 }
 
 // ── RPC ───────────────────────────────────────────────────────────────────────
+const RPC_TYPE_LABELS = ['Playing', 'Streaming', 'Listening to', 'Watching', '', 'Competing in'];
+
 async function loadRpc() {
     const res = await fetchJSON('/api/rpc');
     if (!res) return;
-    setText('rpcActive', res.active ? 'Yes' : 'No');
-    setText('rpcMode', res.mode || 'none');
-    const act = res.activity || {};
-    setText('rpcName', act.name || '—');
-    setText('rpcDetails', act.details || '—');
+    const active = res.active || false;
+    const act    = res.activity || {};
+
+    const badge = document.getElementById('rpcActiveBadge');
+    if (badge) {
+        badge.textContent = active ? 'Active' : 'Inactive';
+        badge.className = 'badge ' + (active ? 'badge-ok' : 'badge-off');
+    }
+    const previewName = document.getElementById('rpcPreviewName');
+    if (previewName) previewName.textContent = active ? (act.name || '—') : 'No RPC set';
+    const previewDetails = document.getElementById('rpcPreviewDetails');
+    if (previewDetails) previewDetails.textContent = act.details || (active ? '—' : '');
+    const previewState = document.getElementById('rpcPreviewState');
+    if (previewState) previewState.textContent = act.state || '';
+    const previewType = document.getElementById('rpcPreviewType');
+    if (previewType) {
+        const typeNum = act.type != null ? act.type : -1;
+        previewType.textContent = typeNum >= 0 ? (RPC_TYPE_LABELS[typeNum] || 'Activity') : 'inactive';
+    }
 }
 
 function showRpcMsg(msg, ok) {
@@ -292,14 +385,34 @@ async function clearRpc() {
 }
 
 // ── Presence ───────────────────────────────────────────────────────────────────
+const PRESENCE_BADGES = {
+    online:    'badge-ok',
+    idle:      'badge-warn',
+    dnd:       'badge-pink',
+    invisible: 'badge-off',
+};
+
 async function loadPresence() {
     const [presRes, afkRes] = await Promise.all([
         fetchJSON('/api/presence'),
         fetchJSON('/api/afk'),
     ]);
-    if (presRes) setText('presenceStatus', presRes.status || '—');
+    if (presRes) {
+        const status = presRes.status || 'unknown';
+        const badge = document.getElementById('presenceBadge');
+        if (badge) {
+            badge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+            badge.className = 'badge ' + (PRESENCE_BADGES[status] || 'badge-off');
+        }
+    }
     if (afkRes) {
-        setText('afkStatus', afkRes.active ? ('AFK — ' + (afkRes.message || '')) : 'Not AFK');
+        const afkBadge = document.getElementById('afkBadge');
+        if (afkBadge) {
+            afkBadge.textContent = afkRes.active ? 'AFK' : 'Off';
+            afkBadge.className = 'badge ' + (afkRes.active ? 'badge-warn' : 'badge-off');
+        }
+        const afkInput = document.getElementById('afkMessageInput');
+        if (afkInput && afkRes.message) afkInput.placeholder = afkRes.message;
     }
 }
 
@@ -339,19 +452,21 @@ async function loadHosted() {
     if (!res) return;
     setText('hostedTotal', res.total ?? 0);
     setText('hostedActive', res.active_count ?? 0);
+    const badge = document.getElementById('hostedBadge');
+    if (badge) badge.textContent = res.total ?? 0;
     const tbody = document.getElementById('hostedBody');
     if (!tbody) return;
     if (!res.hosted || res.hosted.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty-row">No hosted users</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-row">No hosted users found</td></tr>';
         return;
     }
     tbody.innerHTML = res.hosted.map(u =>
         `<tr>
-            <td class="mono">${esc(u.token_id)}</td>
-            <td>${esc(u.username)}</td>
-            <td class="mono">${esc(u.owner)}</td>
-            <td class="mono">${esc(u.prefix)}</td>
-            <td><span class="badge ${u.active ? 'badge-ok' : 'badge-off'}">${u.active ? 'Active' : 'Inactive'}</span></td>
+            <td class="cmd-name" style="font-size:11px">${esc(u.token_id || '—')}</td>
+            <td>${esc(u.username || '—')}</td>
+            <td class="cmd-aliases">${esc(u.owner || '—')}</td>
+            <td class="cmd-aliases">${esc(u.prefix || '—')}</td>
+            <td><span class="badge ${u.active ? 'badge-ok' : 'badge-off'}">${u.active ? '● Active' : '○ Inactive'}</span></td>
         </tr>`
     ).join('');
 }
@@ -360,19 +475,21 @@ async function loadHosted() {
 async function loadDashUsers() {
     const res = await fetchJSON('/api/dash/users');
     if (!res) return;
-    setText('dashUsersTotal', res.total ?? 0);
+    const count = res.total ?? 0;
+    const el = document.getElementById('dashUsersTotal');
+    if (el) el.textContent = count + (count === 1 ? ' account' : ' accounts');
     const tbody = document.getElementById('dashUsersBody');
     if (!tbody) return;
     if (!res.users || res.users.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="empty-row">No dashboard users registered</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-row">No dashboard accounts yet</td></tr>';
         return;
     }
     tbody.innerHTML = res.users.map(u =>
         `<tr>
-            <td class="mono">${esc(u.user_id)}</td>
-            <td>${esc(u.username)}</td>
-            <td class="mono">${esc(u.instance_id)}</td>
-            <td><button class="btn-action btn-danger" onclick="removeDashUser('${esc(u.user_id)}')" style="padding:4px 10px;font-size:11px">Remove</button></td>
+            <td class="cmd-aliases">${esc(u.user_id)}</td>
+            <td style="font-weight:600">${esc(u.username)}</td>
+            <td class="cmd-aliases">${esc(u.instance_id || '—')}</td>
+            <td><button class="btn btn-danger-soft" onclick="removeDashUser('${esc(u.user_id)}')" style="padding:4px 12px;font-size:11px">Remove</button></td>
         </tr>`
     ).join('');
 }
@@ -412,26 +529,34 @@ async function removeDashUser(uid) {
 // ── Logs ──────────────────────────────────────────────────────────────────────
 async function loadLogs() {
     const container = document.getElementById('logContainer');
+    const countEl   = document.getElementById('logLineCount');
     if (!container) return;
-    container.innerHTML = '<div class="log-loading">Loading...</div>';
+    container.innerHTML = '<div class="log-loading">Fetching logs…</div>';
     const res = await fetchJSON('/api/logs?lines=100');
     if (!res || !res.lines) {
         container.innerHTML = '<div class="log-loading">Failed to load logs.</div>';
         return;
     }
     if (res.lines.length === 0) {
-        container.innerHTML = '<div class="log-loading">No log entries found.</div>';
+        container.innerHTML = '<div class="log-loading">No log output yet.</div>';
         return;
     }
+    if (countEl) countEl.textContent = res.lines.length + ' lines';
     container.innerHTML = res.lines.map(l => {
-        const cls = l.includes('[ERROR]') || l.includes('[AUTH-ERROR]') ? 'log-error'
-                  : l.includes('[WARNING]') ? 'log-warn'
-                  : l.includes('[RPC]') ? 'log-rpc'
-                  : l.includes('[GATEWAY]') ? 'log-gateway'
+        const lo = l.toLowerCase();
+        const cls = (lo.includes('[error]') || lo.includes('[auth-error]') || lo.includes('traceback') || lo.includes('exception'))
+                  ? 'log-error'
+                  : (lo.includes('[warning]') || lo.includes('[warn]'))
+                  ? 'log-warn'
+                  : lo.includes('[rpc]')
+                  ? 'log-rpc'
+                  : lo.includes('[gateway]')
+                  ? 'log-gateway'
+                  : (lo.includes('success') || lo.includes('connected') || lo.includes('ready'))
+                  ? 'log-success'
                   : '';
         return `<div class="log-line ${cls}">${esc(l)}</div>`;
     }).join('');
-    // scroll to bottom
     container.scrollTop = container.scrollHeight;
 }
 

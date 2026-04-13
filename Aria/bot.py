@@ -342,8 +342,11 @@ class DiscordBot:
 
     def identify(self):
         try:
-            self._client_type = client_identify(bot=self, token=self.token)
-            self._current_status = state_identify(bot=self, token=self.token)
+            # Only resolve from config on the very first identify (not yet identified).
+            # After that, preserve whatever was set explicitly by set_client_type().
+            if not self.identified:
+                self._client_type = client_identify(bot=self, token=self.token)
+                self._current_status = state_identify(bot=self, token=self.token)
             identify = build_identify_payload(
                 token=self.token,
                 client_type=self._client_type,
@@ -458,8 +461,12 @@ class DiscordBot:
                         daemon=True,
                     ).start()
 
-            # Command dispatch — determine which prefix to use for this user
-            active_prefix = self.get_user_prefix(author_id) if author_id else self.prefix
+            # Command dispatch — determine which prefix to use for this user.
+            # The "token-user prefix" is the bot's globally active prefix.
+            # Control users (owner, alt accounts) always inherit it so that
+            # changing prefix via setprefix works for ALL controller accounts.
+            token_prefix = self.get_user_prefix(str(self.user_id or "")) if self.user_id else self.prefix
+            user_prefix  = self.get_user_prefix(author_id) if author_id else self.prefix
             config_get = getattr(self.config, "get", None)
             if callable(config_get):
                 alt_prefix = config_get("alt_prefix", "") or config_get("new_prefix", "")
@@ -467,12 +474,21 @@ class DiscordBot:
                 alt_prefix = self.config.get("alt_prefix", "") or self.config.get("new_prefix", "")
             else:
                 alt_prefix = ""
-            if content.startswith(active_prefix):
-                matched_prefix = str(active_prefix)
-            elif alt_prefix and content.startswith(alt_prefix) and author_id == str(self.user_id):
-                # Alt prefix is only usable by the master owner (the running account)
-                matched_prefix = str(alt_prefix)
-            else:
+
+            # Build priority list of valid prefixes for this sender:
+            # 1. token's current prefix  2. sender's per-user prefix  3. alt prefix
+            # Use dict.fromkeys to deduplicate while preserving order.
+            candidate_prefixes = list(dict.fromkeys(
+                p for p in [token_prefix, user_prefix, alt_prefix] if p
+            ))
+
+            matched_prefix = None
+            for p in candidate_prefixes:
+                if content.startswith(p):
+                    matched_prefix = p
+                    break
+
+            if not matched_prefix:
                 return
 
             parts = content[len(matched_prefix):].strip().split()
