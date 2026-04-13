@@ -27,7 +27,7 @@ class Config:
             "vr_rpc_auto_start": False,
             "vr_rpc_icon_only": True,
             "discord_client_id": "1491307436148129822",
-            "discord_client_secret": "u969UvYVRgaYG8kGleosNl3JkQxUHHnd",
+            "discord_client_secret": "",
             "dashboard_url": "",
             "oauth_redirect_uri": "",
             "discord_bot_token": "",
