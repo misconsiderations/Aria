@@ -1,3 +1,103 @@
+/* placeholder for uptime ring styles */
+.uptime-card {
+    position: relative;
+    min-width: 120px;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+.uptime-ring-wrap {
+    position: relative;
+    width: 54px;
+    height: 54px;
+    margin: 0 auto 6px auto;
+}
+.uptime-ring-label {
+    position: absolute;
+    left: 0; top: 0; width: 54px; height: 54px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem; font-weight: 700;
+    color: var(--violet);
+    pointer-events: none;
+}
+#uptimeRing {
+    display: block;
+    width: 54px; height: 54px;
+}
+.uptime-bg {
+    fill: none;
+    stroke: var(--border2);
+    opacity: 0.45;
+    transition: stroke 0.3s;
+}
+.uptime-fg {
+    fill: none;
+    stroke: var(--violet);
+    stroke-linecap: round;
+    stroke-dasharray: 151;
+    stroke-dashoffset: 151;
+    transition: stroke-dashoffset 0.7s cubic-bezier(.4,2,.2,1), stroke 0.3s;
+}
+
+.live-metrics-row {
+    display: flex;
+    gap: 32px;
+    margin: 32px 0 0 0;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+.live-metric-block {
+    background: var(--surface2);
+    border-radius: 12px;
+    box-shadow: 0 2px 12px 0 rgba(139,92,246,0.07);
+    padding: 18px 22px 18px 18px;
+    min-width: 180px;
+    min-height: 80px;
+    flex: 1 1 220px;
+    max-width: 340px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+}
+.metric-title {
+    font-size: 1.02rem;
+    font-weight: 700;
+    color: var(--pink);
+    margin-bottom: 8px;
+}
+#sparkline {
+    display: block;
+    background: transparent;
+    border-radius: 6px;
+    box-shadow: 0 1px 4px 0 rgba(139,92,246,0.07);
+}
+.toast-feed {
+    width: 100%;
+    min-height: 36px;
+    max-height: 90px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 6px;
+}
+.toast {
+    background: linear-gradient(90deg,var(--violet),var(--pink));
+    color: #fff;
+    font-size: .97rem;
+    padding: 5px 12px;
+    border-radius: 7px;
+    box-shadow: 0 1px 6px 0 rgba(139,92,246,0.13);
+    opacity: 0.93;
+    animation: toastIn 0.5s cubic-bezier(.4,2,.2,1);
+    will-change: transform, opacity;
+}
+@keyframes toastIn {
+    from { opacity: 0; transform: translateY(18px) scale(0.98); }
+    to   { opacity: 0.93; transform: translateY(0) scale(1); }
+}
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {

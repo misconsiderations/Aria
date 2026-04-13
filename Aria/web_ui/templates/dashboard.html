@@ -82,10 +82,16 @@
                     <div class="card-label">Prefix</div>
                     <div class="card-value mono" id="prefix">—</div>
                 </div>
-                <div class="card">
+                <div class="card uptime-card">
                     <div class="card-icon">⏱️</div>
                     <div class="card-label">Uptime</div>
-                    <div class="card-value plain" id="uptime">—</div>
+                    <div class="uptime-ring-wrap">
+                        <svg id="uptimeRing" width="54" height="54" viewBox="0 0 54 54">
+                            <circle class="uptime-bg" cx="27" cy="27" r="24" stroke-width="4"/>
+                            <circle class="uptime-fg" cx="27" cy="27" r="24" stroke-width="4"/>
+                        </svg>
+                        <div class="uptime-ring-label" id="uptime">—</div>
+                    </div>
                 </div>
                 <div class="card">
                     <div class="card-icon">🔢</div>
@@ -118,6 +124,18 @@
                     <div class="card-label">Dashboard</div>
                     <div class="card-value plain" id="uiVersion">v2</div>
                 </div>
+            </div>
+
+            <div class="live-metrics-row">
+                <div class="live-metric-block">
+                    <div class="metric-title">Command Throughput</div>
+                    <canvas id="sparkline" width="140" height="36" style="width:140px;height:36px;"></canvas>
+                </div>
+                <div class="live-metric-block">
+                    <div class="metric-title">Activity Feed</div>
+                    <div id="toastFeed" class="toast-feed"></div>
+                </div>
+            </div>
             </div>
 
             <div class="settings-panel" style="margin-top:8px">

@@ -90,6 +90,7 @@ async function loadOverview() {
     setText('userId', d.user_id);
     setText('prefix', d.prefix);
     setText('uptime', d.uptime);
+    updateUptimeRing(d.uptime);
     setText('commandCount', d.command_count);
     setText('commandsRegistered', d.commands_registered);
     setText('connectionStatus', d.connected ? 'Online' : 'Offline');
@@ -111,7 +112,102 @@ async function loadOverview() {
     if (profileHint) profileHint.textContent = d.user_id && d.user_id !== '—' ? `UID ${d.user_id}` : 'Profile';
 
     await loadClientSwitcher(d);
+
+    // Fetch and render sparkline
+    updateSparkline();
+
+    // Fetch and render activity toasts
+    updateToastFeed();
 }
+
+// ── Uptime Ring ────────────────────────────────────────────────────────────
+function updateUptimeRing(uptimeStr) {
+    // Parse uptime string like "1h 23m 45s"
+    let total = 0;
+    if (typeof uptimeStr === 'string') {
+        const m = uptimeStr.match(/(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?/);
+        if (m) {
+            total += (parseInt(m[1]||'0',10)||0) * 3600;
+            total += (parseInt(m[2]||'0',10)||0) * 60;
+            total += (parseInt(m[3]||'0',10)||0);
+        }
+    }
+    // Animate ring: 24h = full circle
+    const max = 24*3600;
+    const pct = Math.min(1, total / max);
+    const offset = 151 - Math.round(151 * pct);
+    const fg = document.querySelector('.uptime-fg');
+    if (fg) fg.setAttribute('stroke-dashoffset', offset);
+}
+
+// ── Sparkline Chart ─────────────────────────────────────────────────────---
+async function updateSparkline() {
+    const canvas = document.getElementById('sparkline');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // Fetch history
+    const res = await fetchJSON('/api/history');
+    let entries = (res && res.data && res.data.entries) || [];
+    // Group by minute
+    const now = Date.now();
+    const buckets = Array(20).fill(0);
+    entries.forEach(e => {
+        let ts = Number(e.timestamp || 0);
+        if (!ts || ts > 1e12) ts = Math.floor(ts/1000); // handle ms
+        const minAgo = Math.floor((now/1000 - ts)/60);
+        if (minAgo >= 0 && minAgo < 20) buckets[19-minAgo]++;
+    });
+    // Draw sparkline
+    const maxVal = Math.max(1, ...buckets);
+    ctx.beginPath();
+    for (let i=0; i<buckets.length; ++i) {
+        const x = 7 + i*6.5;
+        const y = 32 - (buckets[i]/maxVal)*28;
+        if (i===0) ctx.moveTo(x,y);
+        else ctx.lineTo(x,y);
+    }
+    ctx.strokeStyle = '#8b5cf6';
+    ctx.lineWidth = 2.2;
+    ctx.shadowColor = '#ec4899';
+    ctx.shadowBlur = 4;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Fill area
+    ctx.lineTo(7+19*6.5,32);
+    ctx.lineTo(7,32);
+    ctx.closePath();
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = '#8b5cf6';
+    ctx.fill();
+    ctx.globalAlpha = 1;
+}
+
+// ── Toast Feed ─────────────────────────────────────────────────────────---
+async function updateToastFeed() {
+    const feed = document.getElementById('toastFeed');
+    if (!feed) return;
+    const res = await fetchJSON('/api/dash/activity');
+    let timeline = (res && res.timeline) || [];
+    feed.innerHTML = '';
+    timeline.slice(-8).reverse().forEach(ev => {
+        const t = document.createElement('div');
+        t.className = 'toast';
+        t.textContent = `[${fmtTs(ev.ts)}] ${ev.action}${ev.details ? ': '+ev.details : ''}`;
+        feed.appendChild(t);
+    });
+}
+
+// ── Live Metrics Refresh ─────────────────────────────────────────────────-
+setInterval(() => {
+    if (document.getElementById('section-overview')?.classList.contains('active')) {
+        updateSparkline();
+        updateToastFeed();
+        // Optionally, update uptime ring
+        const uptime = document.getElementById('uptime');
+        if (uptime) updateUptimeRing(uptime.textContent);
+    }
+}, 7000);
 
 function animateMetricValue(id, newVal, decimals = 0) {
     const el = document.getElementById(id);
