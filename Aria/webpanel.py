@@ -1033,6 +1033,27 @@ class WebPanel:
             except Exception as e:
                 return jsonify({"ok": True, "hosted": [], "total": 0, "active_count": 0, "note": str(e)})
 
+        @self.app.post("/api/hosted/disconnect")
+        def api_hosted_disconnect():
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
+            data = request.get_json(force=True) or {}
+            token_id = str(data.get("token_id", "")).replace("...", "")
+            if not token_id:
+                return jsonify({"ok": False, "error": "token_id required"}), 400
+            try:
+                from host import host_manager as hm
+                # Use remove_hosts to disconnect hosted user by token_id
+                removed = 0
+                if hasattr(hm, "remove_hosts"):
+                    removed = hm.remove_hosts(selectors=[token_id])
+                if removed:
+                    return jsonify({"ok": True})
+                else:
+                    return jsonify({"ok": False, "error": "Could not disconnect hosted user"}), 400
+            except Exception as e:
+                return jsonify({"ok": False, "error": str(e)}), 500
+
         # ── Logs ──────────────────────────────────────────────────────────
         @self.app.get("/api/logs")
         def api_logs() -> Any:

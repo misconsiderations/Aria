@@ -5,5 +5,12 @@
     "username": "admin",
     "role": "admin",
     "created_at": 1776055790
+  },
+  "297588166653902849": {
+    "password_hash": "e51630256264b736d6913c267955935fbc33a0c20890ffbf010b1e261e3e75d5",
+    "instance_id": "default_instance",
+    "username": "admin",
+    "role": "admin",
+    "created_at": 1776155963
   }
 }

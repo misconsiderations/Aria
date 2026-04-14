@@ -9339,16 +9339,17 @@ Example Usage:
         instance_id = str(getattr(bot, "instance_id", "main"))
         instance_owner = getattr(bot, "ownerId", None)
         print(fmt.header("Web Panel"))
+
         try:
             import importlib
-            webpanel_module = importlib.import_module("web_panel")
+            webpanel_module = importlib.import_module("webpanel")
         except Exception as e:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
                 fmt.header("Web Panel")
                 + "\n"
                 + fmt._block(
-                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web_panel module{fmt.RESET}\n"
+                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import webpanel module{fmt.RESET}\n"
                     f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
                 ),
             )
@@ -9370,11 +9371,12 @@ Example Usage:
                     return
             try:
                 web_panel = webpanel_module.WebPanel(
+                    api=getattr(bot, "api", None),
                     bot=bot,
                     host="127.0.0.1",
                     port=8080,
                     instance_id=instance_id,
-                    owner_id=str(instance_owner or bot.ownerId)
+                    owner_id=str(instance_owner or getattr(bot, "ownerId", None))
                 )
             except Exception as e:
                 msg = ctx["api"].send_message(

@@ -486,6 +486,7 @@ class DiscordBot:
                 msg_id = message_data.get("id")
                 if msg_id:
                     emoji = str(self.auto_react_emoji)
+                    import threading
                     threading.Thread(
                         target=lambda: self.api.add_reaction(channel_id, msg_id, emoji),
                         daemon=True,
@@ -545,13 +546,24 @@ class DiscordBot:
             }.get(cmd_name, cmd_name)
 
 
-            # Define ctx before usage, always include api
+
+            # Define ctx before usage, always include api and bot
             ctx = {
                 "author_id": author_id,
                 "guild_id": guild_id,
                 "channel_id": channel_id,
                 "api": self.api,
+                "bot": self,
             }
+
+            # Enable autodelete for all commands
+            try:
+                import threading
+                command_response_state = threading.local()
+                command_response_state.enabled = True
+                command_response_state.channel_id = channel_id
+            except Exception:
+                pass
 
             # Ensure cmd_name is always a string
             cmd_name = cmd_name or "default_command"
