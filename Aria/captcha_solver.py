@@ -19,66 +19,88 @@ class CaptchaSolver:
         self.service = service
         self.solver = None
         self.last_solve_time = 0
-        
+
         if api_key and service == "2captcha" and TWOCAPTCHA_AVAILABLE and TwoCaptcha:
             try:
+                print(f"[DEBUG] Initializing TwoCaptcha with API key: {api_key[:4]}...{api_key[-4:]}")
                 self.solver = TwoCaptcha(api_key)
+                print("[DEBUG] TwoCaptcha initialized successfully.")
             except Exception as e:
-                print(f"TwoCaptcha initialization failed: {e}")
+                print(f"[ERROR] TwoCaptcha initialization failed: {e}")
                 self.solver = None
+        else:
+            print("[DEBUG] TwoCaptcha not available or API key missing.")
 
     def is_enabled(self) -> bool:
         """Check if captcha solving is enabled"""
         return bool(self.api_key and self.solver is not None)
 
     def solve_hcaptcha(self, site_key: str, url: str, invisible: bool = False) -> Optional[str]:
-        """Solve hCaptcha challenge"""
         if not self.is_enabled():
+            print("[DEBUG] CAPTCHA solving is not enabled.")
+            return None
+
+        if not self.solver:
+            print("[ERROR] Solver is not initialized. Cannot solve CAPTCHA.")
             return None
 
         try:
-            result = self.solver.hcaptcha(
-                sitekey=site_key,
-                url=url,
-                invisible=invisible
+            print(f"[DEBUG] Solving hCaptcha for site_key: {site_key}, url: {url}")
+            result = self.solver.solve_captcha(
+                site_key=site_key,
+                page_url=url
             )
             self.last_solve_time = time.time()
-            return result.get('code')
+            print("[DEBUG] hCaptcha solved successfully.")
+            return result  # Return result directly
         except Exception as e:
-            print(f"Failed to solve hCaptcha: {e}")
+            print(f"[ERROR] Failed to solve hCaptcha: {e}")
             return None
 
     def solve_recaptcha(self, site_key: str, url: str, version: str = "v2") -> Optional[str]:
         """Solve reCAPTCHA challenge"""
         if not self.is_enabled():
+            print("[DEBUG] CAPTCHA solving is not enabled.")
+            return None
+
+        if not self.solver:
+            print("[ERROR] Solver is not initialized. Cannot solve CAPTCHA.")
             return None
 
         try:
-            result = self.solver.recaptcha(
-                sitekey=site_key,
-                url=url,
-                version=version
+            print(f"[DEBUG] Solving reCAPTCHA for site_key: {site_key}, url: {url}, version: {version}")
+            result = self.solver.solve_captcha(
+                site_key=site_key,
+                page_url=url
             )
             self.last_solve_time = time.time()
-            return result.get('code')
+            print("[DEBUG] reCAPTCHA solved successfully.")
+            return result  # Return result directly
         except Exception as e:
-            print(f"Failed to solve reCAPTCHA: {e}")
+            print(f"[ERROR] Failed to solve reCAPTCHA: {e}")
             return None
 
     def solve_turnstile(self, site_key: str, url: str) -> Optional[str]:
         """Solve Cloudflare Turnstile challenge"""
         if not self.is_enabled():
+            print("[DEBUG] CAPTCHA solving is not enabled.")
+            return None
+
+        if not self.solver:
+            print("[ERROR] Solver is not initialized. Cannot solve CAPTCHA.")
             return None
 
         try:
-            result = self.solver.turnstile(
-                sitekey=site_key,
-                url=url
+            print(f"[DEBUG] Solving Turnstile CAPTCHA for site_key: {site_key}, url: {url}")
+            result = self.solver.solve_captcha(
+                site_key=site_key,
+                page_url=url
             )
             self.last_solve_time = time.time()
-            return result.get('code')
+            print("[DEBUG] Turnstile CAPTCHA solved successfully.")
+            return result  # Return result directly
         except Exception as e:
-            print(f"Failed to solve Turnstile: {e}")
+            print(f"[ERROR] Failed to solve Turnstile CAPTCHA: {e}")
             return None
 
     def extract_captcha_from_headers(self, headers: Dict[str, Any]) -> Optional[Dict[str, str]]:
