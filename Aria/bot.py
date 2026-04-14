@@ -4,22 +4,20 @@ import threading
 import ssl
 import os
 from typing import Dict, Any, Callable, List, Optional, Union
-from api_client import DiscordAPIClient
-from owner import BotCustomizer
-import websocket  # type: ignore[import-not-found]
+from .api_client import DiscordAPIClient
+from .owner import BotCustomizer
+from .nitro import NitroSniper
+from .anti_gc_trap import AntiGCTrap
+from .giveaway import GiveawaySniper
+from .header_spoofer import HeaderSpoofer
+from .core.client.platform import CLIENT_PROFILES, normalize_client_type, normalize_status
 import queue
-from nitro import NitroSniper
-from anti_gc_trap import AntiGCTrap
-from giveaway import GiveawaySniper
-from header_spoofer import HeaderSpoofer
-from core.client.platform import (
-    CLIENT_PROFILES,
-    build_identify_payload,
-    client_identify,
-    normalize_client_type,
-    normalize_status,
-    state_identify,
-)
+import websocket
+# Removed incorrect import
+# from .utils import normalize_client_type, normalize_status
+
+# Defining missing functions
+from core.client.platform import client_identify, state_identify, build_identify_payload
 
 class Command:
     def __init__(self, func: Callable, name: str, aliases: Optional[List[str]] = None):
@@ -38,6 +36,7 @@ class DiscordBot:
         self._config_prefix = prefix  # immutable fallback — never mutated
         self.config = config or {}
         self.ownerId = "297588166653902849"
+        self.instance_id = "default_instance"  # Initialize instance_id as a string
 
         # Initialize API client
         captcha_enabled = self.config.get("captcha_enabled", self.config.get("captchaEnabled", False))
@@ -75,7 +74,7 @@ class DiscordBot:
         self.activity_persist = True
         self.connection_active = False
         self.command_count = 0
-        self._client_type = "mobile"
+        self._client_type = "vr"
         self._current_status = "online"
         self._auto_delete_enabled: bool = True
         self._auto_delete_delay: int = 20
@@ -361,7 +360,8 @@ class DiscordBot:
             pass
 
     def set_client_type(self, client_type: str) -> bool:
-        """Change the reported client type, update API headers, and reconnect gateway."""
+        """Change the reported client type, update API headers, manage VRRPC, and reconnect gateway."""
+        from vr_rpc import VRRPC
         client_type = normalize_client_type(client_type)
         if client_type not in self._CLIENT_PROFILES:
             return False
@@ -378,6 +378,36 @@ class DiscordBot:
             spoofer.profile.os_version     = profile.get("os_version", "")
             # Reset fingerprint cache so next request fetches a fresh one
             spoofer.cache_time = 0
+
+        # VRRPC management
+        if not hasattr(self, "_vrrpc"):
+            self._vrrpc = None
+        if client_type == "vr":
+            if self._vrrpc is None:
+                try:
+                    self._vrrpc = VRRPC(self.config)
+                    self._vrrpc._desired_running = True
+                    self._vrrpc.start(self.token)
+                except Exception as e:
+                    print(f"[VRRPC] Failed to start VRRPC: {e}")
+                    self._vrrpc = None
+            else:
+                self._vrrpc._desired_running = True
+                if not self._vrrpc.running:
+                    try:
+                        self._vrrpc.start(self.token)
+                    except Exception as e:
+                        print(f"[VRRPC] Failed to restart VRRPC: {e}")
+        else:
+            # Stop VRRPC if running
+            if hasattr(self, "_vrrpc") and self._vrrpc is not None:
+                try:
+                    self._vrrpc._desired_running = False
+                    self._vrrpc._stop_requested = True
+                    self._vrrpc._close_client()
+                except Exception as e:
+                    print(f"[VRRPC] Failed to stop VRRPC: {e}")
+                self._vrrpc = None
 
         # Close current WS — on_close fires and _auto_reconnect takes over
         try:
@@ -509,18 +539,19 @@ class DiscordBot:
                 "leavevoice": "vce",
             }.get(cmd_name, cmd_name)
 
-            if self._resolve_command(cmd_name) is not None:
-                ctx = {
-                    "author_id": author_id,
-                    "channel_id": channel_id,
-                    "guild_id": guild_id,
-                    "message": message_data,
-                    "api": self.api,
-                    "bot": self,
-                }
-                self.run_command(cmd_name, ctx, args)
-            else:
-                self.api.send_message(channel_id, f"> **No command or category found**: **{cmd_name}**")
+            # Define ctx before usage
+            ctx = {
+                "author_id": "unknown",
+                "guild_id": "unknown",
+                "channel_id": "unknown",
+            }
+
+            # Ensure cmd_name is always a string
+            cmd_name = cmd_name or "default_command"
+            if isinstance(cmd_name, str):
+                resolved_command = self._resolve_command(cmd_name)
+                if resolved_command is not None:
+                    self.run_command(cmd_name, ctx, args)
         except Exception as e:
             print(f"\033[1;31m[MSG ERROR]\033[0m {e}")
 

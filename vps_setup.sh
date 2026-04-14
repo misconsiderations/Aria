@@ -98,4 +98,7 @@ EOF
 sudo systemctl enable fail2ban
 sudo systemctl start fail2ban
 
+# Add workspace root to PYTHONPATH
+export PYTHONPATH="/workspaces/Aria/Aria:$PYTHONPATH"
+
 echo "Setup complete. Bot is running via systemd. Access webpanel at http://your-vps-ip"

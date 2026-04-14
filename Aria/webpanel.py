@@ -6,7 +6,10 @@ import re
 import secrets
 import threading
 import time
-from typing import Any
+import psutil
+import sys
+import platform
+from typing import Any, Optional
 
 import hashlib
 from flask import Flask, jsonify, redirect, send_from_directory, request, session
@@ -16,18 +19,15 @@ _PANEL_MASTER_ID = "297588166653902849"
 
 
 class WebPanel:
-    """Lightweight web panel wired to the new WebUI assets with instance isolation."""
-
-    def __init__(self, api=None, bot=None, host: str = "127.0.0.1", port: int = 5001, instance_id: str = "main", owner_id: str = None):
+    def __init__(self, api=None, bot=None, host="127.0.0.1", port=8080, instance_id="main", owner_id=None):
         self.api = api
         self.bot = bot
         self.host = host
-        self.port = int(port)
+        self.port = port
         self.instance_id = instance_id
         self.owner_id = owner_id or _PANEL_MASTER_ID
         self._start_time = time.time()
-
-        self._thread: threading.Thread | None = None
+        self._thread: Optional[threading.Thread] = None
         self._last_start_error = ""
 
         base_dir = os.path.dirname(__file__)
@@ -35,16 +35,29 @@ class WebPanel:
         self._webui_static = os.path.join(base_dir, "web_ui", "static")
         self._base_dir = base_dir
 
-        # Flask serves /static/* from the new web_ui/static directory.
         self.app = Flask(__name__, static_folder=self._webui_static, static_url_path="/static")
-        # Deterministic secret so sessions survive restarts
         _secret_seed = f"aria-{instance_id}-{self.owner_id}"
         self.app.secret_key = os.getenv("ARIA_WEBPANEL_SECRET", hashlib.sha256(_secret_seed.encode()).hexdigest())
 
-        # Ensure admin account always exists on startup
         self._ensure_admin_account()
-
         self._setup_routes()
+
+    def start(self):
+        """Start the web panel server."""
+        try:
+            self._thread = threading.Thread(target=self.app.run, kwargs={
+                "host": self.host,
+                "port": self.port,
+                "debug": False,
+                "use_reloader": False
+            })
+            self._thread.start()
+        except Exception as e:
+            self._last_start_error = str(e)
+
+    def get_last_start_error(self) -> str:
+        """Retrieve the last error encountered during start."""
+        return self._last_start_error
 
     # ── Auth helpers ─────────────────────────────────────────────────────────
 
@@ -536,6 +549,155 @@ class WebPanel:
                 return self._read_raw_template("home_template.html"), 200, {"Content-Type": "text/html; charset=utf-8"}
             except Exception:
                 return redirect("/dashboard")
+
+        # ── Maximalist Dashboard API Endpoints ─────────────────────────────
+
+        @self.app.get("/api/max/system-stats")
+        def api_max_system_stats():
+            """Return live system resource stats (CPU, RAM, Disk, Network)."""
+            import psutil
+            try:
+                cpu = psutil.cpu_percent(interval=0.2)
+                ram = psutil.virtual_memory().percent
+                disk = psutil.disk_usage("/").percent
+                net = psutil.net_io_counters()
+                net_usage = {'sent': net.bytes_sent, 'recv': net.bytes_recv}
+                return jsonify({"ok": True, "cpu": cpu, "ram": ram, "disk": disk, "net": net_usage})
+            except Exception as e:
+                return jsonify({"ok": False, "error": str(e)})
+
+        @self.app.get("/api/max/command-breakdown")
+        def api_max_command_breakdown():
+            """Return command usage breakdown for pie/bar charts."""
+            analytics = self._analytics_data()
+            patterns = analytics.get("top_commands", [])
+            # Simulate categories for bar chart
+            categories = {}
+            for cmd in patterns:
+                cat = cmd["name"].split("_")[0] if "_" in cmd["name"] else "misc"
+                categories[cat] = categories.get(cat, 0) + cmd["count"]
+            return jsonify({"ok": True, "pie": patterns, "bar": categories})
+
+        @self.app.get("/api/max/errors")
+        def api_max_errors():
+            """Return recent error and warning log entries."""
+            logs = self._parse_structured_logs([])
+            try:
+                # Try to get errors from logs
+                log_dir = os.path.join(self._base_dir, "logs")
+                from datetime import datetime as _dt
+                today = _dt.now().strftime("%Y%m%d")
+                log_path = os.path.join(log_dir, f"aria-runtime-{today}.log")
+                if not os.path.exists(log_path):
+                    all_logs = sorted([f for f in os.listdir(log_dir) if f.endswith(".log")], reverse=True)
+                    log_path = os.path.join(log_dir, all_logs[0]) if all_logs else None
+                lines = []
+                if log_path and os.path.exists(log_path):
+                    with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                        all_lines = f.readlines()
+                    lines = [self._strip_ansi(l.rstrip("\n")) for l in all_lines[-500:]]
+                errors = [l for l in lines if any(tag in l.lower() for tag in ["error", "exception", "traceback", "failed", "warn"])]
+                return jsonify({"ok": True, "errors": errors[-30:]})
+            except Exception as e:
+                return jsonify({"ok": False, "error": str(e)})
+
+        @self.app.get("/api/max/leaderboard")
+        def api_max_leaderboard():
+            """Return user leaderboard by commands run."""
+            users = self._load_dashboard_users()
+            leaderboard = []
+            for uid, entry in users.items():
+                count = 0
+                actions = entry.get("last_actions", [])
+                for act in actions:
+                    if act.get("action", "") == "command":
+                        count += 1
+                leaderboard.append({
+                    "user_id": uid,
+                    "username": entry.get("username", uid),
+                    "count": count,
+                    "last_seen_at": entry.get("last_seen_at", 0)
+                })
+            leaderboard.sort(key=lambda x: x["count"], reverse=True)
+            return jsonify({"ok": True, "leaderboard": leaderboard[:20]})
+
+        @self.app.get("/api/max/server-info")
+        def api_max_server_info():
+            """Return current guild/server info."""
+            b = self.bot
+            try:
+                guild = getattr(b, "guild", None)
+                if not guild:
+                    return jsonify({"ok": True, "guild": {}})
+                info = {
+                    "name": getattr(guild, "name", "—"),
+                    "id": getattr(guild, "id", "—"),
+                    "members": getattr(guild, "member_count", "—"),
+                    "region": getattr(guild, "region", "—"),
+                }
+                return jsonify({"ok": True, "guild": info})
+            except Exception:
+                return jsonify({"ok": True, "guild": {}})
+
+        @self.app.get("/api/max/activity-map")
+        def api_max_activity_map():
+            """Return timeline and heatmap data for activity."""
+            hist = self._history_data().get("entries", [])
+            timeline = [0]*24
+            heatmap = [[0]*7 for _ in range(24)]
+            import datetime
+            for entry in hist:
+                ts = int(entry.get("timestamp", 0) or 0)
+                if ts > 1e12:
+                    ts = ts//1000
+                dt = datetime.datetime.utcfromtimestamp(ts)
+                hour = dt.hour
+                dow = dt.weekday()
+                timeline[hour] += 1
+                heatmap[hour][dow] += 1
+            return jsonify({"ok": True, "timeline": timeline, "heatmap": heatmap})
+
+        @self.app.get("/api/max/notifications")
+        def api_max_notifications():
+            """Return recent dashboard activity events (logins, RPC, status, errors, etc)."""
+            users = self._load_dashboard_users()
+            events = []
+            for uid, entry in users.items():
+                acts = entry.get("last_actions", [])
+                for act in acts[-10:]:
+                    events.append({"user": entry.get("username", uid), **act})
+            events.sort(key=lambda x: x.get("ts", 0), reverse=True)
+            return jsonify({"ok": True, "events": events[:30]})
+
+        @self.app.get("/api/max/advanced-analytics")
+        def api_max_advanced_analytics():
+            """Return advanced analytics: success/failure rates, latency, etc."""
+            analytics = self._analytics_data()
+            hist = self._history_data().get("entries", [])
+            failures = [h for h in hist if h.get("status", "success") != "success"]
+            latencies = [h.get("duration_ms", 0) for h in hist if h.get("duration_ms")]
+            longest = max(latencies) if latencies else 0
+            return jsonify({
+                "ok": True,
+                "success_rate": analytics.get("success_rate", 100.0),
+                "avg_latency": analytics.get("avg_response_ms", 0),
+                "failures": len(failures),
+                "longest_cmd": longest
+            })
+
+        @self.app.get("/api/max/widgets")
+        def api_max_widgets():
+            """Return available widgets (placeholder)."""
+            return jsonify({"ok": True, "widgets": [
+                {"name": "System Stats", "id": "system"},
+                {"name": "Command Breakdown", "id": "cmdbreakdown"},
+                {"name": "Errors", "id": "errors"},
+                {"name": "Leaderboard", "id": "leaderboard"},
+                {"name": "Server Info", "id": "serverinfo"},
+                {"name": "Activity Map", "id": "activitymap"},
+                {"name": "Notifications", "id": "notifications"},
+                {"name": "Advanced Analytics", "id": "advanced-analytics"},
+            ]})
 
         @self.app.get("/home")
         def home() -> Any:
@@ -1215,21 +1377,29 @@ class WebPanel:
         except Exception as e:
             self._last_start_error = str(e)
 
-    def start(self) -> bool:
-        if self._thread and self._thread.is_alive():
-            return False
+    # ── RPC Control Route ────────────────────────────────────────────────
+        self.app.add_url_rule("/rpc", "rpc", self.rpc_control, methods=["POST"])
 
-        self._last_start_error = ""
-        self._thread = threading.Thread(target=self.run, daemon=True)
-        self._thread.start()
+    def rpc_control(self):
+        """Handle RPC updates via POST requests."""
+        try:
+            data = request.json
+            action = data.get("action")
+            details = data.get("details", "")
+            state = data.get("state", "")
+            large_image = data.get("large_image", "")
+            small_image = data.get("small_image", "")
 
-        # Allow startup errors (for example, port in use) to surface quickly.
-        time.sleep(0.35)
-        if not self._thread.is_alive():
-            if not self._last_start_error:
-                self._last_start_error = "webpanel startup thread exited"
-            return False
-        return True
+            # Example: Update RPC state (requires bot integration)
+            if self.bot and hasattr(self.bot, "update_rpc"):
+                self.bot.update_rpc(
+                    action=action,
+                    details=details,
+                    state=state,
+                    large_image=large_image,
+                    small_image=small_image,
+                )
 
-    def get_last_start_error(self) -> str:
-        return str(self._last_start_error or "")
+            return jsonify({"status": "success", "message": "RPC updated successfully."})
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)})

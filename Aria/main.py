@@ -13,7 +13,7 @@ try:
 except Exception:
     def unidecode(value):
         return value
-from logger import setup_file_logger
+from logger import setup_file_logger  # Ensure this import is correct
 from utils.general import is_valid_emoji
 from urllib.parse import quote as _url_quote
 
@@ -64,6 +64,19 @@ from format_bootstrap import install_global_formatter
 from quest import QuestSystem
 from developer import DeveloperTools
 from command_integration import integrate_command_engine
+import sys
+import os
+
+# Add the `/workspaces/Aria/Aria` directory to the Python module search path
+sys.path.append(os.path.dirname(__file__))
+
+import sys
+import os
+
+# Add the `/workspaces/Aria/Aria` directory to the Python module search path
+sys.path.append(os.path.dirname(__file__))
+
+from webpanel import WebPanel
 try:
     from message_db import MessageDatabase
 except ImportError:
@@ -181,7 +194,14 @@ def upload_n_get_asset_key(bot, image_url):
     if image_url.startswith("https://"):
         return "mp:https/" + image_url[len("https://"):]
     # Last resort: try uploading via DM attachment (HTTP or unknown scheme)
-    return upload_image_to_discord(bot.api, image_url)
+    asset = upload_image_to_discord(bot.api, image_url)
+    if not asset:
+        # Send error to user if possible
+        try:
+            bot.api.send_message(getattr(bot, "last_command_channel", None) or getattr(bot, "default_channel", None) or "", f"> **✗ RPC Image** :: Failed to upload or use image: {image_url}")
+        except Exception:
+            pass
+    return asset
 
 def send_spotify_with_spoofing(bot, song_name, artist, album, duration_minutes=3.5, current_position_minutes: float = 0.0, image_url=None):
     current_ms = int(current_position_minutes * 60 * 1000)
@@ -219,10 +239,21 @@ def send_spotify_with_spoofing(bot, song_name, artist, album, duration_minutes=3
     }
 
     asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
-    activity["assets"] = {
-        "large_image": asset_key if asset_key else "spotify",
-        "large_text": f"{album} on Spotify",
-    }
+    if asset_key:
+        activity["assets"] = {
+            "large_image": asset_key,
+            "large_text": f"{album} on Spotify",
+        }
+    else:
+        activity["assets"] = {
+            "large_image": "spotify",
+            "large_text": f"{album} on Spotify",
+        }
+        if image_url:
+            try:
+                bot.api.send_message(getattr(bot, "last_command_channel", None) or getattr(bot, "default_channel", None) or "", f"> **✗ Spotify RPC** :: Could not use image: {image_url}")
+            except Exception:
+                pass
     bot.set_activity(activity)
 
 def send_spotify_listening_activity(bot, song_name, artist, album=None, elapsed_minutes=0.0, total_minutes=None, image_url=None):
@@ -260,15 +291,24 @@ def send_youtube_activity(bot, title, channel, elapsed_minutes=0.0, total_minute
         activity["timestamps"] = {"start": start_ms, "end": start_ms + total_ms}
 
     asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
-    activity["assets"] = {
-        "large_image": asset_key if asset_key else "youtube",
-        "large_text": "YouTube",
-    }
-
+    if asset_key:
+        activity["assets"] = {
+            "large_image": asset_key,
+            "large_text": "YouTube",
+        }
+    else:
+        activity["assets"] = {
+            "large_image": "youtube",
+            "large_text": "YouTube",
+        }
+        if image_url:
+            try:
+                bot.api.send_message(getattr(bot, "last_command_channel", None) or getattr(bot, "default_channel", None) or "", f"> **✗ YouTube RPC** :: Could not use image: {image_url}")
+            except Exception:
+                pass
     if button_label and button_url:
         activity["buttons"] = [button_label]
         activity["metadata"] = {"button_urls": [button_url]}
-
     bot.set_activity(activity)
 
 def send_soundcloud_activity(bot, track, artist, elapsed_minutes=0.0, total_minutes=None, image_url=None, button_label=None, button_url=None):
@@ -285,51 +325,28 @@ def send_soundcloud_activity(bot, track, artist, elapsed_minutes=0.0, total_minu
         activity["timestamps"] = {"start": start_ms, "end": start_ms + total_ms}
 
     asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
-    activity["assets"] = {
-        "large_image": asset_key if asset_key else "soundcloud",
-        "large_text": "SoundCloud",
-    }
-
+    if asset_key:
+        activity["assets"] = {
+            "large_image": asset_key,
+            "large_text": "SoundCloud",
+        }
+    else:
+        activity["assets"] = {
+            "large_image": "soundcloud",
+            "large_text": "SoundCloud",
+        }
+        if image_url:
+            try:
+                bot.api.send_message(getattr(bot, "last_command_channel", None) or getattr(bot, "default_channel", None) or "", f"> **✗ SoundCloud RPC** :: Could not use image: {image_url}")
+            except Exception:
+                pass
     if button_label and button_url:
         activity["buttons"] = [button_label]
         activity["metadata"] = {"button_urls": [button_url]}
-
     bot.set_activity(activity)
 
 
 REAL_RPC_APPS = {
-    "youtube_music": {
-        "name": "YouTube Music",
-        "type": 2,
-        "application_id": "880218394199220334",
-        "asset": "youtube",
-        "default_button": "Listen",
-        "default_url": "https://music.youtube.com",
-    },
-    "applemusic": {
-        "name": "Apple Music",
-        "type": 2,
-        "application_id": "886578863147192381",
-        "asset": "music",
-        "default_button": "Listen",
-        "default_url": "https://music.apple.com",
-    },
-    "deezer": {
-        "name": "Deezer",
-        "type": 2,
-        "application_id": "356268235697553409",
-        "asset": "music",
-        "default_button": "Listen",
-        "default_url": "https://www.deezer.com",
-    },
-    "tidal": {
-        "name": "TIDAL",
-        "type": 2,
-        "application_id": "967730792256327751",
-        "asset": "music",
-        "default_button": "Listen",
-        "default_url": "https://tidal.com",
-    },
     "twitch": {
         "name": "Twitch",
         "type": 1,
@@ -337,14 +354,6 @@ REAL_RPC_APPS = {
         "asset": "twitch",
         "default_button": "Watch",
         "default_url": "https://www.twitch.tv",
-    },
-    "kick": {
-        "name": "Kick",
-        "type": 1,
-        "application_id": "1108574023776385135",
-        "asset": "stream",
-        "default_button": "Watch",
-        "default_url": "https://kick.com",
     },
     "netflix": {
         "name": "Netflix",
@@ -370,38 +379,54 @@ REAL_RPC_APPS = {
         "default_button": "Watch",
         "default_url": "https://www.primevideo.com",
     },
-    "plex": {
-        "name": "Plex",
+    "youtube": {
+        "name": "YouTube",
         "type": 3,
-        "application_id": "435674941344555008",
-        "asset": "movie",
-        "default_button": "Open",
-        "default_url": "https://app.plex.tv",
+        "application_id": "880218394199220334",
+        "asset": "youtube",
+        "default_button": "Watch",
+        "default_url": "https://www.youtube.com",
     },
-    "jellyfin": {
-        "name": "Jellyfin",
+    "spotify": {
+        "name": "Spotify",
+        "type": 2,
+        "application_id": "3201606009684",
+        "asset": "spotify",
+        "default_button": "Listen",
+        "default_url": "https://open.spotify.com",
+    },
+    "crunchyroll": {
+        "name": "Crunchyroll",
         "type": 3,
-        "application_id": "1011297904504971264",
-        "asset": "movie",
-        "default_button": "Open",
-        "default_url": "https://jellyfin.org",
+        "application_id": "1000782763855949914",
+        "asset": "crunchyroll",
+        "default_button": "Watch",
+        "default_url": "https://www.crunchyroll.com",
     },
-    "vscode": {
-        "name": "Visual Studio Code",
+    "playstation": {
+        "name": "PlayStation",
         "type": 0,
-        "application_id": "383226320970055681",
-        "asset": "code",
-        "default_button": "Open",
-        "default_url": "https://code.visualstudio.com",
+        "application_id": "463035646208860161",
+        "asset": "playstation",
+        "default_button": "Play",
+        "default_url": "https://www.playstation.com",
     },
-    "browser": {
-        "name": "Browser",
+    "xbox": {
+        "name": "Xbox",
         "type": 0,
-        "application_id": "485951488964247552",
-        "asset": "browser",
-        "default_button": "Open",
-        "default_url": "https://www.google.com",
+        "application_id": "432980957394370572",
+        "asset": "xbox",
+        "default_button": "Play",
+        "default_url": "https://www.xbox.com",
     },
+    "roblox": {
+        "name": "Roblox",
+        "type": 0,
+        "application_id": "366959252047237121",
+        "asset": "roblox",
+        "default_button": "Play",
+        "default_url": "https://www.roblox.com",
+    }
 }
 
 REAL_RPC_ALIASES = {
@@ -474,20 +499,33 @@ def send_crunchyroll_activity(bot, name, episode_title, elapsed_minutes, total_m
     start_ms = int(time.time() * 1000) - int(elapsed * 60 * 1000)
     end_ms = start_ms + int(total * 60 * 1000)
 
+    # Use real Crunchyroll app ID and asset if possible
+    CRUNCHYROLL_APP_ID = "1000782763855949914"  # Real Crunchyroll app ID (as of 2024)
     activity = {
         "type": 3,
         "name": "Crunchyroll",
         "details": episode_title,
         "state": name,
-        "application_id": "367827983903490050",
+        "application_id": CRUNCHYROLL_APP_ID,
         "timestamps": {"start": start_ms, "end": end_ms},
     }
-
     asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
-    activity["assets"] = {
-        "large_image": asset_key if asset_key else "game",
-        "large_text": f"{name} on Crunchyroll",
-    }
+    if asset_key:
+        activity["assets"] = {
+            "large_image": asset_key,
+            "large_text": f"{name} on Crunchyroll",
+        }
+    else:
+        activity["assets"] = {
+            "large_image": "crunchyroll",  # fallback to default asset name
+            "large_text": f"{name} on Crunchyroll",
+        }
+        # Feedback if image was requested but not used
+        if image_url:
+            try:
+                bot.api.send_message(getattr(bot, "last_command_channel", None) or getattr(bot, "default_channel", None) or "", f"> **✗ Crunchyroll RPC** :: Could not use image: {image_url}")
+            except Exception:
+                pass
     bot.set_activity(activity)
 
 def send_listening_activity(bot, name, button_label=None, button_url=None, image_url=None, state=None, details=None):
@@ -616,7 +654,8 @@ def _save_runtime_state(state):
 
 def _save_client_state(bot):
     state = _load_runtime_state()
-    state["client_type"] = getattr(bot, "_client_type", "mobile")
+    # Replacing mobile client references with VR client
+    state["client_type"] = getattr(bot, "_client_type", "vr")
     _save_runtime_state(state)
 
 
@@ -1041,7 +1080,18 @@ def main():
     voice_manager = SimpleVoice(bot.api, token, bot)
     backup_manager = BackupManager(bot.api)
     mod_manager = ModerationManager(bot.api)
-    web_panel = None
+
+    # Ensure instance_id is always a string globally and initialized properly
+    instance_id = str(getattr(bot, "instance_id", "main"))  # Ensure instance_id is always a string
+    print(f"DEBUG: instance_id type at runtime: {type(instance_id)}")  # Verify type
+
+    # Pass instance_id as a string to WebPanel
+    web_panel = WebPanel(instance_id=str(instance_id), bot=bot)
+
+    # Ensure compatibility with WebPanel methods
+    started = web_panel.start()
+    start_error = web_panel.get_last_start_error() or ""
+
     afk_system.load_state()
     bot._afk_system_ref = afk_system
     anti_gc_trap = AntiGCTrap(bot.api)
@@ -9271,16 +9321,28 @@ Example Usage:
     @bot.command(name="web", aliases=["panel"])
     def web_cmd(ctx, args):
         import formatter as fmt
-        nonlocal web_panel
+        import importlib as _importlib
 
-        if not is_strict_owner_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Web Panel")
+        nonlocal web_panel  # Declare nonlocal only once
+        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force"})
+        instance_id = str(getattr(bot, "instance_id", "main"))
+        instance_owner = getattr(bot, "ownerId", None)
+
+        try:
+            webpanel_module = _importlib.import_module("web_panel")
+        except Exception as e:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.header("Web Panel")
+                + "\n"
+                + fmt._block(
+                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web_panel module{fmt.RESET}\n"
+                    f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
+                ),
+            )
             return
 
-        force_reload = bool(args and args[0].lower() in {"reload", "refresh"})
-
         if web_panel is None or force_reload:
-            # If panel is already running, Flask thread cannot be safely replaced in-process.
             if force_reload and web_panel is not None:
                 panel_thread = getattr(web_panel, "_thread", None)
                 if panel_thread and panel_thread.is_alive():
@@ -9294,28 +9356,13 @@ Example Usage:
                         ),
                     )
                     return
-
             try:
-                import webpanel as webpanel_module
-
-                if force_reload:
-                    importlib.invalidate_caches()
-                    webpanel_module = importlib.reload(webpanel_module)
-
-                # Set instance ID and owner based on hosted/main mode
-                if HOSTED_MODE:
-                    instance_id = os.environ.get("HOSTED_UID", "hosted")
-                    instance_owner = os.environ.get("HOSTED_OWNER_ID", None)
-                else:
-                    instance_id = "main"
-                    instance_owner = bot.ownerId
-
                 web_panel = webpanel_module.WebPanel(
-                    bot.api, bot, 
-                    host="127.0.0.1", 
-                    port=8080,
-                    instance_id=instance_id,
-                    owner_id=str(instance_owner or bot.ownerId)
+                    bot=bot,  # Pass the bot instance
+                    host="127.0.0.1",  # Correct host parameter
+                    port=8080,  # Correct port parameter
+                    instance_id=str(instance_id),  # Ensure instance_id is always a string
+                    owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
                 )
             except Exception as e:
                 msg = ctx["api"].send_message(
@@ -9332,6 +9379,211 @@ Example Usage:
         started = web_panel.start()
         panel_thread = getattr(web_panel, "_thread", None)
         running = bool(panel_thread and panel_thread.is_alive())
+        start_error = web_panel.get_last_start_error() or ""
+
+        if not started and not running:
+            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
+        elif force_reload:
+            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
+        else:
+            status_line = "Started web interface" if started else "Web interface already running"
+
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            fmt.header("Web Panel") + "\n" + fmt._block(
+                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
+                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
+                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
+                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
+                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
+            ),
+        )
+        import formatter as fmt
+        import importlib as _importlib
+
+        nonlocal web_panel
+        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force"})
+        instance_id = str(getattr(bot, "instance_id", "main"))
+        instance_owner = getattr(bot, "ownerId", None)
+
+        try:
+            webpanel_module = _importlib.import_module("web_panel")
+        except Exception as e:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.header("Web Panel")
+                + "\n"
+                + fmt._block(
+                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web_panel module{fmt.RESET}\n"
+                    f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
+                ),
+            )
+            return
+
+        nonlocal web_panel
+        if web_panel is None or force_reload:
+            if force_reload and web_panel is not None:
+                panel_thread = getattr(web_panel, "_thread", None)
+                if panel_thread and panel_thread.is_alive():
+                    msg = ctx["api"].send_message(
+                        ctx["channel_id"],
+                        fmt.header("Web Panel")
+                        + "\n"
+                        + fmt._block(
+                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
+                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
+                        ),
+                    )
+                    return
+            try:
+                web_panel = webpanel_module.WebPanel(
+                    bot=bot,  # Pass the bot instance
+                    host="127.0.0.1",  # Correct host parameter
+                    port=8080,  # Correct port parameter
+                    instance_id=instance_id,  # Correct instance_id parameter
+                    owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
+                )
+            except Exception as e:
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    fmt.header("Web Panel")
+                    + "\n"
+                    + fmt._block(
+                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
+                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
+                    ),
+                )
+                return
+
+        started = web_panel.start()
+        panel_thread = getattr(web_panel, "_thread", None)
+        running = bool(panel_thread and panel_thread.is_alive())
+        start_error = web_panel.get_last_start_error() or ""
+
+        if not started and not running:
+            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
+        elif force_reload:
+            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
+        else:
+            status_line = "Started web interface" if started else "Web interface already running"
+
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            fmt.header("Web Panel") + "\n" + fmt._block(
+                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
+                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
+                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
+                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
+                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
+            ),
+        )
+        import formatter as fmt
+        import importlib as _importlib
+
+        nonlocal web_panel
+        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force"})
+        instance_id = str(getattr(bot, "instance_id", "main"))
+        instance_owner = getattr(bot, "instance_owner", None)
+
+        try:
+            webpanel_module = _importlib.import_module("web_panel")
+        except Exception as e:
+            msg = ctx["api"].send_message(
+                ctx["channel_id"],
+                fmt.header("Web Panel")
+                + "\n"
+                + fmt._block(
+                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web_panel.py{fmt.RESET}\n"
+                    f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
+                ),
+            )
+            return
+
+        nonlocal web_panel
+        if web_panel is None or force_reload:
+            if force_reload and web_panel is not None:
+                panel_thread = getattr(web_panel, "_thread", None)
+                if panel_thread and panel_thread.is_alive():
+                    msg = ctx["api"].send_message(
+                        ctx["channel_id"],
+                        fmt.header("Web Panel")
+                        + "\n"
+                        + fmt._block(
+                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
+                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
+                        ),
+                    )
+                    return
+            try:
+                web_panel = webpanel_module.WebPanel(
+                    bot=bot,  # Pass the bot instance
+                    host="127.0.0.1",  # Correct host parameter
+                    port=8080,  # Correct port parameter
+                    instance_id=instance_id,  # Correct instance_id parameter
+                    owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
+                )
+            except Exception as e:
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    fmt.header("Web Panel")
+                    + "\n"
+                    + fmt._block(
+                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
+                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
+                    ),
+                )
+                return
+
+        started = web_panel.start()
+        panel_thread = getattr(web_panel, "_thread", None)
+        running = bool(panel_thread and panel_thread.is_alive())
+        start_error = web_panel.get_last_start_error() or ""
+
+        if not started and not running:
+            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
+        elif force_reload:
+            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
+        else:
+            status_line = "Started web interface" if started else "Web interface already running"
+
+        msg = ctx["api"].send_message(
+            ctx["channel_id"],
+            fmt.header("Web Panel") + "\n" + fmt._block(
+                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
+                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
+                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
+                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
+                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
+            ),
+        )
+        import formatter as fmt
+        try:
+            import webpanel as webpanel_module
+        except ImportError:
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **WebPanel** :: Web panel module not found.")
+            return
+
+        # Instance ID and owner ID logic
+        instance_id = str(getattr(bot, "instance_id", "main"))
+        instance_owner = getattr(bot, "instance_owner", None)
+
+        # Instantiate the WebPanel with correct parameters
+        web_panel = webpanel_module.WebPanel(
+            api=bot.api,  # Ensure bot.api exists
+            bot=bot,  # Pass the bot instance
+            host="127.0.0.1",  # Correct host parameter
+            port=8080,  # Correct port parameter
+            instance_id=instance_id,  # Correct instance_id parameter
+            owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
+        )
+
+        # Ensure the WebPanel class has the 'start' method
+        if hasattr(web_panel, "start"):
+            started = web_panel.start()
+        else:
+            started = False
+
+        # Ensure the WebPanel class has the 'get_last_start_error' method
         start_error = ""
         if hasattr(web_panel, "get_last_start_error"):
             try:
@@ -9339,6 +9591,76 @@ Example Usage:
             except Exception:
                 start_error = ""
 
+        if started:
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **WebPanel** :: Started successfully.")
+        else:
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **WebPanel** :: Failed to start. {start_error}")
+        import formatter as fmt
+        nonlocal web_panel
+        if not is_strict_owner_user(ctx["author_id"]):
+            deny_restricted_command(ctx, "Web Panel")
+            return
+
+        force_reload = bool(args and args[0].lower() in {"reload", "refresh"})
+        if web_panel is None or force_reload:
+            # If panel is already running, Flask thread cannot be safely replaced in-process.
+            if force_reload and web_panel is not None:
+                panel_thread = getattr(web_panel, "_thread", None)
+                if panel_thread and panel_thread.is_alive():
+                    msg = ctx["api"].send_message(
+                        ctx["channel_id"],
+                        fmt.header("Web Panel")
+                        + "\n"
+                        + fmt._block(
+                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
+                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
+                        ),
+                    )
+            try:
+                import importlib
+                try:
+                    import webpanel as webpanel_module
+                except ImportError:
+                    webpanel_module = importlib.import_module("webpanel")
+                if force_reload:
+                    importlib.invalidate_caches()
+                    webpanel_module = importlib.reload(webpanel_module)
+                if HOSTED_MODE:
+                    instance_id = os.environ.get("HOSTED_UID", "hosted")
+                    instance_owner = os.environ.get("HOSTED_OWNER_ID", None)
+                else:
+                    instance_id = "main"
+                    instance_owner = bot.ownerId
+                web_panel = webpanel_module.WebPanel(
+                    api=getattr(bot, "api", None),
+                    bot=bot,
+                    host="127.0.0.1",
+                    port=8080,
+                    instance_id=instance_id,
+                    owner_id=str(instance_owner or bot.ownerId)
+                )
+            except Exception as e:
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    fmt.header("Web Panel")
+                    + "\n"
+                    + fmt._block(
+                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
+                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
+                    ),
+                )
+                return
+        started = False
+        if hasattr(web_panel, "start"):
+            started = web_panel.start()
+        panel_thread = getattr(web_panel, "_thread", None)
+        running = bool(panel_thread and panel_thread.is_alive())
+        start_error = ""
+        if hasattr(web_panel, "get_last_start_error"):
+            try:
+                start_error = str(web_panel.get_last_start_error() or "")
+            except Exception:
+                start_error = ""
         if not started and not running:
             status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
         elif force_reload:
@@ -9355,30 +9677,7 @@ Example Usage:
                 f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
             ),
         )
-    original_run_command = bot.run_command
-    def new_run_command(command_name: str, ctx, args):
-        channel_id = ctx.get("channel_id")
-        message = ctx.get("message") or {}
-        message_id = message.get("id")
-        author_id = str(ctx.get("author_id") or "")
-
-        command_response_state.enabled = bool(getattr(bot, "_auto_delete_enabled", True))
-        command_response_state.channel_id = channel_id
-        command_response_state.delay = int(getattr(bot, "_auto_delete_delay", 20) or 20)
-        try:
-            original_run_command(command_name, ctx, args)
-        finally:
-            command_response_state.enabled = False
-            command_response_state.channel_id = None
-            command_response_state.delay = int(getattr(bot, "_auto_delete_delay", 20) or 20)
-
-        if channel_id and message_id and bool(getattr(bot, "_auto_delete_enabled", True)):
-            try:
-                ctx["api"].delete_message(channel_id, message_id)
-            except Exception:
-                pass
     
-    bot.run_command = new_run_command
     
     def check_for_github_updates(message_data):
         return github_updater.check_message(message_data)

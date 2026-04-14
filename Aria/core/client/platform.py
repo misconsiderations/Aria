@@ -163,19 +163,19 @@ def load_instance_session(instance_file: str):
     return None
 
 
-def configtarget(uid: int = 0, username: str = None, instance_file: str = None, token: str = None) -> str:
+def configtarget(uid: int = 0, username: str = "", instance_file: str = "", token: str = "") -> str:
     resolved = resolve_instance_file(token=token, explicit_instance_file=instance_file)
     if resolved:
         return resolved
     return str(SHARED_CONFIG_PATH)
 
 
-def get_config_source(instance_file: str = None, token: str = None) -> str:
+def get_config_source(instance_file: str = "", token: str = "") -> str:
     resolved = resolve_instance_file(token=token, explicit_instance_file=instance_file)
     return "instance" if resolved else "developer"
 
 
-def container_client_loader(uid: int = 0, username: str = None, instance_file: str = None, token: str = None):
+def container_client_loader(uid: int = 0, username: str = "", instance_file: str = "", token: str = ""):
     path = configtarget(uid=uid, username=username, instance_file=instance_file, token=token)
     module = _load_module_from_path(path)
     if module is not None:
@@ -188,17 +188,15 @@ def container_client_loader(uid: int = 0, username: str = None, instance_file: s
 
     try:
         from core.shared.config import container as fallback_container
+    except ImportError:
+        fallback_container = None  # Graceful fallback for unresolved import
 
-        if getattr(fallback_container, "client", None):
-            return _coerce_session(getattr(fallback_container, "client"), "mobile")
-    except Exception as exc:
-        logger.debug("Failed to load shared client config: %s", exc)
-
-    runtime_client = _runtime_state().get("client_type")
-    return _coerce_session(runtime_client or "mobile", "mobile")
+    if fallback_container and getattr(fallback_container, "client", None):
+        return _coerce_session(getattr(fallback_container, "client"), "mobile")
+    return _coerce_session("vr", "vr")
 
 
-def container_state_loader(uid: int = 0, username: str = None, instance_file: str = None, token: str = None):
+def container_state_loader(uid: int = 0, username: str = "", instance_file: str = "", token: str = ""):
     path = configtarget(uid=uid, username=username, instance_file=instance_file, token=token)
     module = _load_module_from_path(path)
     if module is not None:
@@ -210,13 +208,12 @@ def container_state_loader(uid: int = 0, username: str = None, instance_file: st
             return _coerce_session(getattr(session, "state"), "online")
 
     try:
-        from core.shared.config import container as fallback_container
+        from .shared.config import container as fallback_container
+    except ImportError:
+        fallback_container = None  # Graceful fallback for unresolved import
 
-        if getattr(fallback_container, "state", None):
-            return _coerce_session(getattr(fallback_container, "state"), "online")
-    except Exception as exc:
-        logger.debug("Failed to load shared state config: %s", exc)
-
+    if fallback_container and getattr(fallback_container, "state", None):
+        return _coerce_session(getattr(fallback_container, "state"), "online")
     return _coerce_session("online", "online")
 
 
@@ -245,21 +242,21 @@ def build_identify_payload(token: str, client_type: str, status: str = "online",
     }
 
 
-def client_identify(instance_file: str = None, bot: Any = None, token: str = None):
-    client_session = container_client_loader(instance_file=instance_file, token=token or getattr(bot, "token", None))
+def client_identify(instance_file: str = "", bot: Any = None, token: str = ""):
+    client_session = container_client_loader(instance_file=instance_file, token=str(token or getattr(bot, "token", "default_token")))
     resolved = normalize_client_type(getattr(client_session, "device", "mobile"))
     if bot is not None and getattr(client_session, "enabled", True):
         bot._client_type = resolved
-    logger.info("Platform client identify resolved: device=%s source=%s", resolved, get_config_source(instance_file, token or getattr(bot, "token", None)))
+    logger.info("Platform client identify resolved: device=%s source=%s", resolved, get_config_source(instance_file, str(token or getattr(bot, "token", "default_token"))))
     return resolved
 
 
-def state_identify(instance_file: str = None, bot: Any = None, token: str = None):
-    state_session = container_state_loader(instance_file=instance_file, token=token or getattr(bot, "token", None))
+def state_identify(instance_file: str = "", bot: Any = None, token: str = ""):
+    state_session = container_state_loader(instance_file=instance_file, token=str(token or getattr(bot, "token", "default_token")))
     resolved = normalize_status(getattr(state_session, "device", "online"))
     if bot is not None and getattr(state_session, "enabled", True):
         bot._current_status = resolved
-    logger.info("Platform state identify resolved: status=%s source=%s", resolved, get_config_source(instance_file, token or getattr(bot, "token", None)))
+    logger.info("Platform state identify resolved: status=%s source=%s", resolved, get_config_source(instance_file, str(token or getattr(bot, "token", "default_token"))))
     return resolved
 
 

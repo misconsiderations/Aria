@@ -1,6 +1,7 @@
 import os
 import sys
 from datetime import datetime
+from typing import Optional
 
 
 class TeeStream:
@@ -51,7 +52,7 @@ class StructuredLogger:
     def __init__(self, log_file=None):
         self.log_file = log_file
     
-    def log(self, category: str, message: str, error: Exception = None):
+    def log(self, category: str, message: str, error: Optional[Exception] = None):
         """Log with category prefix"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         color = self.CATEGORIES.get(category, "\033[1;37m")
@@ -71,25 +72,25 @@ class StructuredLogger:
             except Exception:
                 pass
     
-    def gateway(self, message: str, error: Exception = None):
+    def gateway(self, message: str, error: Optional[Exception] = None):
         self.log("GATEWAY", message, error)
     
-    def history(self, message: str, error: Exception = None):
+    def history(self, message: str, error: Optional[Exception] = None):
         self.log("HISTORY", message, error)
     
-    def custom(self, message: str, error: Exception = None):
+    def custom(self, message: str, error: Optional[Exception] = None):
         self.log("CUSTOM", message, error)
     
-    def host(self, message: str, error: Exception = None):
+    def host(self, message: str, error: Optional[Exception] = None):
         self.log("HOST", message, error)
     
-    def rpc(self, message: str, error: Exception = None):
+    def rpc(self, message: str, error: Optional[Exception] = None):
         self.log("RPC", message, error)
     
-    def main(self, message: str, error: Exception = None):
+    def main(self, message: str, error: Optional[Exception] = None):
         self.log("MAIN", message, error)
     
-    def error(self, message: str, exc: Exception = None):
+    def error(self, message: str, exc: Optional[Exception] = None):
         self.log("ERROR", message, exc)
     
     def warning(self, message: str):
@@ -116,6 +117,6 @@ def setup_file_logger(base_dir=None):
     original_stderr = sys.stderr
     sys.stdout = TeeStream(original_stdout, log_file)
     sys.stderr = TeeStream(original_stderr, log_file)
-    sys._aria_file_logger_enabled = True
-    sys._aria_log_path = log_path
+    setattr(sys, "_aria_file_logger_enabled", True)
+    setattr(sys, "_aria_log_path", log_path)
     return log_path

@@ -1,3 +1,73 @@
+// ── User Profile Loader ──
+async function loadUserProfile() {
+    fetchJSON('/api/max/user-profile').then(data => {
+        if (!data || !data.ok) return;
+        setText('profileUsername', data.username || '—');
+        setText('profileUserId', data.user_id || '—');
+        setText('profileStatus', data.status || '—');
+        setText('profileCustomStatus', data.custom_status || '');
+        setText('profileRPC', data.rpc || '');
+        const avatar = document.getElementById('profileAvatar');
+        if (avatar && data.avatar_url) avatar.src = data.avatar_url;
+        // Badges
+        const badgeWrap = document.getElementById('profileBadges');
+        if (badgeWrap) {
+            badgeWrap.innerHTML = '';
+            (data.badges || []).forEach(badge => {
+                const span = document.createElement('span');
+                span.className = 'profile-badge';
+                span.title = badge.name;
+                span.innerHTML = badge.icon;
+                badgeWrap.appendChild(span);
+            });
+        }
+    });
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    loadUserProfile();
+});
+// ── Sidebar Toggle (Mobile) ──
+const sidebarToggle = document.getElementById('sidebarToggle');
+const sidebar = document.querySelector('.sidebar');
+const mainContent = document.querySelector('.main-content');
+if (sidebarToggle && sidebar && mainContent) {
+    sidebarToggle.addEventListener('change', () => {
+        if (sidebarToggle.checked) {
+            sidebar.style.left = '-240px';
+            mainContent.style.marginLeft = '0';
+        } else {
+            sidebar.style.left = '';
+            mainContent.style.marginLeft = '';
+        }
+    });
+}
+
+// ── Overview Quick Stats Loader ──
+async function loadOverviewQuick() {
+    // Version info
+    fetchJSON('/api/max/version-info').then(data => {
+        setText('quickBotVersion', data?.version || '—');
+        setText('quickGit', data?.git || '—');
+    });
+    // Python env
+    fetchJSON('/api/max/python-env').then(data => {
+        setText('quickPython', data?.python || '—');
+        setText('quickPlatform', data?.platform || '—');
+    });
+    // MOTD
+    fetchJSON('/api/max/motd').then(data => {
+        setText('quickMotd', data?.motd || '—');
+    });
+    // Quote
+    fetchJSON('/api/max/quote').then(data => {
+        setText('quickQuote', data?.quote || '—');
+    });
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    loadOverviewQuick();
+});
 // ── Navigation ────────────────────────────────────────────────────────────────
 const navItems = document.querySelectorAll('.nav-item');
 const sections = document.querySelectorAll('.section');
@@ -565,6 +635,169 @@ function loadSection(name) {
     if (name === 'logs')      loadLogs();
     if (name === 'users')     loadDashUsers();
     if (name === 'settings')  loadSettings();
+    if (name === 'system')    loadSystemStats();
+    if (name === 'cmdbreakdown') loadCommandBreakdown();
+    if (name === 'errors')    loadErrorLogs();
+    if (name === 'leaderboard') loadLeaderboard();
+    if (name === 'serverinfo') loadServerInfo();
+    if (name === 'activitymap') loadActivityMap();
+    if (name === 'notifications') loadNotifications();
+    if (name === 'advanced-analytics') loadAdvancedAnalytics();
+    if (name === 'widgets')   loadWidgets();
+}
+
+// ── Maximalist Dashboard Panel Loaders ─────────────────────────────────────
+async function loadSystemStats() {
+    const res = await fetchJSON('/api/max/system-stats');
+    setText('cpuUsage', res && res.cpu != null ? res.cpu + '%' : '—');
+    setText('ramUsage', res && res.ram != null ? res.ram + '%' : '—');
+    setText('diskUsage', res && res.disk != null ? res.disk + '%' : '—');
+    setText('netUsage', res && res.net ? `↑${Math.round(res.net.sent/1024)}KB ↓${Math.round(res.net.recv/1024)}KB` : '—');
+    // Timeline chart (placeholder: random walk)
+    const canvas = document.getElementById('resourceTimeline');
+    if (canvas) {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        ctx.beginPath();
+        for (let i=0; i<56; ++i) {
+            const y = 50 + 8*Math.sin(i/3 + Date.now()/4000);
+            ctx.lineTo(10+i*10, y);
+        }
+        ctx.strokeStyle = '#06b6d4';
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+    }
+}
+
+async function loadCommandBreakdown() {
+    const res = await fetchJSON('/api/max/command-breakdown');
+    // Pie chart
+    const pie = document.getElementById('cmdPie');
+    if (pie && res && res.pie) {
+        const ctx = pie.getContext('2d');
+        ctx.clearRect(0,0,pie.width,pie.height);
+        const data = res.pie;
+        const total = data.reduce((a,b)=>a+b.count,0)||1;
+        let start = 0;
+        data.forEach((c,i) => {
+            const val = c.count/total;
+            ctx.beginPath();
+            ctx.moveTo(130,90);
+            ctx.arc(130,90,80,start,start+val*2*Math.PI);
+            ctx.closePath();
+            ctx.fillStyle = ['#8b5cf6','#ec4899','#06b6d4','#10b981','#f59e0b','#ef4444'][i%6];
+            ctx.fill();
+            start += val*2*Math.PI;
+        });
+    }
+    // Bar chart
+    const bar = document.getElementById('cmdBar');
+    if (bar && res && res.bar) {
+        const ctx = bar.getContext('2d');
+        ctx.clearRect(0,0,bar.width,bar.height);
+        const cats = Object.entries(res.bar);
+        const max = Math.max(1, ...cats.map(c=>c[1]));
+        cats.forEach((c,i) => {
+            ctx.fillStyle = ['#8b5cf6','#ec4899','#06b6d4','#10b981','#f59e0b','#ef4444'][i%6];
+            ctx.fillRect(30+i*50, 170-(c[1]/max)*140, 36, (c[1]/max)*140);
+            ctx.fillStyle = '#fff';
+            ctx.font = '13px sans-serif';
+            ctx.fillText(c[0], 30+i*50, 175);
+        });
+    }
+}
+
+async function loadErrorLogs() {
+    const res = await fetchJSON('/api/max/errors');
+    const feed = document.getElementById('errorFeed');
+    if (!feed) return;
+    if (!res || !res.errors || res.errors.length === 0) {
+        feed.innerHTML = '<div class="log-loading">No errors found.</div>';
+        return;
+    }
+    feed.innerHTML = res.errors.slice().reverse().map(e => `<div class="history-item"><div class="history-dot"></div><div class="history-content"><div class="history-raw">${esc(e)}</div></div></div>`).join('');
+}
+
+async function loadLeaderboard() {
+    const res = await fetchJSON('/api/max/leaderboard');
+    const tbody = document.getElementById('leaderboardBody');
+    if (!tbody) return;
+    if (!res || !res.leaderboard || res.leaderboard.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3">No data</td></tr>';
+        return;
+    }
+    tbody.innerHTML = res.leaderboard.map(u => `<tr><td>${esc(u.username)}</td><td>${u.count}</td><td>${fmtTs(u.last_seen_at)}</td></tr>`).join('');
+}
+
+async function loadServerInfo() {
+    const res = await fetchJSON('/api/max/server-info');
+    const g = res && res.guild || {};
+    setText('guildName', g.name || '—');
+    setText('guildId', g.id || '—');
+    setText('guildMembers', g.members || '—');
+    setText('guildRegion', g.region || '—');
+}
+
+async function loadActivityMap() {
+    const res = await fetchJSON('/api/max/activity-map');
+    // Timeline
+    const timeline = res && res.timeline || [];
+    const tcanvas = document.getElementById('activityTimeline');
+    if (tcanvas) {
+        const ctx = tcanvas.getContext('2d');
+        ctx.clearRect(0,0,tcanvas.width,tcanvas.height);
+        ctx.beginPath();
+        timeline.forEach((v,i) => {
+            const x = 20+i*24;
+            const y = 50-(v/Math.max(1,...timeline))*40;
+            if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        });
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+    }
+    // Heatmap
+    const heatmap = res && res.heatmap || [];
+    const hcanvas = document.getElementById('activityHeatmap');
+    if (hcanvas) {
+        const ctx = hcanvas.getContext('2d');
+        ctx.clearRect(0,0,hcanvas.width,hcanvas.height);
+        for (let h=0; h<24; ++h) for (let d=0; d<7; ++d) {
+            const v = heatmap[h] && heatmap[h][d] || 0;
+            ctx.fillStyle = `rgba(139,92,246,${0.08+0.7*(v/Math.max(1,...heatmap.flat()))})`;
+            ctx.fillRect(20+d*80, 5+h*5, 70, 4);
+        }
+    }
+}
+
+async function loadNotifications() {
+    const res = await fetchJSON('/api/max/notifications');
+    const feed = document.getElementById('notificationFeed');
+    if (!feed) return;
+    if (!res || !res.events || res.events.length === 0) {
+        feed.innerHTML = '<div class="log-loading">No notifications.</div>';
+        return;
+    }
+    feed.innerHTML = res.events.map(ev => `<div class="history-item"><div class="history-dot"></div><div class="history-content"><span class="history-cmd">${esc(ev.action||'event')}</span><div class="history-meta">${esc(ev.user||'')} · ${fmtTs(ev.ts)}</div><div class="history-raw">${esc(ev.details||'')}</div></div></div>`).join('');
+}
+
+async function loadAdvancedAnalytics() {
+    const res = await fetchJSON('/api/max/advanced-analytics');
+    setText('advSuccessRate', res && res.success_rate != null ? res.success_rate+'%' : '—');
+    setText('advAvgLatency', res && res.avg_latency != null ? res.avg_latency+'ms' : '—');
+    setText('advFailures', res && res.failures != null ? res.failures : '—');
+    setText('advLongestCmd', res && res.longest_cmd != null ? res.longest_cmd+'ms' : '—');
+}
+
+async function loadWidgets() {
+    const grid = document.getElementById('widgetGrid');
+    if (!grid) return;
+    const res = await fetchJSON('/api/max/widgets');
+    if (!res || !res.widgets) {
+        grid.innerHTML = '<div class="log-loading">No widgets found.</div>';
+        return;
+    }
+    grid.innerHTML = res.widgets.map(w => `<div class="widget-card">${esc(w.name)}</div>`).join('');
 }
 
 // ── RPC ───────────────────────────────────────────────────────────────────────
