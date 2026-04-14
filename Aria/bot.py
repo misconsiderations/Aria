@@ -544,11 +544,13 @@ class DiscordBot:
                 "leavevoice": "vce",
             }.get(cmd_name, cmd_name)
 
-            # Define ctx before usage
+
+            # Define ctx before usage, always include api
             ctx = {
-                "author_id": "unknown",
-                "guild_id": "unknown",
-                "channel_id": "unknown",
+                "author_id": author_id,
+                "guild_id": guild_id,
+                "channel_id": channel_id,
+                "api": self.api,
             }
 
             # Ensure cmd_name is always a string

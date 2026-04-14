@@ -207,8 +207,9 @@ def container_state_loader(uid: int = 0, username: str = "", instance_file: str 
         if session is not None and getattr(session, "state", None):
             return _coerce_session(getattr(session, "state"), "online")
 
+
     try:
-        from .shared.config import container as fallback_container
+        from core.shared.config import container as fallback_container
     except ImportError:
         fallback_container = None  # Graceful fallback for unresolved import
 
