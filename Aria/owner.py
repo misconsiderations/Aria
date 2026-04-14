@@ -23,7 +23,7 @@ class BotCustomizer:
             "backup_interval": 3600
         }
         
-        self.theme_custom_id = "ui_theme_customization_297588166653902849_scheme"
+        self.theme_custom_id = "ui_theme_customization_299182971213316107_scheme"
         self.active_customizations = []
         self.terminal_emulation = False
         self.color_palette = {

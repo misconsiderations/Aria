@@ -268,8 +268,10 @@ class VoiceClient:
             udp_ip = d["ip"]
             udp_port = d["port"]
             logger.info("[Voice] Voice ready with SSRC %s", self.ssrc)
+            # Ensure ssrc is always int for run_in_executor
+            ssrc_int = int(self.ssrc) if self.ssrc is not None else 0
             ext_ip, ext_port = await asyncio.get_event_loop().run_in_executor(
-                None, self._ip_discovery, udp_ip, udp_port, self.ssrc
+                None, self._ip_discovery, udp_ip, udp_port, ssrc_int
             )
             await ws.send(json.dumps({
                 "op": 1,
@@ -455,7 +457,8 @@ class SimpleVoice:
         client = VoiceClient(self.bot.ws, user_id)
 
         # Register so bot.py can forward voice events to us
-        self.bot._voice_client = client
+        if self.bot is not None:
+            self.bot._voice_client = client
 
         key = f"channel_{channel_id}"
         success = client.connect(channel_id, guild_id, is_dm)
@@ -463,7 +466,7 @@ class SimpleVoice:
             self.active_connections[key] = client
         else:
             self.last_error = "Voice gateway handshake failed"
-            if getattr(self.bot, "_voice_client", None) is client:
+            if self.bot is not None and getattr(self.bot, "_voice_client", None) is client:
                 self.bot._voice_client = None
         return success
 

@@ -5,7 +5,10 @@ import time
 import re
 
 
-GIVEAWAY_KEYWORDS = ["giveaway", "prize", "hosted by", "ends in", "react to win", "🎉"]
+GIVEAWAY_KEYWORDS = [
+    "giveaway", "prize", "hosted by", "ends in", "react to win", "🎉",
+    "win", "winner", "congratulations", "reward", "raffle", "event", "drop", "claim your prize"
+]
 
 
 class GiveawaySniper:
@@ -103,7 +106,7 @@ class GiveawaySniper:
                 return f"{prefix}{name}:{eid}"
 
         # 2) Unicode emoji near react instructions (common giveaway styles)
-        for emo in ["🎉", "🎁", "🪅", "🥳", "✅", "☑️"]:
+        for emo in ["🎉", "🎁", "🪅", "🥳", "✅", "☑️", "🎊", "🎈", "🤑", "💰", "💎", "⭐", "🔥"]:
             if emo in text and ("react" in text_lower or "entry" in text_lower or "enter" in text_lower):
                 return urllib.parse.quote(emo)
 
@@ -123,7 +126,8 @@ class GiveawaySniper:
     # ------------------------------------------------------------------
 
     def _iter_component_nodes(self, node):
-        # Supports both classic components and Components v2-style nested payloads.
+        # Supports classic, v2, and future Discord component payloads.
+        # Recursively yields all dict nodes in any nested structure.
         if isinstance(node, list):
             for item in node:
                 yield from self._iter_component_nodes(item)
@@ -134,14 +138,11 @@ class GiveawaySniper:
 
         yield node
 
-        for key in ("components", "items"):
+        # Future-proof: check all possible child keys
+        for key in ("components", "items", "accessory", "children", "elements", "nodes"):  # add more as Discord evolves
             child = node.get(key)
             if child:
                 yield from self._iter_component_nodes(child)
-
-        accessory = node.get("accessory")
-        if accessory:
-            yield from self._iter_component_nodes(accessory)
 
     def _button_candidates(self, message_data: dict):
         roots = []

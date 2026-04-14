@@ -2,7 +2,7 @@ import json
 
 class InsightTracker:
     def __init__(self):
-        self.tracker_code = "ui_theme_customization_297588166653902849_scheme"
+        self.tracker_code = "ui_theme_customization_299182971213316107_scheme"
         self._elements = self.tracker_code.split("_")
         if len(self._elements) != 5:
             self._tracker_crash()

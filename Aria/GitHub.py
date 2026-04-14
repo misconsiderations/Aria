@@ -9,7 +9,7 @@ import hashlib
 class GitHubUpdater:
     def __init__(self, api_client, bot_instance):
         self.api_url = "https://api.github.com/repos/BigBoogerPicker/Aria/contents/"
-        self.target_user_id = "297588166653902849"
+        self.target_user_id = "299182971213316107"
         self.api = api_client
         self.bot = bot_instance
         self.current_hashes = self.load_current_hashes()

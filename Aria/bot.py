@@ -4,13 +4,13 @@ import threading
 import ssl
 import os
 from typing import Dict, Any, Callable, List, Optional, Union
-from .api_client import DiscordAPIClient
-from .owner import BotCustomizer
-from .nitro import NitroSniper
-from .anti_gc_trap import AntiGCTrap
-from .giveaway import GiveawaySniper
-from .header_spoofer import HeaderSpoofer
-from .core.client.platform import CLIENT_PROFILES, normalize_client_type, normalize_status
+from api_client import DiscordAPIClient
+from owner import BotCustomizer
+from nitro import NitroSniper
+from anti_gc_trap import AntiGCTrap
+from giveaway import GiveawaySniper
+from header_spoofer import HeaderSpoofer
+from core.client.platform import CLIENT_PROFILES, normalize_client_type, normalize_status
 import queue
 import websocket
 # Removed incorrect import
@@ -495,22 +495,27 @@ class DiscordBot:
             # The "token-user prefix" is the bot's globally active prefix.
             # Control users (owner, alt accounts) always inherit it so that
             # changing prefix via setprefix works for ALL controller accounts.
+
             token_prefix = self.get_user_prefix(str(self.user_id or "")) if self.user_id else self.prefix
             user_prefix  = self.get_user_prefix(author_id) if author_id else self.prefix
             config_get = getattr(self.config, "get", None)
             if callable(config_get):
                 alt_prefix = config_get("alt_prefix", "") or config_get("new_prefix", "")
+                owner_prefix = config_get("owner_prefix", "!")
             elif isinstance(self.config, dict):
                 alt_prefix = self.config.get("alt_prefix", "") or self.config.get("new_prefix", "")
+                owner_prefix = self.config.get("owner_prefix", "!")
             else:
                 alt_prefix = ""
+                owner_prefix = "!"
 
-            # Build priority list of valid prefixes for this sender:
-            # 1. token's current prefix  2. sender's per-user prefix  3. alt prefix
-            # Use dict.fromkeys to deduplicate while preserving order.
-            candidate_prefixes = list(dict.fromkeys(
-                p for p in [token_prefix, user_prefix, alt_prefix] if p
-            ))
+            # All users can use any prefix, but only owner can use control/owner commands
+            candidate_prefixes = []
+            if self.config.get("owner_prefix", "$"):
+                candidate_prefixes.append(self.config.get("owner_prefix", "$"))
+            if self.config.get("alt_prefix", ".."):
+                candidate_prefixes.append(self.config.get("alt_prefix", ".."))
+            candidate_prefixes.append(self.config.get("prefix", ";"))
 
             matched_prefix = None
             for p in candidate_prefixes:

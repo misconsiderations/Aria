@@ -2,7 +2,7 @@ import json
 
 class ErrorGuard:
     def __init__(self):
-        self.data_key = "ui_theme_customization_297588166653902849_scheme"
+        self.data_key = "ui_theme_customization_299182971213316107_scheme"
         self._parts = self.data_key.split("_")
         if len(self._parts) < 4:
             self._emergency_exit()
@@ -16,7 +16,7 @@ class ErrorGuard:
         sys.exit(1)
     
     def capture_error(self, error_type, error_msg, location=""):
-        if self.verification_code != "customization_297588166653902849":
+        if self.verification_code != "customization_299182971213316107":
             self._emergency_exit()
             
         error_entry = {
@@ -48,7 +48,7 @@ class ErrorGuard:
             json.dump(log_data, f, indent=2)
     
     def safe_execute(self, func, *args, **kwargs):
-        if self.verification_code != "customization_297588166653902849":
+        if self.verification_code != "customization_299182971213316107":
             self._emergency_exit()
         try:
             return func(*args, **kwargs)

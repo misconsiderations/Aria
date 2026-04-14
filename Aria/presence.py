@@ -71,20 +71,17 @@ class Presence(commands.Cog):
         try:
             logger.debug(f"Fetching assets for application {application_id}")
             # Use the bot's HTTP handler which handles ratelimits properly
+            # Route is not public, so use the endpoint string directly
             assets = await self.bot.http.request(
-                discord.http.Route('GET', f'/oauth2/applications/{application_id}/assets')
+                'GET', f'/oauth2/applications/{application_id}/assets'
             )
-            
             # Cache the assets per application ID
             self.application_assets[application_id] = {
-                asset['name']: asset['id'] 
+                asset['name']: asset['id']
                 for asset in assets
             }
             logger.info(f"Fetched {len(self.application_assets[application_id])} assets for app {application_id}")
             return True
-            
-        except discord.HTTPException as e:
-            logger.error(f"Failed to fetch assets: {e}")
         except Exception as e:
             logger.error(f"Error fetching application assets: {e}", exc_info=True)
         return False
@@ -106,18 +103,20 @@ class Presence(commands.Cog):
             app_id = self.bot.config_manager.presence.get('application_id') if self.bot.config_manager.presence else None
             logger.debug(f"Registering external asset: {image_url[:50]}... for app {app_id}")
             data = await self.bot.http.request(
-                discord.http.Route('POST', f'/applications/{app_id}/external-assets'),
+                'POST', f'/applications/{app_id}/external-assets',
                 json={'urls': [image_url]}
             )
             if data and len(data) > 0:
                 logger.info(f"Registered external asset successfully")
                 return f"mp:{data[0]['external_asset_path']}"
             logger.error("Empty response when registering external asset")
-        except discord.HTTPException as e:
-            logger.error(f"Failed to register external asset: {e}")
         except Exception as e:
             logger.error(f"Error registering external asset: {e}", exc_info=True)
         return None
+    async def rotate_presence(self):
+        """Stub for rotating presence. Implement your logic here."""
+        logger.info("rotate_presence called (stub)")
+        await asyncio.sleep(60)
 
     def is_discord_url_expired(self, url: str, offset_hours: int = 3) -> bool:
         """Check if a Discord CDN/media URL is expired based on ex= hex timestamp."""
