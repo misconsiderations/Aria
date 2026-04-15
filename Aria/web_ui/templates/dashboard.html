@@ -5,13 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Aria x Stackss.lol — Dashboard</title>
     <link rel="icon" type="image/svg+xml" href="/static/images/aria-favicon.svg">
-    <link rel="shortcut icon" href="/favicon.ico">
+    <link rel="shortcut icon" type="image/svg+xml" href="/static/images/aria-favicon.svg">
     <link rel="apple-touch-icon" href="/static/images/aria-favicon.svg">
-    <link rel="mask-icon" href="/static/images/aria-favicon.svg" color="#8b5cf6">
     <link rel="stylesheet" href="/static/css/style.css">
-    <script src="/static/js/script.js"></script>
 </head>
 <body>
+    <!-- Particle canvas background -->
+    <canvas id="particleCanvas"></canvas>
+
+    <!-- Global loader -->
+    <div id="globalLoader">
+        <div class="loader-ring"></div>
+        <div class="loader-text">ARIA &mdash; Loading Dashboard&hellip;</div>
+    </div>
+
+    <!-- Premium toast notification host -->
+    <div id="premiumToastHost"></div>
+
     <div class="mascot-watermark" aria-hidden="true">
         <img src="/brand-image" alt="" loading="lazy" onerror="this.onerror=null;this.src='/static/images/aria-favicon.svg'">
     </div>
@@ -49,258 +59,58 @@
 
     <div class="main-content">
         <header class="topbar">
-            <h1 class="page-title-wrap"><img class="page-icon" src="/favicon.ico" alt="" loading="lazy" onerror="this.onerror=null;this.src='/static/images/aria-favicon.svg'"><span class="page-title" id="pageTitle">Overview</span></h1>
+            <div style="display:flex;align-items:center;gap:0">
+                <h1 class="page-title-wrap"><img class="page-icon" src="/static/images/aria-favicon.svg" alt="" loading="lazy"><span class="page-title" id="pageTitle">Overview</span></h1>
+                <div class="topbar-breadcrumb"><span>/</span><span id="topbarBreadcrumb" style="color:rgba(196,181,253,.6)">overview</span></div>
+            </div>
             <div class="topbar-right">
+                <div class="topbar-bell" id="topbarBell" title="Notifications">
+                    🔔
+                    <span class="topbar-bell-badge" id="bellBadge" style="display:none">0</span>
+                </div>
                 <div class="status-pill">
                     <div class="status-dot" id="globalStatus"></div>
-                    <span class="status-label" id="globalStatusLabel">Loading…</span>
+                    <span class="status-label" id="globalStatusLabel">Loading&hellip;</span>
+                </div>
+                <div class="topbar-user-chip" id="topbarUserChip" onclick="navigateTo('users')">
+                    <img class="topbar-user-avatar" id="topbarAvatar" src="/static/images/aria-favicon.svg" alt="">
+                    <span class="topbar-user-name" id="topbarUsername">&mdash;</span>
                 </div>
             </div>
         </header>
 
         <!-- ══════════════════════════════════════════════
-             OVERVIEW QUICK STATS & MOTD
-        ══════════════════════════════════════════════ -->
-        <section class="overview-quick">
-                    <!-- USER PROFILE PANEL -->
-                    <div class="profile-panel">
-                        <div class="profile-avatar-wrap">
-                            <img id="profileAvatar" class="profile-avatar" src="" alt="User avatar" onerror="this.src='/static/images/aria-favicon.svg'">
-                        </div>
-                        <div class="profile-main">
-                            <div class="profile-row">
-                                <span id="profileUsername" class="profile-username">Username</span>
-                                <span id="profileBadges" class="profile-badges"></span>
-                            </div>
-                            <div class="profile-row">
-                                <span id="profileUserId" class="profile-userid">User ID</span>
-                            </div>
-                            <div class="profile-row">
-                                <span id="profileStatus" class="profile-status">Status</span>
-                                <span id="profileCustomStatus" class="profile-custom-status"></span>
-                            </div>
-                            <div class="profile-row">
-                                <span id="profileRPC" class="profile-rpc"></span>
-                            </div>
-                        </div>
-                    </div>
-            <div class="quick-row">
-                <div class="quick-stat">
-                    <div class="quick-label">Bot Version</div>
-                    <div class="quick-value" id="quickBotVersion">—</div>
-                </div>
-                <div class="quick-stat">
-                    <div class="quick-label">Python</div>
-                    <div class="quick-value" id="quickPython">—</div>
-                </div>
-                <div class="quick-stat">
-                    <div class="quick-label">Platform</div>
-                    <div class="quick-value" id="quickPlatform">—</div>
-                </div>
-                <div class="quick-stat">
-                    <div class="quick-label">Git</div>
-                    <div class="quick-value" id="quickGit">—</div>
-                </div>
-            </div>
-            <div class="quick-row">
-                <div class="quick-motd" id="quickMotd">Loading MOTD…</div>
-                <div class="quick-quote" id="quickQuote">Loading quote…</div>
-            </div>
-        </section>
-
-        <!-- ══════════════════════════════════════════════
-             SYSTEM STATS (CPU, RAM, DISK, NETWORK)
-        ══════════════════════════════════════════════ -->
-        <section class="section" id="section-system">
-            <div class="section-header">
-                <div>
-                    <div class="section-title">System Stats</div>
-                    <div class="section-sub">Live server resource usage</div>
-                </div>
-            </div>
-            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(170px,1fr));margin-bottom:18px">
-                <div class="card"><div class="card-icon">🖥️</div><div class="card-label">CPU Usage</div><div class="card-value" id="cpuUsage">—</div></div>
-                <div class="card"><div class="card-icon">💾</div><div class="card-label">RAM Usage</div><div class="card-value" id="ramUsage">—</div></div>
-                <div class="card"><div class="card-icon">🗄️</div><div class="card-label">Disk Usage</div><div class="card-value" id="diskUsage">—</div></div>
-                <div class="card"><div class="card-icon">🌐</div><div class="card-label">Network</div><div class="card-value" id="netUsage">—</div></div>
-            </div>
-            <div class="live-metric-block" style="max-width:600px">
-                <div class="metric-title">Resource Usage Timeline</div>
-                <canvas id="resourceTimeline" width="560" height="60" style="width:100%;height:60px;"></canvas>
-            </div>
-        </section>
-
-        <!-- ══════════════════════════════════════════════
-             COMMAND BREAKDOWN (PIE/BAR CHARTS)
-        ══════════════════════════════════════════════ -->
-        <section class="section" id="section-cmdbreakdown">
-            <div class="section-header">
-                <div>
-                    <div class="section-title">Command Breakdown</div>
-                    <div class="section-sub">Top commands and usage distribution</div>
-                </div>
-            </div>
-            <div class="live-metric-block" style="max-width:600px">
-                <div class="metric-title">Top Commands (Pie)</div>
-                <canvas id="cmdPie" width="260" height="180" style="width:260px;height:180px;"></canvas>
-            </div>
-            <div class="live-metric-block" style="max-width:600px">
-                <div class="metric-title">Usage by Category (Bar)</div>
-                <canvas id="cmdBar" width="340" height="180" style="width:340px;height:180px;"></canvas>
-            </div>
-        </section>
-
-        <!-- ══════════════════════════════════════════════
-             ERROR & WARNING LOGS PANEL
-        ══════════════════════════════════════════════ -->
-        <section class="section" id="section-errors">
-            <div class="section-header">
-                <div>
-                    <div class="section-title">Error & Warning Logs</div>
-                    <div class="section-sub">Recent errors and warnings</div>
-                </div>
-            </div>
-            <div class="table-card">
-                <div class="table-header"><span class="table-title">Recent Errors</span></div>
-                <div class="history-feed" id="errorFeed"><div class="log-loading">Loading…</div></div>
-            </div>
-        </section>
-
-        <!-- ══════════════════════════════════════════════
-             USER LEADERBOARD
-        ══════════════════════════════════════════════ -->
-        <section class="section" id="section-leaderboard">
-            <div class="section-header">
-                <div>
-                    <div class="section-title">User Leaderboard</div>
-                    <div class="section-sub">Most active users (by commands run)</div>
-                </div>
-            </div>
-            <div class="table-card">
-                <div class="table-header"><span class="table-title">Leaderboard</span></div>
-                <table class="data-table">
-                    <thead><tr><th>User</th><th>Commands</th><th>Last Seen</th></tr></thead>
-                    <tbody id="leaderboardBody"><tr><td colspan="3">Loading…</td></tr></tbody>
-                </table>
-            </div>
-        </section>
-
-        <!-- ══════════════════════════════════════════════
-             SERVER/GUILD INFO PANEL
-        ══════════════════════════════════════════════ -->
-        <section class="section" id="section-serverinfo">
-            <div class="section-header">
-                <div>
-                    <div class="section-title">Server Info</div>
-                    <div class="section-sub">Current guild/server details</div>
-                </div>
-            </div>
-            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(170px,1fr));margin-bottom:18px">
-                <div class="card"><div class="card-icon">🏷️</div><div class="card-label">Guild Name</div><div class="card-value" id="guildName">—</div></div>
-                <div class="card"><div class="card-icon">🆔</div><div class="card-label">Guild ID</div><div class="card-value" id="guildId">—</div></div>
-                <div class="card"><div class="card-icon">👥</div><div class="card-label">Members</div><div class="card-value" id="guildMembers">—</div></div>
-                <div class="card"><div class="card-icon">🌍</div><div class="card-label">Region</div><div class="card-value" id="guildRegion">—</div></div>
-            </div>
-        </section>
-
-        <!-- ══════════════════════════════════════════════
-             TIMELINE / HEATMAP OF ACTIVITY
-        ══════════════════════════════════════════════ -->
-        <section class="section" id="section-activitymap">
-            <div class="section-header">
-                <div>
-                    <div class="section-title">Activity Timeline & Heatmap</div>
-                    <div class="section-sub">When are users most active?</div>
-                </div>
-            </div>
-            <div class="live-metric-block" style="max-width:700px">
-                <div class="metric-title">Activity Timeline</div>
-                <canvas id="activityTimeline" width="600" height="60" style="width:100%;height:60px;"></canvas>
-            </div>
-            <div class="live-metric-block" style="max-width:700px">
-                <div class="metric-title">Activity Heatmap</div>
-                <canvas id="activityHeatmap" width="600" height="120" style="width:100%;height:120px;"></canvas>
-            </div>
-        </section>
-
-        <!-- ══════════════════════════════════════════════
-             NOTIFICATION CENTER
-        ══════════════════════════════════════════════ -->
-        <section class="section" id="section-notifications">
-            <div class="section-header">
-                <div>
-                    <div class="section-title">Notification Center</div>
-                    <div class="section-sub">Live event feed (logins, RPC, status, errors, etc.)</div>
-                </div>
-            </div>
-            <div class="table-card">
-                <div class="table-header"><span class="table-title">Live Notifications</span></div>
-                <div class="history-feed" id="notificationFeed"><div class="log-loading">Loading…</div></div>
-            </div>
-        </section>
-
-        <!-- ══════════════════════════════════════════════
-             ADVANCED ANALYTICS
-        ══════════════════════════════════════════════ -->
-        <section class="section" id="section-advanced-analytics">
-            <div class="section-header">
-                <div>
-                    <div class="section-title">Advanced Analytics</div>
-                    <div class="section-sub">Success/failure rates, latency, and more</div>
-                </div>
-            </div>
-            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(185px,1fr));margin-bottom:24px">
-                <div class="card"><div class="card-icon">📊</div><div class="card-label">Success Rate</div><div class="card-value" id="advSuccessRate">—</div></div>
-                <div class="card"><div class="card-icon">⚡</div><div class="card-label">Avg Latency</div><div class="card-value" id="advAvgLatency">—</div></div>
-                <div class="card"><div class="card-icon">❌</div><div class="card-label">Failures</div><div class="card-value" id="advFailures">—</div></div>
-                <div class="card"><div class="card-icon">⏳</div><div class="card-label">Longest Cmd</div><div class="card-value" id="advLongestCmd">—</div></div>
-            </div>
-        </section>
-
-        <!-- ══════════════════════════════════════════════
-             CUSTOMIZABLE WIDGETS (USER LAYOUT)
-        ══════════════════════════════════════════════ -->
-        <section class="section" id="section-widgets">
-            <div class="section-header">
-                <div>
-                    <div class="section-title">Custom Widgets</div>
-                    <div class="section-sub">Drag, drop, and customize your dashboard</div>
-                </div>
-            </div>
-            <div id="widgetGrid" class="widget-grid"><div class="log-loading">Coming soon…</div></div>
-        </section>
-
-        <!-- ══════════════════════════════════════════════
              OVERVIEW
         ══════════════════════════════════════════════ -->
         <section class="section active" id="section-overview">
-            <div class="section-header">
-                <div>
-                    <div class="section-title">Bot Overview</div>
-                    <div class="section-sub">Live snapshot of the running instance</div>
+
+            <!-- ─── Hero Banner ─────────────────────────────────── -->
+            <div class="hero-banner">
+                <div class="hero-left">
+                    <div class="hero-avatar-wrap">
+                        <img id="heroAvatar" class="hero-avatar" src="/static/images/aria-favicon.svg" alt="Bot avatar" onerror="this.src='/static/images/aria-favicon.svg'">
+                        <span class="hero-status-dot" id="heroStatusDot"></span>
+                    </div>
+                    <div class="hero-info">
+                        <div class="hero-title">Aria Dashboard</div>
+                        <div class="hero-badges">
+                            <span class="hero-badge-pill connected" id="heroBadgeConn">● Connected</span>
+                            <span class="hero-badge-pill client" id="heroBadgeClient">mobile</span>
+                            <span class="hero-badge-pill prefix" id="heroBadgePrefix">prefix: .</span>
+                        </div>
+                        <div class="hero-motd" id="heroMotd"></div>
+                    </div>
+                </div>
+                <div class="hero-env-grid">
+                    <div class="hero-env-item"><span class="hero-env-k">Version</span><span class="hero-env-v" id="heroVersion">—</span></div>
+                    <div class="hero-env-item"><span class="hero-env-k">Python</span><span class="hero-env-v" id="heroPython">—</span></div>
+                    <div class="hero-env-item"><span class="hero-env-k">Platform</span><span class="hero-env-v" id="heroPlatform">—</span></div>
+                    <div class="hero-env-item"><span class="hero-env-k">Git</span><span class="hero-env-v" id="heroGit">—</span></div>
                 </div>
             </div>
 
+            <!-- ─── Quick Stat Cards ─────────────────────────────── -->
             <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(155px,1fr))">
-                <div class="card">
-                    <div class="card-icon">👤</div>
-                    <div class="card-label">Username</div>
-                    <div class="card-value plain" id="username">—</div>
-                    <div class="identity-row">
-                        <img id="userAvatar" class="user-avatar" src="/static/images/aria-favicon.svg" alt="Profile icon" loading="lazy" onerror="this.onerror=null;this.src='/static/images/aria-favicon.svg'">
-                        <span class="card-sub" id="profileHint">Profile</span>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-icon">🪪</div>
-                    <div class="card-label">User ID</div>
-                    <div class="card-value mono" id="userId">—</div>
-                </div>
-                <div class="card">
-                    <div class="card-icon">⌨️</div>
-                    <div class="card-label">Prefix</div>
-                    <div class="card-value mono" id="prefix">—</div>
-                </div>
                 <div class="card uptime-card">
                     <div class="card-icon">⏱️</div>
                     <div class="card-label">Uptime</div>
@@ -323,6 +133,11 @@
                     <div class="card-value" id="commandsRegistered">—</div>
                 </div>
                 <div class="card">
+                    <div class="card-icon">⌨️</div>
+                    <div class="card-label">Prefix</div>
+                    <div class="card-value mono" id="prefix">—</div>
+                </div>
+                <div class="card">
                     <div class="card-icon">📡</div>
                     <div class="card-label">Connection</div>
                     <div class="card-value plain" id="connectionStatus">—</div>
@@ -336,15 +151,10 @@
                     <div class="card-icon">💻</div>
                     <div class="card-label">Client</div>
                     <div class="card-value plain" id="clientType">—</div>
-                    <div class="card-sub" id="clientOptions">web, desktop, mobile, vr</div>
-                </div>
-                <div class="card">
-                    <div class="card-icon">🧩</div>
-                    <div class="card-label">Dashboard</div>
-                    <div class="card-value plain" id="uiVersion">v2</div>
                 </div>
             </div>
 
+            <!-- ─── Throughput + Activity ─────────────────────────── -->
             <div class="live-metrics-row">
                 <div class="live-metric-block">
                     <div class="metric-title">Command Throughput</div>
@@ -355,8 +165,8 @@
                     <div id="toastFeed" class="toast-feed"></div>
                 </div>
             </div>
-            </div>
 
+            <!-- ─── Client Switcher ───────────────────────────────── -->
             <div class="settings-panel" style="margin-top:8px">
                 <div class="settings-panel-header"><span class="settings-title">Client Switcher</span></div>
                 <div class="setting-row">
@@ -372,6 +182,7 @@
                 <div class="settings-msg-wrap"><div id="clientMsg" class="settings-msg"></div></div>
             </div>
 
+            <!-- ─── Live Metrics ──────────────────────────────────── -->
             <div class="table-card" style="margin-top:14px">
                 <div class="table-header">
                     <span class="table-title">Live Metrics</span>
@@ -395,6 +206,7 @@
                     </div>
                 </div>
             </div>
+
         </section>
 
         <!-- ══════════════════════════════════════════════
@@ -408,8 +220,9 @@
                 </div>
             </div>
             <div class="search-row">
-                <input type="text" id="cmdSearch" class="search-input" placeholder="Search by name, alias, or description…">
+                <input type="text" id="cmdSearch" class="search-input" placeholder="Search commands… (press / to focus)">
                 <span class="search-hint" id="cmdCountLabel"></span>
+                <span class="kbd">/</span>
             </div>
             <div class="table-card">
                 <div class="table-header">

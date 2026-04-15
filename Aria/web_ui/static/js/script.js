@@ -1,26 +1,188 @@
-// ── User Profile Loader ──
+// ═══════════════════════════════════════════════════════════════
+//  PREMIUM PARTICLE BACKGROUND
+// ═══════════════════════════════════════════════════════════════
+(function initParticles() {
+    const canvas = document.getElementById('particleCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let W, H, particles = [];
+    const COLORS = ['rgba(139,92,246,', 'rgba(236,72,153,', 'rgba(6,182,212,'];
+
+    function resize() {
+        W = canvas.width = window.innerWidth;
+        H = canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    function mkParticle() {
+        const c = COLORS[Math.floor(Math.random() * COLORS.length)];
+        return {
+            x: Math.random() * W, y: Math.random() * H,
+            r: Math.random() * 1.4 + 0.3,
+            vx: (Math.random() - .5) * 0.22,
+            vy: (Math.random() - .5) * 0.18,
+            a: Math.random() * 0.55 + 0.15,
+            da: (Math.random() - .5) * 0.003,
+            color: c,
+        };
+    }
+    for (let i = 0; i < 100; i++) particles.push(mkParticle());
+
+    // Draw connecting lines
+    function drawLines() {
+        for (let i = 0; i < particles.length; i++) {
+            for (let j = i + 1; j < particles.length; j++) {
+                const dx = particles[i].x - particles[j].x;
+                const dy = particles[i].y - particles[j].y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 110) {
+                    const alpha = (1 - dist / 110) * 0.06;
+                    ctx.beginPath();
+                    ctx.strokeStyle = `rgba(139,92,246,${alpha})`;
+                    ctx.lineWidth = 0.5;
+                    ctx.moveTo(particles[i].x, particles[i].y);
+                    ctx.lineTo(particles[j].x, particles[j].y);
+                    ctx.stroke();
+                }
+            }
+        }
+    }
+
+    function loop() {
+        ctx.clearRect(0, 0, W, H);
+        drawLines();
+        particles.forEach(p => {
+            p.a += p.da;
+            if (p.a > 0.7 || p.a < 0.1) p.da *= -1;
+            p.x += p.vx; p.y += p.vy;
+            if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
+            if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            ctx.fillStyle = p.color + p.a + ')';
+            ctx.fill();
+        });
+        requestAnimationFrame(loop);
+    }
+    loop();
+})();
+
+// ═══════════════════════════════════════════════════════════════
+//  GLOBAL LOADER DISMISS
+// ═══════════════════════════════════════════════════════════════
+function dismissLoader() {
+    const loader = document.getElementById('globalLoader');
+    if (loader) {
+        loader.classList.add('hidden');
+        setTimeout(() => { if (loader.parentNode) loader.parentNode.removeChild(loader); }, 500);
+    }
+}
+window.addEventListener('DOMContentLoaded', () => {
+    setTimeout(dismissLoader, 900);
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  PREMIUM TOAST NOTIFICATION SYSTEM
+// ═══════════════════════════════════════════════════════════════
+const _TOAST_ICONS = { ok: '✅', warn: '⚠️', err: '❌', info: '💠' };
+function showToast(title, msg = '', type = 'info', duration = 3800) {
+    const host = document.getElementById('premiumToastHost');
+    if (!host) return;
+    const t = document.createElement('div');
+    t.className = `p-toast ${type}`;
+    t.innerHTML = `
+        <span class="p-toast-icon">${_TOAST_ICONS[type] || '💠'}</span>
+        <div class="p-toast-body">
+            <div class="p-toast-title">${title}</div>
+            ${msg ? `<div class="p-toast-msg">${msg}</div>` : ''}
+        </div>
+        <button class="p-toast-close" onclick="removeToast(this.parentElement)">×</button>`;
+    host.appendChild(t);
+    if (duration > 0) setTimeout(() => removeToast(t), duration);
+}
+function removeToast(el) {
+    if (!el || !el.parentNode) return;
+    el.classList.add('p-toast-exit');
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 380);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  TYPEWRITER EFFECT
+// ═══════════════════════════════════════════════════════════════
+function typewrite(el, text, speed = 28) {
+    if (!el) return;
+    el.textContent = '';
+    const cursor = document.createElement('span');
+    cursor.className = 'typewriter-cursor';
+    el.appendChild(cursor);
+    let i = 0;
+    const iv = setInterval(() => {
+        if (i >= text.length) { clearInterval(iv); return; }
+        cursor.insertAdjacentText('beforebegin', text[i++]);
+    }, speed);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ANIMATED NUMBER COUNTER
+// ═══════════════════════════════════════════════════════════════
+function countUp(id, target, duration = 700, decimals = 0) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const start = parseFloat(el.textContent) || 0;
+    const end = parseFloat(target) || 0;
+    if (start === end) return;
+    const t0 = performance.now();
+    function tick(now) {
+        const p = Math.min(1, (now - t0) / duration);
+        const ease = 1 - Math.pow(1 - p, 3);
+        const cur = start + (end - start) * ease;
+        el.textContent = decimals ? cur.toFixed(decimals) : Math.round(cur);
+        if (p < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    if (e.key === '/') {
+        e.preventDefault();
+        const srch = document.getElementById('cmdSearch');
+        if (srch) { navigateTo('commands'); srch.focus(); }
+    }
+    if (e.key === 'r' && !e.ctrlKey && !e.metaKey) {
+        const active = document.querySelector('.nav-item.active');
+        if (active) { const s = active.dataset.section; if (s) loadSection(s); }
+    }
+    if (e.key === 'Escape') {
+        const srch = document.getElementById('cmdSearch');
+        if (srch && document.activeElement === srch) srch.blur();
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  NAVIGATE TO SECTION HELPER
+// ═══════════════════════════════════════════════════════════════
+function navigateTo(sectionId) {
+    const item = document.querySelector(`.nav-item[data-section="${sectionId}"]`);
+    if (item) item.click();
+}
+
+// ── User Profile Loader (topbar sync only) ──
 async function loadUserProfile() {
     fetchJSON('/api/max/user-profile').then(data => {
         if (!data || !data.ok) return;
-        setText('profileUsername', data.username || '—');
-        setText('profileUserId', data.user_id || '—');
-        setText('profileStatus', data.status || '—');
-        setText('profileCustomStatus', data.custom_status || '');
-        setText('profileRPC', data.rpc || '');
-        const avatar = document.getElementById('profileAvatar');
-        if (avatar && data.avatar_url) avatar.src = data.avatar_url;
-        // Badges
-        const badgeWrap = document.getElementById('profileBadges');
-        if (badgeWrap) {
-            badgeWrap.innerHTML = '';
-            (data.badges || []).forEach(badge => {
-                const span = document.createElement('span');
-                span.className = 'profile-badge';
-                span.title = badge.name;
-                span.innerHTML = badge.icon;
-                badgeWrap.appendChild(span);
-            });
-        }
+        // Sync topbar chip
+        const tbAvatar = document.getElementById('topbarAvatar');
+        const tbUser = document.getElementById('topbarUsername');
+        if (tbAvatar && data.avatar_url) tbAvatar.src = data.avatar_url;
+        if (tbUser) tbUser.textContent = data.username || '—';
+        // Sync hero avatar
+        const heroAvatar = document.getElementById('heroAvatar');
+        if (heroAvatar && data.avatar_url) heroAvatar.src = data.avatar_url;
     });
 }
 
@@ -43,25 +205,23 @@ if (sidebarToggle && sidebar && mainContent) {
     });
 }
 
-// ── Overview Quick Stats Loader ──
+// ── Overview Quick / Hero Env Loader ──
 async function loadOverviewQuick() {
-    // Version info
+    // Version info → hero env grid
     fetchJSON('/api/max/version-info').then(data => {
-        setText('quickBotVersion', data?.version || '—');
-        setText('quickGit', data?.git || '—');
+        setText('heroVersion', data?.version || '—');
+        setText('heroGit', data?.git || '—');
     });
-    // Python env
+    // Python env → hero env grid
     fetchJSON('/api/max/python-env').then(data => {
-        setText('quickPython', data?.python || '—');
-        setText('quickPlatform', data?.platform || '—');
+        setText('heroPython', data?.python || '—');
+        setText('heroPlatform', data?.platform || '—');
     });
-    // MOTD
+    // MOTD → hero banner
     fetchJSON('/api/max/motd').then(data => {
-        setText('quickMotd', data?.motd || '—');
-    });
-    // Quote
-    fetchJSON('/api/max/quote').then(data => {
-        setText('quickQuote', data?.quote || '—');
+        const motd = data?.motd || '';
+        const el = document.getElementById('heroMotd');
+        if (el && motd) typewrite(el, motd, 22);
     });
 }
 
@@ -88,6 +248,9 @@ navItems.forEach(item => {
         // strip emoji from title — take last text node
         const rawText = item.childNodes[item.childNodes.length - 1].textContent.trim();
         pageTitle.textContent = rawText;
+        // Update breadcrumb
+        const bc = document.getElementById('topbarBreadcrumb');
+        if (bc) bc.textContent = target;
         loadSection(target);
         trackDashboardAction('navigate', `Opened ${target}`);
     });
@@ -156,37 +319,48 @@ async function loadOverview() {
     if (!res || !res.data) { setGlobalStatus(false); return; }
     const d = res.data;
     setGlobalStatus(d.connected);
-    setText('username', d.username);
-    setText('userId', d.user_id);
     setText('prefix', d.prefix);
     setText('uptime', d.uptime);
     updateUptimeRing(d.uptime);
-    setText('commandCount', d.command_count);
-    setText('commandsRegistered', d.commands_registered);
+    countUp('commandCount', d.command_count, 900);
+    countUp('commandsRegistered', d.commands_registered, 800);
     setText('connectionStatus', d.connected ? 'Online' : 'Offline');
     setText('botStatus', d.status || 'online');
     setText('clientType', d.client_type || 'mobile');
-    setText('clientOptions', (d.available_clients || []).join(', ') || 'web, desktop, mobile, vr');
-    setText('uiVersion', d.ui_version || 'v2');
     updateLiveOverviewMetrics(d);
 
-    const avatar = document.getElementById('userAvatar');
-    if (avatar) {
-        avatar.onerror = () => {
-            avatar.onerror = null;
-            avatar.src = '/static/images/aria-favicon.svg';
-        };
-        avatar.src = d.avatar_url || '/static/images/aria-favicon.svg';
+    // ── Hero Banner ──────────────────────────────────────────────────────────
+    const heroBadgeConn = document.getElementById('heroBadgeConn');
+    if (heroBadgeConn) {
+        heroBadgeConn.textContent = d.connected ? '● Connected' : '● Offline';
+        heroBadgeConn.classList.toggle('offline', !d.connected);
     }
-    const profileHint = document.getElementById('profileHint');
-    if (profileHint) profileHint.textContent = d.user_id && d.user_id !== '—' ? `UID ${d.user_id}` : 'Profile';
+    const heroBadgeClient = document.getElementById('heroBadgeClient');
+    if (heroBadgeClient) heroBadgeClient.textContent = d.client_type || 'mobile';
+    const heroBadgePrefix = document.getElementById('heroBadgePrefix');
+    if (heroBadgePrefix) heroBadgePrefix.textContent = `prefix: ${d.prefix || '—'}`;
+    const heroStatusDot = document.getElementById('heroStatusDot');
+    if (heroStatusDot) heroStatusDot.classList.toggle('offline', !d.connected);
+
+    // ── Topbar avatar/username sync ──────────────────────────────────────────
+    const tbAvatar = document.getElementById('topbarAvatar');
+    if (tbAvatar && d.avatar_url && tbAvatar.src.includes('aria-favicon')) {
+        tbAvatar.src = d.avatar_url;
+    }
+    const tbUser = document.getElementById('topbarUsername');
+    if (tbUser && tbUser.textContent === '—' && d.username) {
+        tbUser.textContent = d.username;
+    }
+
+    // ── Hero avatar ──────────────────────────────────────────────────────────
+    const heroAvatar = document.getElementById('heroAvatar');
+    if (heroAvatar && d.avatar_url) {
+        heroAvatar.onerror = () => { heroAvatar.onerror = null; heroAvatar.src = '/static/images/aria-favicon.svg'; };
+        heroAvatar.src = d.avatar_url;
+    }
 
     await loadClientSwitcher(d);
-
-    // Fetch and render sparkline
     updateSparkline();
-
-    // Fetch and render activity toasts
     updateToastFeed();
 }
 
@@ -432,6 +606,7 @@ async function loadAnalytics() {
     if (!res || !res.data) return;
     const d = res.data;
     setText('totalCommands', d.total_commands ?? 0);
+    countUp('totalCommands', d.total_commands ?? 0, 800);
     setText('successRate', (d.success_rate ?? 100) + '%');
     setText('avgResponseMs', (d.avg_response_ms ?? 0) + 's');
 
@@ -589,11 +764,13 @@ async function applyPrefix() {
     const res = await postJSON('/api/config', { prefix: val });
     if (res && res.ok) {
         showSettingsMsg('Prefix updated to: ' + res.data.prefix, true);
+        showToast('Prefix Updated', `New prefix: ${res.data.prefix}`, 'ok');
         trackDashboardAction('config_prefix', `Updated prefix to ${res.data.prefix}`);
         loadSettings();
         loadOverview();
     } else {
         showSettingsMsg('Failed to update prefix.', false);
+        showToast('Update Failed', 'Could not update prefix', 'err');
     }
 }
 
@@ -603,10 +780,12 @@ async function applyDelay() {
     const res = await postJSON('/api/config', { auto_delete_delay: val });
     if (res && res.ok) {
         showSettingsMsg('Delay updated to: ' + res.data.auto_delete_delay + 's', true);
+        showToast('Delay Updated', `Auto-delete: ${res.data.auto_delete_delay}s`, 'ok');
         trackDashboardAction('config_delay', `Updated auto-delete delay to ${res.data.auto_delete_delay}s`);
         loadSettings();
     } else {
         showSettingsMsg('Failed to update delay.', false);
+        showToast('Update Failed', 'Could not update delay', 'err');
     }
 }
 
@@ -1402,9 +1581,12 @@ async function loadLogs() {
 }
 
 // ── Refresh button ────────────────────────────────────────────────────────────
-document.getElementById('refreshBtn').addEventListener('click', () => {
+document.getElementById('refreshBtn')?.addEventListener('click', () => {
     const active = document.querySelector('.nav-item.active');
-    if (active) loadSection(active.dataset.section);
+    if (active) {
+        loadSection(active.dataset.section);
+        showToast('Refreshed', `Section "${active.dataset.section}" reloaded`, 'ok', 2200);
+    }
 });
 
 // ── Auto-refresh every 30s ────────────────────────────────────────────────────
@@ -1422,3 +1604,5 @@ setInterval(() => {
 // ── Initial load ──────────────────────────────────────────────────────────────
 loadOverview();
 loadDashProfile();
+// Welcome toast
+setTimeout(() => showToast('Welcome back 👋', 'Aria dashboard loaded successfully', 'ok', 4000), 1200);
