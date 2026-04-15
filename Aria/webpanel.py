@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 import hashlib
 from flask import Flask, jsonify, redirect, send_from_directory, request, session
+from werkzeug.serving import make_server
 from mongo_store import get_mongo_store
 
 # Master owner Discord ID — always has admin access
@@ -30,6 +31,7 @@ class WebPanel:
         self.owner_id = owner_id or _PANEL_MASTER_ID
         self._start_time = time.time()
         self._thread: Optional[threading.Thread] = None
+        self._server = None
         self._last_start_error = ""
 
         base_dir = os.path.dirname(__file__)
@@ -48,17 +50,14 @@ class WebPanel:
     def start(self):
         """Start the web panel server."""
         try:
-            self._thread = threading.Thread(target=self.app.run, kwargs={
-                "host": self.host,
-                "port": self.port,
-                "debug": False,
-                "use_reloader": False
-            })
+            self._server = make_server(self.host, self.port, self.app)
+            self._thread = threading.Thread(target=self._server.serve_forever)
             self._thread.daemon = True
             self._thread.start()
             return True
         except Exception as e:
             self._last_start_error = str(e)
+            self._server = None
             return False
 
     def stop(self) -> bool:
@@ -66,13 +65,13 @@ class WebPanel:
         if self._thread is None or not self._thread.is_alive():
             return False
         try:
-            url = f"http://{self.host}:{self.port}/__shutdown__"
-            with urllib.request.urlopen(url, timeout=3):
-                pass
+            if self._server is not None:
+                self._server.shutdown()
         except Exception:
             pass
         self._thread.join(timeout=5)
         alive = self._thread.is_alive() if self._thread else False
+        self._server = None
         self._thread = None
         return not alive
 
@@ -589,10 +588,9 @@ class WebPanel:
         def _shutdown_server() -> Any:
             if not self._is_local():
                 return jsonify({"ok": False, "error": "Unauthorized"}), 403
-            func = request.environ.get("werkzeug.server.shutdown")
-            if func is None:
-                return jsonify({"ok": False, "error": "Not running with Werkzeug server"}), 500
-            func()
+            if self._server is None:
+                return jsonify({"ok": False, "error": "Server not started via make_server"}), 500
+            threading.Thread(target=self._server.shutdown, daemon=True).start()
             return jsonify({"ok": True, "message": "Shutting down"}), 200
 
         # ── Maximalist Dashboard API Endpoints ─────────────────────────────
@@ -1415,6 +1413,11 @@ class WebPanel:
             self._record_user_activity(session.get("user_id", ""), "request_bulk_deny", f"Bulk denied {denied_count} requests", request.remote_addr or "")
             return jsonify({"ok": True, "denied_count": denied_count})
 
+        # ── RPC control (POST /rpc) ────────────────────────────────────────
+        @self.app.post("/rpc")
+        def rpc_control_route() -> Any:
+            return self.rpc_control()
+
         @self.app.get("/favicon.ico")
         def favicon() -> Any:
             local_fallback = "/static/images/aria-favicon.svg"
@@ -1442,9 +1445,6 @@ class WebPanel:
             self.app.run(host=self.host, port=self.port, debug=False, use_reloader=False)
         except Exception as e:
             self._last_start_error = str(e)
-
-    # ── RPC Control Route ────────────────────────────────────────────────
-        self.app.add_url_rule("/rpc", "rpc", self.rpc_control, methods=["POST"])
 
     def rpc_control(self):
         """Handle RPC updates via POST requests."""
