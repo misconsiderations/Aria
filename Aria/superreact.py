@@ -10,6 +10,7 @@ from typing import Optional
 from urllib.parse import quote as url_quote
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from discord_api_types import GatewayOpcodes
 
 # logger = Logger("Superreact")
 print("Superreact initialized")
@@ -155,7 +156,7 @@ class SuperReactClient:
     def _heartbeat(self, interval):
         while self.ws and self.ws.sock and self.ws.sock.connected:
             time.sleep(interval)
-            payload = {"op": 1, "d": self.last_seq}
+            payload = {"op": GatewayOpcodes.Heartbeat, "d": self.last_seq}
             try:
                 self.ws.send(json.dumps(payload))
             except websocket.WebSocketConnectionClosedException:
@@ -168,13 +169,13 @@ class SuperReactClient:
         if s:
             self.last_seq = s
 
-        if op == 10:
+        if op == GatewayOpcodes.Hello:
             interval = d["heartbeat_interval"] / 1000
             self.heartbeat_thread = threading.Thread(target=self._heartbeat, args=(interval,), daemon=True)
             self.heartbeat_thread.start()
             
             identify_payload = {
-                "op": 2, "d": { "token": self.token, "capabilities": 253,
+                "op": GatewayOpcodes.Identify, "d": { "token": self.token, "capabilities": 253,
                     "properties": { "os": "Windows", "browser": "Discord Client", "release_channel": "stable", "client_version": "1.0.9198", "os_version": "10.0.26100", "os_arch": "x64", "system_locale": "en-US", "client_build_number": 415714, "native_build_number": 69420, "client_event_source": None },
                     "presence": { "status": "online", "since": 0, "activities": [], "afk": False },
                     "compress": False, "client_state": { "guild_hashes": {}, "highest_last_message_id": "0", "read_state_version": 0, "user_guild_settings_version": -1, "user_settings_version": -1, "private_channels_version": "0", "api_code_version": 0 }

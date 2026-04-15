@@ -10,11 +10,22 @@ class RateLimiter:
         self.buckets = defaultdict(dict)
         self.locks = defaultdict(threading.Lock)
         self.global_lock = threading.Lock()
+        self.endpoint_to_bucket = {}
+
+    def normalize_endpoint(self, endpoint: str) -> str:
+        if not endpoint:
+            return "global"
+        return endpoint.split("?", 1)[0]
 
     def parse_bucket_hash(self, headers: Dict) -> str:
         if "X-RateLimit-Bucket" in headers:
             return headers["X-RateLimit-Bucket"]
         return "global"
+
+    def record_endpoint_bucket(self, endpoint: str, bucket_hash: str):
+        normalized = self.normalize_endpoint(endpoint)
+        with self.global_lock:
+            self.endpoint_to_bucket[normalized] = bucket_hash
 
     def update_bucket(self, bucket_hash: str, headers: Dict):
         with self.locks[bucket_hash]:
@@ -27,8 +38,9 @@ class RateLimiter:
 
     def handle_429(self, headers: Dict, endpoint: str):
         retry_after = float(headers.get("Retry-After", 1))
+        normalized = self.normalize_endpoint(endpoint)
         with self.global_lock:
-            self.buckets[endpoint] = {
+            self.buckets[normalized] = {
                 "limit": 0,
                 "remaining": 0,
                 "reset": retry_after,
@@ -37,7 +49,9 @@ class RateLimiter:
         return retry_after
 
     def should_wait(self, endpoint: str) -> Optional[float]:
-        bucket_data = self.buckets.get(endpoint)
+        normalized = self.normalize_endpoint(endpoint)
+        bucket_key = self.endpoint_to_bucket.get(normalized, normalized)
+        bucket_data = self.buckets.get(bucket_key)
         if not bucket_data:
             return None
 
@@ -53,6 +67,8 @@ class RateLimiter:
 
     def decrement(self, endpoint: str):
         """Decrement remaining for endpoint."""
-        bucket_data = self.buckets.get(endpoint)
+        normalized = self.normalize_endpoint(endpoint)
+        bucket_key = self.endpoint_to_bucket.get(normalized, normalized)
+        bucket_data = self.buckets.get(bucket_key)
         if bucket_data:
             bucket_data["remaining"] = max(0, bucket_data.get("remaining", 1) - 1)

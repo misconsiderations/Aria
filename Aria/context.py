@@ -3,7 +3,7 @@ import time
 from typing import Dict, Any, Optional, List
 from urllib.parse import quote
 from curl_cffi.requests import Session, Response
-from .headers import HeaderGenerator
+from discord_api_types import RelationshipType
 from discord.ext import commands as umbra
 from core.client.bucket import BucketHandler
 from core.shared.config import container
@@ -31,13 +31,14 @@ class Context(umbra.Context):
             raise ValueError("Token is required. Set bot.token")
 
         # Use enhanced header generation if available
-        if hasattr(self.umbra, 'protection_coordinator') and self.umbra.protection_coordinator:
-            # Initialize protection coordinator with token
-            self.umbra.protection_coordinator.initialize_with_token(self.token)
-            self.session = self.umbra.create_protected_session()
+        if hasattr(self.umbra, 'api') and self.umbra.api and hasattr(self.umbra.api, 'header_spoofer'):
+            # Initialize header spoofer with token
+            self.umbra.api.header_spoofer.initialize_with_token(self.token)
+            self.session = self.umbra.api.session
         else:
-            # Fallback to original header generation
-            self.header_spoofer = HeaderGenerator(self.token)
+            # Fallback to basic header spoofer
+            self.header_spoofer = HeaderSpoofer()
+            self.header_spoofer.initialize_with_token(self.token)
             self.session = self.header_spoofer.session
 
         self.rate_limiter = BucketHandler()
@@ -86,7 +87,7 @@ class Context(umbra.Context):
                 await asyncio.sleep(wait_time)
 
             # Check protection coordinator first
-            if hasattr(self.umbra, 'protection_coordinator') and self.umbra.protection_coordinator:
+            if hasattr(self.umbra, 'api') and self.umbra.api and hasattr(self.umbra.api, 'header_spoofer'):
                 # Check DM-specific protection for message endpoints
                 wait_time = None
                 if '/channels/' in endpoint and '/messages' in endpoint:
@@ -97,15 +98,15 @@ class Context(umbra.Context):
                         if len(parts) > 1:
                             channel_id = parts[1].split('/')[0]
 
-                    wait_time = self.umbra.protection_coordinator.rate_limiter.check_dm_protection(channel_id)
+                    wait_time = self.umbra.api.rate_limiter.check_dm_protection(channel_id)
                 else:
                     # Regular rate limiting for non-DM requests
-                    wait_time = self.umbra.protection_coordinator.check_protection()
+                    wait_time = self.umbra.api.rate_limiter.get_wait_time(endpoint)
 
                 if wait_time and wait_time > 0:
                     await asyncio.sleep(wait_time)
 
-                request_headers = self.umbra.protection_coordinator.get_headers(self.token)
+                request_headers = self.umbra.api.header_spoofer.get_protected_headers(self.token)
                 if headers:
                     request_headers.update(headers)
             else:
@@ -131,12 +132,12 @@ class Context(umbra.Context):
                     bucket_hash = self.rate_limiter.parse_bucket_hash(response.headers)
                     self.rate_limiter.handle_429(response.headers, endpoint)
 
-                retry_after = self.umbra.protection_coordinator.handle_429_response(response.headers)
+                retry_after = float(response.headers.get("Retry-After", "1.0"))
                 await asyncio.sleep(retry_after)
 
                 # Retry with new headers
-                if hasattr(self.umbra, 'protection_coordinator') and self.umbra.protection_coordinator:
-                    request_headers = self.umbra.protection_coordinator.get_headers(self.token)
+                if hasattr(self.umbra, 'api') and self.umbra.api and hasattr(self.umbra.api, 'header_spoofer'):
+                    request_headers = self.umbra.api.header_spoofer.get_protected_headers(self.token)
                     if headers:
                         request_headers.update(headers)
 
@@ -148,8 +149,9 @@ class Context(umbra.Context):
                     self.rate_limiter.update_bucket(bucket_hash, response.headers)
 
             # Handle success
-            if hasattr(self.umbra, 'protection_coordinator') and self.umbra.protection_coordinator:
-                self.umbra.protection_coordinator.handle_success_response()
+            if hasattr(self.umbra, 'api') and self.umbra.api and hasattr(self.umbra.api, 'header_spoofer'):
+                # No specific success handling needed for HeaderSpoofer
+                pass
 
             return response
 
@@ -290,5 +292,9 @@ class Context(umbra.Context):
         return response.status_code == 204 if response else False
 
     async def block_user(self, user_id: str) -> bool:
-        response = await self.request("PUT", f"/users/@me/relationships/{user_id}", data={"type": 2})
+        response = await self.request(
+            "PUT",
+            f"/users/@me/relationships/{user_id}",
+            data={"type": int(RelationshipType.Blocked)},
+        )
         return response.status_code == 204 if response else False

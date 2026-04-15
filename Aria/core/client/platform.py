@@ -5,6 +5,7 @@ import os
 import uuid
 from pathlib import Path
 from typing import Any, Optional
+from discord_api_types import DEFAULT_GATEWAY_INTENTS, GatewayOpcodes
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +194,7 @@ def container_client_loader(uid: int = 0, username: str = "", instance_file: str
 
     if fallback_container and getattr(fallback_container, "client", None):
         return _coerce_session(getattr(fallback_container, "client"), "mobile")
-    return _coerce_session("vr", "vr")
+    return _coerce_session("web", "web")
 
 
 def container_state_loader(uid: int = 0, username: str = "", instance_file: str = "", token: str = ""):
@@ -218,7 +219,7 @@ def container_state_loader(uid: int = 0, username: str = "", instance_file: str 
     return _coerce_session("online", "online")
 
 
-def build_identify_payload(token: str, client_type: str, status: str = "online", activity: Any = None, intents: int = 3276799, compress: bool = False) -> dict:
+def build_identify_payload(token: str, client_type: str, status: str = "online", activity: Any = None, intents: int = DEFAULT_GATEWAY_INTENTS, compress: bool = False) -> dict:
     resolved_client = normalize_client_type(client_type)
     resolved_status = normalize_status(status)
     properties = dict(CLIENT_PROFILES.get(resolved_client, CLIENT_PROFILES["web"]))
@@ -226,7 +227,7 @@ def build_identify_payload(token: str, client_type: str, status: str = "online",
         properties["device_vendor_id"] = str(uuid.uuid4())
 
     return {
-        "op": 2,
+        "op": GatewayOpcodes.Identify,
         "d": {
             "token": token,
             "properties": properties,

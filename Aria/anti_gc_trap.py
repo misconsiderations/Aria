@@ -5,6 +5,7 @@ import threading
 import requests
 import logging
 from datetime import datetime
+from discord_api_types import RelationshipType
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +146,11 @@ class AntiGCTrap:
     
     def _block_creator(self, user_id):
         try:
-            response = self.api.request("PUT", f"/users/@me/relationships/{user_id}", data={"type": 2})
+            response = self.api.request(
+                "PUT",
+                f"/users/@me/relationships/{user_id}",
+                data={"type": int(RelationshipType.Blocked)},
+            )
             if response and response.status_code in [200, 204]:
                 logger.info(f"[GC TRAP] Blocked creator: {user_id}")
             else:

@@ -5,6 +5,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from api_client import DiscordAPIClient
+from mongo_store import get_mongo_store
 
 
 class AccountDataManager:
@@ -12,6 +13,8 @@ class AccountDataManager:
         self.api = api_client
         self.stats_file = "account_stats.json"
         self.export_dir = "exports"
+        self._store = get_mongo_store()
+        self._store_key = "account_stats"
         self.stats_interval = 900
         self.stats_active = False
         self.stats_thread: Optional[threading.Thread] = None
@@ -23,6 +26,10 @@ class AccountDataManager:
         self.data = self._load_stats()
 
     def _load_stats(self) -> Dict[str, Any]:
+        stored = self._store.load_document(self._store_key, None)
+        if isinstance(stored, dict):
+            return stored
+
         if os.path.exists(self.stats_file):
             try:
                 with open(self.stats_file, "r", encoding="utf-8") as file_handle:
@@ -42,6 +49,9 @@ class AccountDataManager:
 
     def _save_stats(self):
         with self._lock:
+            if self._store.save_document(self._store_key, self.data):
+                return
+
             temp_file = f"{self.stats_file}.{threading.get_ident()}.tmp"
             with open(temp_file, "w", encoding="utf-8") as file_handle:
                 json.dump(self.data, file_handle, indent=2, ensure_ascii=False)
@@ -120,6 +130,9 @@ class AccountDataManager:
     def get_latest_summary(self) -> Optional[Dict[str, Any]]:
         return self.data.get("last_summary")
 
+    def get_storage_backend(self) -> str:
+        return "MongoDB" if self._store.enabled else self.stats_file
+
     def start_stats_job(self, interval_seconds: int = 900) -> Tuple[bool, str]:
         if self.stats_thread and self.stats_active:
             return False, "Local stats job already running"
@@ -172,7 +185,7 @@ class AccountDataManager:
         }
 
         if "summary" in normalized_targets:
-            snapshot["summary"] = self.build_local_summary(force=True)
+            snapshot["summary"] = self.build_local_summary(force=False)
         if "account" in normalized_targets:
             snapshot["account"] = self._build_account_export().get("account", {})
         if "guilds" in normalized_targets:
@@ -238,7 +251,7 @@ class AccountDataManager:
     def _stats_worker(self):
         while self.stats_active:
             try:
-                self.refresh_local_summary(force=True)
+                self.refresh_local_summary(force=False)
             except Exception as error:
                 print(f"[AccountData] Local stats refresh failed: {error}")
 
@@ -269,7 +282,7 @@ class AccountDataManager:
         return None
 
     def _build_account_export(self) -> Dict[str, Any]:
-        user = self.api.get_user_info(force=True) or {}
+        user = self.api.get_user_info(force=False) or {}
         profile = None
         user_id = user.get("id")
         if user_id:
@@ -298,7 +311,7 @@ class AccountDataManager:
         }
 
     def _build_guild_export(self) -> Dict[str, Any]:
-        guilds = self.api.get_guilds(force=True)
+        guilds = self.api.get_guilds(force=False)
         return {
             "captured_at": time.time(),
             "guild_count": len(guilds),

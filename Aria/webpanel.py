@@ -6,6 +6,7 @@ import re
 import secrets
 import threading
 import time
+import urllib.request
 import psutil
 import sys
 import platform
@@ -13,9 +14,10 @@ from typing import Any, Optional
 
 import hashlib
 from flask import Flask, jsonify, redirect, send_from_directory, request, session
+from mongo_store import get_mongo_store
 
 # Master owner Discord ID — always has admin access
-_PANEL_MASTER_ID = "297588166653902849"
+_PANEL_MASTER_ID = "299182971213316107"
 
 
 class WebPanel:
@@ -34,6 +36,7 @@ class WebPanel:
         self._webui_templates = os.path.join(base_dir, "web_ui", "templates")
         self._webui_static = os.path.join(base_dir, "web_ui", "static")
         self._base_dir = base_dir
+        self._store = get_mongo_store()
 
         self.app = Flask(__name__, static_folder=self._webui_static, static_url_path="/static")
         _secret_seed = f"aria-{instance_id}-{self.owner_id}"
@@ -51,9 +54,27 @@ class WebPanel:
                 "debug": False,
                 "use_reloader": False
             })
+            self._thread.daemon = True
             self._thread.start()
+            return True
         except Exception as e:
             self._last_start_error = str(e)
+            return False
+
+    def stop(self) -> bool:
+        """Stop the web panel server if it is currently running."""
+        if self._thread is None or not self._thread.is_alive():
+            return False
+        try:
+            url = f"http://{self.host}:{self.port}/__shutdown__"
+            with urllib.request.urlopen(url, timeout=3):
+                pass
+        except Exception:
+            pass
+        self._thread.join(timeout=5)
+        alive = self._thread.is_alive() if self._thread else False
+        self._thread = None
+        return not alive
 
     def get_last_start_error(self) -> str:
         """Retrieve the last error encountered during start."""
@@ -104,6 +125,9 @@ class WebPanel:
         return os.path.join(self._base_dir, "dashboard_users.json")
 
     def _load_dashboard_users(self) -> dict:
+        stored = self._store.load_document("dashboard_users", None)
+        if isinstance(stored, dict):
+            return stored
         try:
             with open(self._dashboard_users_path(), "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -111,6 +135,8 @@ class WebPanel:
             return {}
 
     def _save_dashboard_users(self, users: dict) -> None:
+        if self._store.save_document("dashboard_users", users):
+            return
         with open(self._dashboard_users_path(), "w", encoding="utf-8") as f:
             json.dump(users, f, indent=2)
 
@@ -197,6 +223,9 @@ class WebPanel:
         return os.path.join(self._base_dir, "access_requests.json")
 
     def _load_access_requests(self) -> list:
+        stored = self._store.load_document("access_requests", None)
+        if isinstance(stored, list):
+            return stored
         try:
             with open(self._access_requests_path(), "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -204,6 +233,8 @@ class WebPanel:
             return []
 
     def _save_access_requests(self, requests_list: list) -> None:
+        if self._store.save_document("access_requests", requests_list):
+            return
         with open(self._access_requests_path(), "w", encoding="utf-8") as f:
             json.dump(requests_list, f, indent=2)
 
@@ -300,7 +331,7 @@ class WebPanel:
             "commands_registered": len(getattr(b, "commands", {})),
             "client_type": getattr(b, "_client_type", "mobile"),
             "available_clients": available_clients,
-            "ui_version": "v2",
+            "ui_version": "v1",
             "uptime": uptime_str,
             "instance_id": self.instance_id,
             "owner_restricted": bool(self.owner_id),
@@ -308,10 +339,12 @@ class WebPanel:
 
     def _analytics_data(self) -> dict:
         """Read analytics.json if available."""
-        path = os.path.join(self._base_dir, "analytics.json")
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            data = self._store.load_document("analytics", None)
+            if not isinstance(data, dict):
+                path = os.path.join(self._base_dir, "analytics.json")
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
             metrics = data.get("performance_metrics", {})
             patterns = data.get("command_patterns", {})
             daily = data.get("daily_data", {})
@@ -366,10 +399,12 @@ class WebPanel:
         if log_entries:
             return {"entries": log_entries[-50:], "total": len(log_entries)}
 
-        path = os.path.join(self._base_dir, "history_data.json")
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
+            raw = self._store.load_document("history_data", None)
+            if raw is None:
+                path = os.path.join(self._base_dir, "history_data.json")
+                with open(path, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
             if isinstance(raw, list):
                 entries = raw[-20:]
                 total = len(raw)
@@ -532,7 +567,7 @@ class WebPanel:
             "prefix": getattr(b, "prefix", "$"),
             "status": getattr(b, "_current_status", "online"),
             "auto_delete_enabled": getattr(b, "_auto_delete_enabled", True),
-            "auto_delete_delay": getattr(b, "_auto_delete_delay", 20),
+            "auto_delete_delay": getattr(b, "_auto_delete_delay", 3.0),
             "username": getattr(b, "username", "") or "",
             "user_id": getattr(b, "user_id", "") or "",
             "connected": getattr(b, "connection_active", False),
@@ -549,6 +584,16 @@ class WebPanel:
                 return self._read_raw_template("home_template.html"), 200, {"Content-Type": "text/html; charset=utf-8"}
             except Exception:
                 return redirect("/dashboard")
+
+        @self.app.get("/__shutdown__")
+        def _shutdown_server() -> Any:
+            if not self._is_local():
+                return jsonify({"ok": False, "error": "Unauthorized"}), 403
+            func = request.environ.get("werkzeug.server.shutdown")
+            if func is None:
+                return jsonify({"ok": False, "error": "Not running with Werkzeug server"}), 500
+            func()
+            return jsonify({"ok": True, "message": "Shutting down"}), 200
 
         # ── Maximalist Dashboard API Endpoints ─────────────────────────────
 

@@ -31,12 +31,15 @@ class Config:
             "dashboard_url": "https://stackss.lol",
             "oauth_redirect_uri": "https://stackss.lol/callback",
             "discord_bot_token": "MTQ5MTMwNzQzNjE0ODEyOTgyMg.GcU03l.0K3Rw6Eoy4_NkqrD_zSaYKLxj8Sy5HgPgOJ9O4",
-            "discord_slash_guild_id": "",
-            "auto_start_slash_bot": True,
-                "slash_hide_replies": True,
+            "gateway_client": "web",
+            "mongo_enabled": False,
+            "mongo_uri": "mongodb://127.0.0.1:27017",
+            "mongo_database": "aria",
+            "mongo_collection": "app_state",
+            "mongo_timeout_ms": 1500,
             "captcha_enabled": False,
             "captcha_api_key": "6354c8b64c602d94cadf5912f437cd28",
-            "captcha_service": "2captcha"  # 2captcha, anticaptcha, capmonster
+            "captcha_service": "2captcha"  # 2captcha, anticaptcha, capmonster, capsolver, spoof
         }
         self.config = self.load_config()
     

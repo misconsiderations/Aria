@@ -17,6 +17,8 @@ import traceback
 import time
 import importlib
 import json
+from discord.user import ClientUser
+from discord_api_types import GatewayIntentBits, GatewayOpcodes
 
 
 class _RawAuthorizationToken:
@@ -182,13 +184,7 @@ class VRRPC:
                 if getattr(self.http, "_vrrpc_auth_mode", "bot") != "user":
                     return await super().login(token)
 
-                from discord.client import _loop
-                from discord.user import ClientUser
-
                 logging.getLogger("discord.client").info("logging in using static token")
-
-                if self.loop is _loop:
-                    await self._async_setup_hook()
 
                 if not isinstance(token, str):
                     raise TypeError(f"expected token to be a str, received {token.__class__.__name__} instead")
@@ -196,7 +192,6 @@ class VRRPC:
                 token = token.strip()
                 data = await self.http.static_login(token)
                 self._connection.user = ClientUser(state=self._connection, data=data)
-                await self.setup_hook()
 
             async def setup_hook(self):
                 if hasattr(self, "_connection"):
@@ -376,7 +371,7 @@ class VRRPC:
                     return await VRRPC._original_identify(ws)
 
                 payload = {
-                    "op": 2,
+                    "op": GatewayOpcodes.Identify,
                     "d": {
                         "token": ws.token,
                         "capabilities": 16381,
@@ -395,7 +390,12 @@ class VRRPC:
                         },
                         "compress": True,
                         "large_threshold": 250,
-                        "intents": 1 << 0 | 1 << 1 | 1 << 8 | 1 << 9,
+                        "intents": int(
+                            GatewayIntentBits.Guilds
+                            | GatewayIntentBits.GuildMembers
+                            | GatewayIntentBits.GuildPresences
+                            | GatewayIntentBits.GuildMessages
+                        ),
                     },
                 }
                 await ws.send_as_json(payload)

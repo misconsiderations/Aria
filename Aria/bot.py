@@ -3,8 +3,11 @@ import time
 import threading
 import ssl
 import os
+import re
+from urllib.parse import urlparse
 from typing import Dict, Any, Callable, List, Optional, Union
 from api_client import DiscordAPIClient
+from discord_api_types import ActivityType, DEFAULT_GATEWAY_INTENTS, GatewayOpcodes
 from owner import BotCustomizer
 from nitro import NitroSniper
 from anti_gc_trap import AntiGCTrap
@@ -41,15 +44,14 @@ class DiscordBot:
         # Initialize API client
         captcha_enabled = self.config.get("captcha_enabled", self.config.get("captchaEnabled", False))
         captcha_api_key = self.config.get("captcha_api_key", self.config.get("captchaApiKey", ""))
-        self.api = DiscordAPIClient(token, captcha_api_key, captcha_enabled)
+        captcha_service = self.config.get("captcha_service", self.config.get("captchaService", "2captcha"))
+        self.api = DiscordAPIClient(token, captcha_api_key, captcha_enabled, captcha_service)
 
         self.customizer = BotCustomizer()
         self.nitro_sniper = NitroSniper(self.api)
         self.giveaway_sniper = GiveawaySniper(self.api)
         self.anti_gc_trap = AntiGCTrap(self.api)
-        self.protection_coordinator = HeaderSpoofer()
-        if hasattr(self.protection_coordinator, "initialize_with_token"):
-            self.protection_coordinator.initialize_with_token(token)
+        self.protection_coordinator = self.api.header_spoofer
 
         self.commands: Dict[str, Command] = {}
         self._snipe_cache: Dict[str, Any] = {}
@@ -66,18 +68,27 @@ class DiscordBot:
         self.message_queue = queue.Queue()
         self.last_heartbeat = time.time()
         self.heartbeat_interval: Optional[float] = None
+        self._heartbeat_sent_at: Optional[float] = None
+        self.gateway_latency_ms: Optional[float] = None
+        self._gateway_latency_samples: List[float] = []
         self.heartbeat_thread = None
         self.identified = False
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 999999
+        # Session resume state (RFC: op 6 RESUME)
+        self.session_id: Optional[str] = None
+        self.resume_gateway_url: Optional[str] = None
+        self.can_resume: bool = False
         self.activity = None
         self.activity_persist = True
+        self._last_activity_signature = None
         self.connection_active = False
         self.command_count = 0
-        self._client_type = "vr"
+        self._client_type = "web"
+        self._client_type_forced = False
         self._current_status = "online"
         self._auto_delete_enabled: bool = True
-        self._auto_delete_delay: int = 20
+        self._auto_delete_delay: float = 3.0
         self._mimic_target: Optional[str] = None
         self._mimic_enabled: bool = False
         self._mimic_custom_response: Optional[str] = None
@@ -88,6 +99,7 @@ class DiscordBot:
         self._autoreact_targets: Dict[str, Dict[str, Any]] = {}
         self._autoreact_last_sent_at: float = 0.0
         self._message_delete_hook: Optional[Callable[[str, str], None]] = None
+        self._on_ready_hook: Optional[Callable[[Dict[str, Any]], None]] = None
         self.boost_manager: Any = None
         self._afk_system_ref: Any = None
         self.friend_scraper: Any = None
@@ -109,6 +121,82 @@ class DiscordBot:
                 json.dump(self.user_prefixes, _f, indent=2)
         except Exception as e:
             print(f"Failed to save user prefixes: {e}")
+
+    def _normalize_activity_payload(self, activity):
+        if not isinstance(activity, dict):
+            return activity
+
+        normalized = dict(activity)
+
+        try:
+            normalized_type = int(normalized.get("type"))
+            normalized["type"] = normalized_type
+        except Exception:
+            pass
+
+        app_id = normalized.get("application_id")
+        if isinstance(app_id, str):
+            app_id = app_id.strip()
+            if app_id.isdigit():
+                normalized["application_id"] = int(app_id)
+            elif not app_id:
+                normalized.pop("application_id", None)
+
+        assets = normalized.get("assets")
+        if isinstance(assets, dict):
+            cleaned_assets = {}
+            for key in ("large_image", "large_text", "small_image", "small_text"):
+                value = assets.get(key)
+                if value is None:
+                    continue
+                if isinstance(value, dict):
+                    value = value.get("url") or value.get("name") or value.get("id")
+                value = str(value).strip()
+                if not value:
+                    continue
+                if key in {"large_image", "small_image"}:
+                    if value.startswith("mp:mp:"):
+                        value = value[3:]
+                    if value.startswith("attachments/"):
+                        value = f"mp:{value}"
+                    if value.startswith("https://cdn.discordapp.com/attachments/") or value.startswith("https://media.discordapp.net/attachments/"):
+                        match = re.search(r"https?://(?:cdn\.discordapp\.com|media\.discordapp\.net)/attachments/(\d+)/(\d+)/([^?#]+)", value)
+                        if match:
+                            channel_id, attachment_id, filename = match.groups()
+                            value = f"mp:attachments/{channel_id}/{attachment_id}/{filename}"
+                cleaned_assets[key] = value
+            if cleaned_assets:
+                normalized["assets"] = cleaned_assets
+            else:
+                normalized.pop("assets", None)
+
+        metadata = normalized.get("metadata")
+        buttons = normalized.get("buttons")
+        if isinstance(buttons, list):
+            cleaned_buttons = [str(button).strip() for button in buttons if str(button or "").strip()][:2]
+            if cleaned_buttons:
+                normalized["buttons"] = cleaned_buttons
+            else:
+                normalized.pop("buttons", None)
+        elif buttons is not None:
+            normalized.pop("buttons", None)
+
+        if isinstance(metadata, dict):
+            button_urls = metadata.get("button_urls")
+            if isinstance(button_urls, list):
+                cleaned_urls = [str(url).strip() for url in button_urls if str(url or "").strip()]
+                if cleaned_urls:
+                    metadata = dict(metadata)
+                    metadata["button_urls"] = cleaned_urls[:2]
+                    normalized["metadata"] = metadata
+                else:
+                    normalized.pop("metadata", None)
+            elif not metadata:
+                normalized.pop("metadata", None)
+        elif metadata is not None:
+            normalized.pop("metadata", None)
+
+        return normalized
 
     def get_user_prefix(self, user_id: str) -> str:
         return self.user_prefixes.get(str(user_id), self._config_prefix)
@@ -190,15 +278,44 @@ class DiscordBot:
             data = json.loads(message)
             op = data.get("op")
             
-            if op == 10:
+            if op == GatewayOpcodes.Hello:
                 self.heartbeat_interval = data["d"]["heartbeat_interval"] / 1000
                 self.connection_active = True
                 self.start_heartbeat()
                 
-            elif op == 11:
+            elif op == GatewayOpcodes.HeartbeatAck:
                 self.last_heartbeat = time.time()
+                if self._heartbeat_sent_at is not None:
+                    latency_ms = max(0.0, (self.last_heartbeat - self._heartbeat_sent_at) * 1000.0)
+                    self.gateway_latency_ms = latency_ms
+                    self._gateway_latency_samples.append(latency_ms)
+                    if len(self._gateway_latency_samples) > 25:
+                        self._gateway_latency_samples = self._gateway_latency_samples[-25:]
+                    self._heartbeat_sent_at = None
                 
-            elif op == 0:
+            elif op == GatewayOpcodes.Reconnect:  # op 7 — must reconnect immediately
+                print("\033[1;33m[GATEWAY]\033[0m op 7 RECONNECT — closing for immediate resume")
+                self.connection_active = False
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+
+            elif op == GatewayOpcodes.InvalidSession:  # op 9
+                resumable = bool(data.get("d", False))
+                print(f"\033[1;33m[GATEWAY]\033[0m op 9 INVALID SESSION — resumable={resumable}")
+                if not resumable:
+                    # Full re-identify required: discard saved session
+                    self.session_id = None
+                    self.resume_gateway_url = None
+                    self.can_resume = False
+                self.connection_active = False
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+
+            elif op == GatewayOpcodes.Dispatch:
                 self.sequence = data.get("s")
                 t = data.get("t")
                 
@@ -206,8 +323,13 @@ class DiscordBot:
                     # Only process READY once per session to prevent duplicate connection messages
                     if self.identified:
                         return
+                    ready_payload = data.get("d", {})
                     self.user_id = data["d"]["user"]["id"]
                     self.username = data["d"]["user"]["username"]
+                    # Store resume state for reconnects
+                    self.session_id = data["d"].get("session_id")
+                    self.resume_gateway_url = data["d"].get("resume_gateway_url")
+                    self.can_resume = True
                     active_prefix = self.get_user_prefix(self.user_id)
                     self.prefix = active_prefix
                     self.globalPrefix = active_prefix
@@ -216,6 +338,20 @@ class DiscordBot:
                     self.connection_active = True
                     self._apply_persistent_activity()
                     print(f"\033[1;32m[CONNECTED]\033[0m {self.username} | UID: {self.user_id} | Prefix: {self.prefix}")
+                    if callable(self._on_ready_hook):
+                        threading.Thread(
+                            target=self._on_ready_hook,
+                            args=(ready_payload,),
+                            daemon=True,
+                            name="ready-sync",
+                        ).start()
+
+                elif t == "RESUMED":
+                    self.identified = True
+                    self.connection_active = True
+                    self.reconnect_attempts = 0
+                    self._apply_persistent_activity()
+                    print(f"\033[1;32m[RESUMED]\033[0m Session resumed successfully")
                     
                 elif t == "MESSAGE_CREATE":
                     self._handle_message(data["d"])
@@ -297,11 +433,13 @@ class DiscordBot:
             pass
     
     def on_error(self, ws, error):
-        pass
+        self.connection_active = False
+        print(f"\033[1;31m[GATEWAY ERROR]\033[0m {error}")
     
     def on_close(self, ws, close_status_code, close_msg):
         self.identified = False
         self.connection_active = False
+        print(f"\033[1;33m[GATEWAY CLOSED]\033[0m code={close_status_code} message={close_msg}")
         
         if self.running:
             self.reconnect_attempts += 1
@@ -309,9 +447,29 @@ class DiscordBot:
             time.sleep(delay)
             threading.Thread(target=self._auto_reconnect, daemon=True).start()
     
+    def resume(self):
+        """Send op 6 RESUME to re-attach to an existing session."""
+        try:
+            payload = {
+                "op": GatewayOpcodes.Resume,
+                "d": {
+                    "token": self.token,
+                    "session_id": self.session_id,
+                    "seq": self.sequence,
+                },
+            }
+            self.ws.send(json.dumps(payload))
+            print(f"\033[1;36m[RESUME]\033[0m Attempting resume: session={self.session_id} seq={self.sequence}")
+        except Exception as e:
+            print(f"\033[1;31m[RESUME ERROR]\033[0m {e}")
+            self.identify()
+
     def on_open(self, ws):
         self.connection_active = True
-        self.identify()
+        if self.can_resume and self.session_id:
+            self.resume()
+        else:
+            self.identify()
     
     def start_heartbeat(self):
         if self.heartbeat_thread and self.heartbeat_thread.is_alive():
@@ -321,7 +479,8 @@ class DiscordBot:
             while self.running and self.connection_active:
                 try:
                     if self.ws and self.ws.sock and self.ws.sock.connected:
-                        heartbeat_msg = {"op": 1, "d": self.sequence}
+                        self._heartbeat_sent_at = time.time()
+                        heartbeat_msg = {"op": GatewayOpcodes.Heartbeat, "d": self.sequence}
                         self.ws.send(json.dumps(heartbeat_msg))
                     interval = float(self.heartbeat_interval or 30.0)
                     time.sleep(interval)
@@ -334,7 +493,40 @@ class DiscordBot:
         self.heartbeat_thread.start()
         
         time.sleep(1)
+
+    def get_gateway_latency_metrics(self) -> Dict[str, Optional[float]]:
+        samples = list(self._gateway_latency_samples)
+        if not samples:
+            return {"last_ms": self.gateway_latency_ms, "avg_ms": None, "best_ms": None, "samples": 0}
+        return {
+            "last_ms": self.gateway_latency_ms,
+            "avg_ms": sum(samples) / len(samples),
+            "best_ms": min(samples),
+            "samples": len(samples),
+        }
     
+    def _build_gateway_headers(self) -> List[str]:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        spoofer = getattr(self, "protection_coordinator", None)
+        if spoofer and hasattr(spoofer, "get_websocket_headers"):
+            try:
+                headers = spoofer.get_websocket_headers()
+            except Exception:
+                pass
+        blocked = {
+            "sec-websocket-extensions",
+            "sec-websocket-key",
+            "sec-websocket-version",
+            "upgrade",
+            "connection",
+            "sec-websocket-protocol",
+        }
+        return [
+            f"{name}: {value}"
+            for name, value in headers.items()
+            if value is not None and str(name).strip().lower() not in blocked
+        ]
+
     # Client type properties
     # Keys match Discord's gateway IDENTIFY d.properties exactly.
     _CLIENT_PROFILES = CLIENT_PROFILES
@@ -343,7 +535,7 @@ class DiscordBot:
         try:
             # Only resolve from config on the very first identify (not yet identified).
             # After that, preserve whatever was set explicitly by set_client_type().
-            if not self.identified:
+            if not self.identified and not self._client_type_forced:
                 self._client_type = client_identify(bot=self, token=self.token)
                 self._current_status = state_identify(bot=self, token=self.token)
             identify = build_identify_payload(
@@ -351,13 +543,13 @@ class DiscordBot:
                 client_type=self._client_type,
                 status=getattr(self, "_current_status", "online"),
                 activity=self.activity,
-                intents=3276799,
+                intents=DEFAULT_GATEWAY_INTENTS,
                 compress=False,
             )
             if self.ws:
                 self.ws.send(json.dumps(identify))
-        except:
-            pass
+        except Exception as e:
+            print(f"\033[1;31m[IDENTIFY ERROR]\033[0m {e}")
 
     def set_client_type(self, client_type: str) -> bool:
         """Change the reported client type, update API headers, manage VRRPC, and reconnect gateway."""
@@ -366,18 +558,21 @@ class DiscordBot:
         if client_type not in self._CLIENT_PROFILES:
             return False
         self._client_type = client_type
+        self._client_type_forced = True
 
         # Update HeaderSpoofer profile so HTTP API requests match the new client
         spoofer = getattr(self.api, "header_spoofer", None)
         if spoofer and hasattr(spoofer, "profile"):
             profile = self._CLIENT_PROFILES[client_type]
-            spoofer.profile.os             = profile.get("$os", "Windows")
-            spoofer.profile.browser        = profile.get("$browser", "Chrome")
-            spoofer.profile.user_agent     = profile.get("browser_user_agent", spoofer.profile.user_agent)
-            spoofer.profile.browser_version = profile.get("browser_version", spoofer.profile.browser_version)
-            spoofer.profile.os_version     = profile.get("os_version", "")
-            # Reset fingerprint cache so next request fetches a fresh one
-            spoofer.cache_time = 0
+            for coordinator in {spoofer, self.protection_coordinator}:
+                if coordinator and hasattr(coordinator, "profile"):
+                    coordinator.profile.os = profile.get("$os", "Windows")
+                    coordinator.profile.browser = profile.get("$browser", "Chrome")
+                    coordinator.profile.user_agent = profile.get("browser_user_agent", coordinator.profile.user_agent)
+                    coordinator.profile.browser_version = profile.get("browser_version", coordinator.profile.browser_version)
+                    coordinator.profile.os_version = profile.get("os_version", "")
+                    # Reset fingerprint cache so next request fetches a fresh one
+                    coordinator.cache_time = 0
 
         # VRRPC management
         if not hasattr(self, "_vrrpc"):
@@ -428,15 +623,51 @@ class DiscordBot:
                 time.sleep(5)
 
     def _connect_gateway(self):
-        url = "wss://gateway.discord.gg/?v=10&encoding=json"
+        # Use resume_gateway_url when resuming, else the standard endpoint
+        url = (
+            (self.resume_gateway_url + "?v=10&encoding=json")
+            if self.can_resume and self.resume_gateway_url
+            else "wss://gateway.discord.gg/?v=10&encoding=json"
+        )
         self.identified = False
+        action = "Resuming" if (self.can_resume and self.session_id) else "Connecting"
+        print(f"\033[1;36m[GATEWAY]\033[0m {action} with client={self._client_type}")
+
+        # Build proxy kwarg from proxy manager if available
+        proxy_kwargs: Dict[str, Any] = {}
+        try:
+            pm = getattr(getattr(self, "api", None), "header_spoofer", None)
+            pm = getattr(pm, "proxy_manager", None) if pm else None
+            if pm:
+                proxy = pm.get_random_proxy()
+                if proxy and isinstance(proxy, dict):
+                    raw = proxy.get("https") or proxy.get("http") or ""
+                    if raw:
+                        p = urlparse(raw)
+                        proxy_type = (p.scheme or "http").lower()
+                        if proxy_type == "https":
+                            proxy_type = "http"
+                        if p.hostname and p.port and proxy_type in {"http", "socks4", "socks5"}:
+                            proxy_kwargs = {
+                                "proxy_type": proxy_type,
+                                "http_proxy_host": p.hostname,
+                                "http_proxy_port": p.port,
+                            }
+                            if p.username:
+                                proxy_kwargs["http_proxy_auth"] = (
+                                    p.username,
+                                    p.password or "",
+                                )
+        except Exception:
+            pass
+
         ws_app = websocket.WebSocketApp(
             url,
             on_message=self.on_message,
             on_error=self.on_error,
             on_close=self.on_close,
             on_open=self.on_open,
-            header={"User-Agent": "Mozilla/5.0"},
+            header=self._build_gateway_headers(),
         )
         self.ws = ws_app
         self.ws_thread = threading.Thread(
@@ -444,6 +675,7 @@ class DiscordBot:
                 sslopt={"cert_reqs": ssl.CERT_NONE},
                 ping_interval=30,
                 ping_timeout=10,
+                **proxy_kwargs,
             ),
             daemon=True,
             name="GatewayWS",
@@ -544,9 +776,6 @@ class DiscordBot:
                 "vcleave": "vce",
                 "leavevoice": "vce",
             }.get(cmd_name, cmd_name)
-
-
-
             # Define ctx before usage, always include api and bot
             ctx = {
                 "author_id": author_id,
@@ -555,15 +784,6 @@ class DiscordBot:
                 "api": self.api,
                 "bot": self,
             }
-
-            # Enable autodelete for all commands
-            try:
-                import threading
-                command_response_state = threading.local()
-                command_response_state.enabled = True
-                command_response_state.channel_id = channel_id
-            except Exception:
-                pass
 
             # Ensure cmd_name is always a string
             cmd_name = cmd_name or "default_command"
@@ -627,7 +847,7 @@ class DiscordBot:
             try:
                 since = int(time.time() * 1000) if status == "idle" else 0
                 payload = {
-                    "op": 3,
+                    "op": GatewayOpcodes.PresenceUpdate,
                     "d": {
                         "since": since,
                         "activities": [self.activity] if self.activity else [],
@@ -643,13 +863,41 @@ class DiscordBot:
 
     def set_activity(self, activity):
         """Set or clear the current presence activity."""
+        activity = self._normalize_activity_payload(activity)
         self.activity = activity
+        signature = None
+        if isinstance(activity, dict):
+            signature = (
+                activity.get("type"),
+                activity.get("name"),
+                activity.get("details"),
+                activity.get("state"),
+                activity.get("application_id"),
+            )
+        if signature != self._last_activity_signature:
+            if isinstance(activity, dict):
+                activity_type = {
+                    ActivityType.Playing: "playing",
+                    ActivityType.Streaming: "streaming",
+                    ActivityType.Listening: "listening",
+                    ActivityType.Watching: "watching",
+                    ActivityType.Competing: "competing",
+                }.get(activity.get("type"), str(activity.get("type")))
+                print(
+                    f"\033[1;36m[RPC]\033[0m type={activity_type} "
+                    f"name={activity.get('name') or ''} "
+                    f"details={activity.get('details') or ''} "
+                    f"state={activity.get('state') or ''}"
+                )
+            else:
+                print("\033[1;36m[RPC]\033[0m cleared")
+            self._last_activity_signature = signature
         if self.identified and self.connection_active and self.ws:
             try:
                 status = getattr(self, "_current_status", "online")
                 since = int(time.time() * 1000) if status == "idle" else 0
                 payload = {
-                    "op": 3,
+                    "op": GatewayOpcodes.PresenceUpdate,
                     "d": {
                         "since": since,
                         "activities": [activity] if activity else [],

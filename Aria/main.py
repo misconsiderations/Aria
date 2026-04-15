@@ -1,52 +1,18 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
+
 bot = None
-
-# Replace all instances of `nonlocal web_panel` with `global web_panel`
-# Example:
-# Replace:
-# nonlocal web_panel
-# With:
-# global web_panel
-
-# Ensure `web_panel` is properly initialized globally
 web_panel = None
 
-# Fix `importlib` usage
 import importlib
-
-# Replace all `nonlocal web_panel` references with `global web_panel`:
-# Example:
-# Replace:
-# nonlocal web_panel
-# With:
-# global web_panel
-
-# Ensure `fmt` is properly initialized
-class FmtMock:
-    CYAN = DARK = RESET = WHITE = ""
-    def header(self, text): return text
-    def _block(self, text): return text
-fmt = FmtMock()
-
-# Replace `unidecode` with a placeholder function
-# Placeholder for `unidecode`
-def unidecode(value):
-    return value  # Replace with actual implementation
-
-# Fix `_url_quote` usage
-# Placeholder for `_url_quote`
-def _url_quote(value, safe=""):
-    return value  # Replace with actual implementation
 
 import re
 import threading
 import time
 import random
 import json
-
-# Define missing functions
-# Placeholder for `is_valid_emoji`
-def is_valid_emoji(token):
-    return False  # Replace with actual implementation
+from urllib.parse import quote as _url_quote
 
 try:
     import aiohttp  # type: ignore[import-untyped]
@@ -54,8 +20,14 @@ except ImportError:
     aiohttp = None
 import base64
 import importlib
+import formatter as fmt
 
-# Ensure `web_panel` is properly initialized
+try:
+    from utils.general import is_valid_emoji
+except ImportError:
+    def is_valid_emoji(token):
+        return False
+
 web_panel = None
 
 from bot import DiscordBot
@@ -72,6 +44,7 @@ from superreact import SuperReactClient, super_react_client
 from history_manager import HistoryManager
 from account_data_manager import AccountDataManager
 from badge_scraper import BadgeScraper
+from discord_api_types import ActivityType, RelationshipType
 from format_bootstrap import install_global_formatter
 from quest import QuestSystem
 from developer import DeveloperTools
@@ -102,9 +75,16 @@ else:
 def protected_main():
     error_guard.safe_execute(main)
 
-def delete_after_delay(api, channel_id, message_id, delay=20):
+def delete_after_delay(api, channel_id, message_id, delay=None):
     def delete():
-        time.sleep(delay)
+        resolved_delay = delay
+        if resolved_delay is None:
+            resolved_delay = getattr(api, "_default_delete_delay", 3.0)
+        try:
+            resolved_delay = max(0.03, float(resolved_delay or 0.0))
+        except Exception:
+            resolved_delay = 3.0
+        time.sleep(resolved_delay)
         api.delete_message(channel_id, message_id)
     threading.Thread(target=delete, daemon=True).start()
 
@@ -136,14 +116,101 @@ _CT_EXT = {
     "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
     "image/gif": "gif", "image/webp": "webp", "image/avif": "avif",
 }
+_RPC_ASSET_CACHE = {}
 
-def upload_image_to_discord(api, image_url):
+
+def _rpc_asset_cache_key(image_url, application_id=None):
+    return f"{application_id or ''}::{str(image_url or '')}"
+
+
+def _normalize_rpc_application_id(application_id):
+    app_id = str(application_id or "").strip()
+    return app_id if app_id.isdigit() else None
+
+
+def _normalize_rpc_image_input(image_url):
+    if image_url is None:
+        return None
+    value = str(image_url).strip()
+    return value or None
+
+
+def _rpc_feedback_channel_id(bot):
+    return getattr(bot, "last_command_channel", None) or getattr(bot, "default_channel", None) or None
+
+
+def _notify_rpc_issue(bot, message):
+    channel_id = _rpc_feedback_channel_id(bot)
+    if not channel_id:
+        return
+    try:
+        bot.api.send_message(channel_id, message)
+    except Exception:
+        pass
+
+
+def _get_cached_rpc_asset(image_url, application_id=None):
+    cached = _RPC_ASSET_CACHE.get(_rpc_asset_cache_key(image_url, application_id))
+    if not isinstance(cached, dict):
+        return None
+    asset_key = cached.get("asset_key")
+    if isinstance(asset_key, str) and asset_key:
+        return asset_key
+    return None
+
+
+def _store_cached_rpc_asset(image_url, asset_key, channel_id=None, message_id=None, application_id=None):
+    if not image_url or not asset_key:
+        return
+    _RPC_ASSET_CACHE[_rpc_asset_cache_key(image_url, application_id)] = {
+        "asset_key": str(asset_key),
+        "channel_id": str(channel_id) if channel_id else None,
+        "message_id": str(message_id) if message_id else None,
+        "application_id": str(application_id) if application_id else None,
+        "cached_at": time.time(),
+    }
+
+
+def register_external_rpc_asset(api, application_id, image_url):
+    image_url = _normalize_rpc_image_input(image_url)
+    application_id = _normalize_rpc_application_id(application_id)
+    if not image_url or not application_id:
+        return None
+    cached_asset = _get_cached_rpc_asset(image_url, application_id)
+    if cached_asset:
+        return cached_asset
+
+    try:
+        response = api.request(
+            "POST",
+            f"/applications/{application_id}/external-assets",
+            data={"urls": [image_url]},
+        )
+        if not response or response.status_code not in (200, 201):
+            return None
+        payload = response.json()
+        if isinstance(payload, dict):
+            payload = payload.get("external_assets") or payload.get("assets") or []
+        if isinstance(payload, list) and payload:
+            asset_path = payload[0].get("external_asset_path") or payload[0].get("asset_path")
+            if asset_path:
+                asset_key = f"mp:{asset_path}"
+                _store_cached_rpc_asset(image_url, asset_key, application_id=application_id)
+                return asset_key
+    except Exception as e:
+        print(f"[rpc asset] register error: {e}")
+    return None
+
+def upload_image_to_discord(api, image_url, application_id=None):
     """Upload an external image to Discord via DM and return an mp:attachments/ asset key."""
     try:
-        m = _CDN_RE.search(image_url)
-        if m:
-            ch, att, fn = m.groups()
-            return f"mp:attachments/{ch}/{att}/{fn}"
+        image_url = _normalize_rpc_image_input(image_url)
+        application_id = _normalize_rpc_application_id(application_id)
+        if not image_url:
+            return None
+        cached_asset = _get_cached_rpc_asset(image_url, application_id)
+        if cached_asset:
+            return cached_asset
 
         response = api.session.get(image_url, timeout=15)
         if response.status_code != 200:
@@ -154,6 +221,9 @@ def upload_image_to_discord(api, image_url):
         ct_ext = _CT_EXT.get(ct, "png")
         raw_name = image_url.split("/")[-1].split("?")[0]
         filename = raw_name if ("." in raw_name and len(raw_name) <= 50) else f"asset.{ct_ext}"
+
+        if not getattr(api, "user_id", None):
+            api.get_user_info(force=False)
 
         dm = api.create_dm(api.user_id)
         if not dm or "id" not in dm:
@@ -176,43 +246,50 @@ def upload_image_to_discord(api, image_url):
                 m2 = _CDN_RE.search(attachments[0]["url"])
                 if m2:
                     ch, att, fn = m2.groups()
-                    try:
-                        api.delete_message(dm["id"], message_data["id"])
-                    except Exception:
-                        pass
-                    return f"mp:attachments/{ch}/{att}/{fn}"
+                    asset_key = f"mp:attachments/{ch}/{att}/{fn}"
+                    _store_cached_rpc_asset(
+                        image_url,
+                        asset_key,
+                        dm.get("id"),
+                        message_data.get("id"),
+                        application_id=application_id,
+                    )
+                    return asset_key
 
         return None
     except Exception as e:
         print(f"[upload_image] error: {e}")
         return None
 
-def upload_n_get_asset_key(bot, image_url):
+def upload_n_get_asset_key(bot, image_url, application_id=None):
     """Return a Discord media-proxy key for any image URL.
 
     Priority:
-    1. Discord CDN/media URLs -> mp:attachments/ (fast path, no upload needed)
-    2. Any HTTPS URL -> mp:https/ (Discord proxies it directly — no upload required)
-    3. Fallback -> try uploading via DM to get an attachment key
+    1. Already-normalized mp: assets are passed through
+    2. Any HTTP(S) URL + valid application_id -> register external asset
+    3. Fallback -> upload via DM to get an attachment key owned by this account
     """
+    image_url = _normalize_rpc_image_input(image_url)
+    application_id = _normalize_rpc_application_id(application_id)
     if not image_url:
         return None
-    # Fast path: already a Discord CDN URL
-    m = _CDN_RE.search(image_url)
-    if m:
-        ch, att, fn = m.groups()
-        return f"mp:attachments/{ch}/{att}/{fn}"
-    # Direct proxy: any external HTTPS image — Discord accepts mp:https/<host/path>
-    if image_url.startswith("https://"):
-        return "mp:https/" + image_url[len("https://"):]
-    # Last resort: try uploading via DM attachment (HTTP or unknown scheme)
-    asset = upload_image_to_discord(bot.api, image_url)
+    if image_url.startswith("mp:"):
+        return image_url
+    cached_asset = _get_cached_rpc_asset(image_url, application_id)
+    if cached_asset:
+        return cached_asset
+    if isinstance(image_url, str) and image_url.startswith("attachments/"):
+        return f"mp:{image_url}"
+
+    if isinstance(image_url, str) and image_url.startswith(("http://", "https://")) and application_id:
+        asset = register_external_rpc_asset(bot.api, application_id, image_url)
+        if asset:
+            return asset
+
+    # Upload external URLs to a persistent self-DM attachment only as fallback.
+    asset = upload_image_to_discord(bot.api, image_url, application_id=application_id)
     if not asset:
-        # Send error to user if possible
-        try:
-            bot.api.send_message(getattr(bot, "last_command_channel", None) or getattr(bot, "default_channel", None) or "", f"> **✗ RPC Image** :: Failed to upload or use image: {image_url}")
-        except Exception:
-            pass
+        _notify_rpc_issue(bot, f"> **✗ RPC Image** :: Failed to upload or use image: {image_url}")
     return asset
 
 def send_spotify_with_spoofing(bot, song_name, artist, album, duration_minutes=3.5, current_position_minutes: float = 0.0, image_url=None):
@@ -226,7 +303,7 @@ def send_spotify_with_spoofing(bot, song_name, artist, album, duration_minutes=3
     artist_id = random.choice(_SPOTIFY_ARTISTS)
 
     activity = {
-        "type": 2,
+        "type": int(ActivityType.Listening),
         "name": "Spotify",
         "details": song_name,
         "state": artist,
@@ -250,7 +327,7 @@ def send_spotify_with_spoofing(bot, song_name, artist, album, duration_minutes=3
         },
     }
 
-    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
     if asset_key:
         activity["assets"] = {
             "large_image": asset_key,
@@ -262,17 +339,14 @@ def send_spotify_with_spoofing(bot, song_name, artist, album, duration_minutes=3
             "large_text": f"{album} on Spotify",
         }
         if image_url:
-            try:
-                bot.api.send_message(getattr(bot, "last_command_channel", None) or getattr(bot, "default_channel", None) or "", f"> **✗ Spotify RPC** :: Could not use image: {image_url}")
-            except Exception:
-                pass
+            _notify_rpc_issue(bot, f"> **✗ Spotify RPC** :: Could not use image: {image_url}")
     bot.set_activity(activity)
 
 def send_spotify_listening_activity(bot, song_name, artist, album=None, elapsed_minutes=0.0, total_minutes=None, image_url=None):
     """Modern Spotify-style listening activity without legacy spoof metadata."""
     start_ms = int(time.time() * 1000) - int(float(max(0.0, elapsed_minutes)) * 60 * 1000)
     activity = {
-        "type": 2,
+        "type": int(ActivityType.Listening),
         "name": "Spotify",
         "application_id": "3201606009684",
         "details": song_name,
@@ -282,7 +356,7 @@ def send_spotify_listening_activity(bot, song_name, artist, album=None, elapsed_
         total_ms = int(float(max(0.1, total_minutes)) * 60 * 1000)
         activity["timestamps"] = {"start": start_ms, "end": start_ms + total_ms}
 
-    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
     activity["assets"] = {
         "large_image": asset_key if asset_key else "spotify",
         "large_text": f"{album} on Spotify" if album else "Spotify",
@@ -292,7 +366,7 @@ def send_spotify_listening_activity(bot, song_name, artist, album=None, elapsed_
 def send_youtube_activity(bot, title, channel, elapsed_minutes=0.0, total_minutes=None, image_url=None, button_label=None, button_url=None):
     start_ms = int(time.time() * 1000) - int(float(max(0.0, elapsed_minutes)) * 60 * 1000)
     activity = {
-        "type": 3,
+        "type": int(ActivityType.Watching),
         "name": "YouTube",
         "application_id": "880218394199220334",
         "details": title,
@@ -302,7 +376,7 @@ def send_youtube_activity(bot, title, channel, elapsed_minutes=0.0, total_minute
         total_ms = int(float(max(0.1, total_minutes)) * 60 * 1000)
         activity["timestamps"] = {"start": start_ms, "end": start_ms + total_ms}
 
-    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
     if asset_key:
         activity["assets"] = {
             "large_image": asset_key,
@@ -314,10 +388,7 @@ def send_youtube_activity(bot, title, channel, elapsed_minutes=0.0, total_minute
             "large_text": "YouTube",
         }
         if image_url:
-            try:
-                bot.api.send_message(getattr(bot, "last_command_channel", None) or getattr(bot, "default_channel", None) or "", f"> **✗ YouTube RPC** :: Could not use image: {image_url}")
-            except Exception:
-                pass
+            _notify_rpc_issue(bot, f"> **✗ YouTube RPC** :: Could not use image: {image_url}")
     if button_label and button_url:
         activity["buttons"] = [button_label]
         activity["metadata"] = {"button_urls": [button_url]}
@@ -326,7 +397,7 @@ def send_youtube_activity(bot, title, channel, elapsed_minutes=0.0, total_minute
 def send_soundcloud_activity(bot, track, artist, elapsed_minutes=0.0, total_minutes=None, image_url=None, button_label=None, button_url=None):
     start_ms = int(time.time() * 1000) - int(float(max(0.0, elapsed_minutes)) * 60 * 1000)
     activity = {
-        "type": 2,
+        "type": int(ActivityType.Listening),
         "name": "SoundCloud",
         "application_id": "451016423729692673",
         "details": track,
@@ -336,7 +407,7 @@ def send_soundcloud_activity(bot, track, artist, elapsed_minutes=0.0, total_minu
         total_ms = int(float(max(0.1, total_minutes)) * 60 * 1000)
         activity["timestamps"] = {"start": start_ms, "end": start_ms + total_ms}
 
-    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
     if asset_key:
         activity["assets"] = {
             "large_image": asset_key,
@@ -348,10 +419,7 @@ def send_soundcloud_activity(bot, track, artist, elapsed_minutes=0.0, total_minu
             "large_text": "SoundCloud",
         }
         if image_url:
-            try:
-                bot.api.send_message(getattr(bot, "last_command_channel", None) or getattr(bot, "default_channel", None) or "", f"> **✗ SoundCloud RPC** :: Could not use image: {image_url}")
-            except Exception:
-                pass
+            _notify_rpc_issue(bot, f"> **✗ SoundCloud RPC** :: Could not use image: {image_url}")
     if button_label and button_url:
         activity["buttons"] = [button_label]
         activity["metadata"] = {"button_urls": [button_url]}
@@ -359,17 +427,57 @@ def send_soundcloud_activity(bot, track, artist, elapsed_minutes=0.0, total_minu
 
 
 REAL_RPC_APPS = {
+    "youtube_music": {
+        "name": "YouTube Music",
+        "type": int(ActivityType.Listening),
+        "application_id": "880218394199220334",
+        "asset": "youtube",
+        "default_button": "Listen",
+        "default_url": "https://music.youtube.com",
+    },
+    "applemusic": {
+        "name": "Apple Music",
+        "type": int(ActivityType.Listening),
+        "application_id": "886578863147192381",
+        "asset": "music",
+        "default_button": "Listen",
+        "default_url": "https://music.apple.com",
+    },
+    "deezer": {
+        "name": "Deezer",
+        "type": int(ActivityType.Listening),
+        "application_id": "356268235697553409",
+        "asset": "music",
+        "default_button": "Listen",
+        "default_url": "https://www.deezer.com",
+    },
+    "tidal": {
+        "name": "TIDAL",
+        "type": int(ActivityType.Listening),
+        "application_id": "967730792256327751",
+        "asset": "music",
+        "default_button": "Listen",
+        "default_url": "https://tidal.com",
+    },
     "twitch": {
         "name": "Twitch",
-        "type": 1,
+        "type": int(ActivityType.Streaming),
         "application_id": "432980957394370572",
         "asset": "twitch",
         "default_button": "Watch",
         "default_url": "https://www.twitch.tv",
     },
+    "kick": {
+        "name": "Kick",
+        "type": int(ActivityType.Streaming),
+        "application_id": "1108574023776385135",
+        "asset": "stream",
+        "default_button": "Watch",
+        "default_url": "https://kick.com",
+    },
     "netflix": {
         "name": "Netflix",
-        "type": 3,
+        "type": int(ActivityType.Watching),
         "application_id": "523416993301913601",
         "asset": "movie",
         "default_button": "Watch",
@@ -377,7 +485,7 @@ REAL_RPC_APPS = {
     },
     "disneyplus": {
         "name": "Disney+",
-        "type": 3,
+        "type": int(ActivityType.Watching),
         "application_id": "911240629547008050",
         "asset": "movie",
         "default_button": "Watch",
@@ -385,15 +493,31 @@ REAL_RPC_APPS = {
     },
     "primevideo": {
         "name": "Prime Video",
-        "type": 3,
+        "type": int(ActivityType.Watching),
         "application_id": "1052207893980653608",
         "asset": "movie",
         "default_button": "Watch",
         "default_url": "https://www.primevideo.com",
     },
+    "plex": {
+        "name": "Plex",
+        "type": int(ActivityType.Watching),
+        "application_id": "435674941344555008",
+        "asset": "movie",
+        "default_button": "Open",
+        "default_url": "https://app.plex.tv",
+    },
+    "jellyfin": {
+        "name": "Jellyfin",
+        "type": int(ActivityType.Watching),
+        "application_id": "1011297904504971264",
+        "asset": "movie",
+        "default_button": "Open",
+        "default_url": "https://jellyfin.org",
+    },
     "youtube": {
         "name": "YouTube",
-        "type": 3,
+        "type": int(ActivityType.Watching),
         "application_id": "880218394199220334",
         "asset": "youtube",
         "default_button": "Watch",
@@ -401,7 +525,7 @@ REAL_RPC_APPS = {
     },
     "spotify": {
         "name": "Spotify",
-        "type": 2,
+        "type": int(ActivityType.Listening),
         "application_id": "3201606009684",
         "asset": "spotify",
         "default_button": "Listen",
@@ -409,7 +533,7 @@ REAL_RPC_APPS = {
     },
     "crunchyroll": {
         "name": "Crunchyroll",
-        "type": 3,
+        "type": int(ActivityType.Watching),
         "application_id": "1000782763855949914",
         "asset": "crunchyroll",
         "default_button": "Watch",
@@ -417,7 +541,7 @@ REAL_RPC_APPS = {
     },
     "playstation": {
         "name": "PlayStation",
-        "type": 0,
+        "type": int(ActivityType.Playing),
         "application_id": "463035646208860161",
         "asset": "playstation",
         "default_button": "Play",
@@ -425,7 +549,7 @@ REAL_RPC_APPS = {
     },
     "xbox": {
         "name": "Xbox",
-        "type": 0,
+        "type": int(ActivityType.Playing),
         "application_id": "432980957394370572",
         "asset": "xbox",
         "default_button": "Play",
@@ -433,11 +557,27 @@ REAL_RPC_APPS = {
     },
     "roblox": {
         "name": "Roblox",
-        "type": 0,
+        "type": int(ActivityType.Playing),
         "application_id": "366959252047237121",
         "asset": "roblox",
         "default_button": "Play",
         "default_url": "https://www.roblox.com",
+    },
+    "vscode": {
+        "name": "Visual Studio Code",
+        "type": int(ActivityType.Playing),
+        "application_id": "383226320970055681",
+        "asset": "code",
+        "default_button": "Open",
+        "default_url": "https://code.visualstudio.com",
+    },
+    "browser": {
+        "name": "Browser",
+        "type": int(ActivityType.Playing),
+        "application_id": "485951488964247552",
+        "asset": "browser",
+        "default_button": "Open",
+        "default_url": "https://www.google.com",
     }
 }
 
@@ -479,7 +619,7 @@ def send_real_app_activity(
         "state": context,
     }
 
-    app_id = cfg.get("application_id")
+    app_id = _normalize_rpc_application_id(cfg.get("application_id"))
     if app_id:
         activity["application_id"] = app_id
 
@@ -490,7 +630,7 @@ def send_real_app_activity(
     if int(cfg.get("type", 0)) == 1:
         activity["url"] = button_url or cfg.get("default_url") or "https://www.twitch.tv"
 
-    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
     activity["assets"] = {
         "large_image": asset_key if asset_key else cfg.get("asset", "game"),
         "large_text": cfg["name"],
@@ -521,7 +661,7 @@ def send_crunchyroll_activity(bot, name, episode_title, elapsed_minutes, total_m
         "application_id": CRUNCHYROLL_APP_ID,
         "timestamps": {"start": start_ms, "end": end_ms},
     }
-    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
     if asset_key:
         activity["assets"] = {
             "large_image": asset_key,
@@ -534,10 +674,7 @@ def send_crunchyroll_activity(bot, name, episode_title, elapsed_minutes, total_m
         }
         # Feedback if image was requested but not used
         if image_url:
-            try:
-                bot.api.send_message(getattr(bot, "last_command_channel", None) or getattr(bot, "default_channel", None) or "", f"> **✗ Crunchyroll RPC** :: Could not use image: {image_url}")
-            except Exception:
-                pass
+            _notify_rpc_issue(bot, f"> **✗ Crunchyroll RPC** :: Could not use image: {image_url}")
     bot.set_activity(activity)
 
 def send_listening_activity(bot, name, button_label=None, button_url=None, image_url=None, state=None, details=None):
@@ -551,7 +688,7 @@ def send_listening_activity(bot, name, button_label=None, button_url=None, image
     if state:
         activity["state"] = state
 
-    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
     activity["assets"] = {
         "large_image": asset_key if asset_key else "spotify",
         "large_text": name,
@@ -574,9 +711,9 @@ def send_streaming_activity(bot, name, button_label=None, button_url=None, image
     if state:
         activity["state"] = state
 
-    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
     activity["assets"] = {
-        "large_image": asset_key if asset_key else "youtube",
+        "large_image": asset_key if asset_key else "twitch",
         "large_text": name,
     }
 
@@ -597,7 +734,7 @@ def send_playing_activity(bot, name, button_label=None, button_url=None, image_u
     if state:
         activity["state"] = state
 
-    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
     activity["assets"] = {
         "large_image": asset_key if asset_key else "game",
         "large_text": name,
@@ -622,7 +759,7 @@ def send_timer_activity(bot, name, start_time=None, end_time=None, details=None,
     if state:
         activity["state"] = state
 
-    asset_key = upload_n_get_asset_key(bot, image_url) if image_url else None
+    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
     activity["assets"] = {
         "large_image": asset_key if asset_key else "game",
         "large_text": name,
@@ -666,8 +803,7 @@ def _save_runtime_state(state):
 
 def _save_client_state(bot):
     state = _load_runtime_state()
-    # Replacing mobile client references with VR client
-    state["client_type"] = getattr(bot, "_client_type", "vr")
+    state["client_type"] = getattr(bot, "_client_type", "web")
     _save_runtime_state(state)
 
 
@@ -675,7 +811,7 @@ def _save_auto_delete_state(bot):
     state = _load_runtime_state()
     state["auto_delete"] = {
         "enabled": bool(getattr(bot, "_auto_delete_enabled", True)),
-        "delay": int(getattr(bot, "_auto_delete_delay", 20) or 20),
+        "delay": float(getattr(bot, "_auto_delete_delay", 3.0) or 3.0),
     }
     _save_runtime_state(state)
 
@@ -707,15 +843,24 @@ def _restore_runtime_state(bot):
     if isinstance(auto_delete, dict):
         try:
             bot._auto_delete_enabled = bool(auto_delete.get("enabled", True))
-            bot._auto_delete_delay = max(1, int(auto_delete.get("delay", 20) or 20))
+            bot._auto_delete_delay = max(0.03, float(auto_delete.get("delay", 3.0) or 3.0))
+            bot.api._default_delete_delay = bot._auto_delete_delay
         except Exception:
             bot._auto_delete_enabled = True
-            bot._auto_delete_delay = 20
+            bot._auto_delete_delay = 3.0
+            bot.api._default_delete_delay = 3.0
 
     saved_client = str(state.get("client_type") or "").lower().strip()
+    configured_client = str(bot.config.get("gateway_client", "web") or "web").lower().strip()
+    target_client = None
     if saved_client in {"web", "desktop", "mobile", "vr"}:
+        target_client = saved_client
+    elif configured_client in {"web", "desktop", "mobile", "vr"}:
+        target_client = configured_client
+
+    if target_client:
         try:
-            bot.set_client_type(saved_client)
+            bot.set_client_type(target_client)
         except Exception:
             pass
 
@@ -994,94 +1139,71 @@ def main():
     bot = DiscordBot(token, config.get("prefix") or "$", config)
     bot.db = MessageDatabase(os.path.join(os.path.dirname(__file__), "messages.db"))
     bot._auto_delete_enabled = True
-    bot._auto_delete_delay = 20
+    bot._auto_delete_delay = 3.0
+    bot.api._default_delete_delay = 3.0
 
     # Restore optional persisted runtime settings (client profile / RPC).
     _restore_runtime_state(bot)
-
+ 
     command_response_state = threading.local()
     original_api_send_message = bot.api.send_message
+    original_api_edit_message = bot.api.edit_message
+    managed_delete_state = {}
+    managed_delete_lock = threading.Lock()
+
+    def schedule_managed_delete(channel_id, message_id, delay=None):
+        if not channel_id or not message_id:
+            return
+        resolved_delay = delay
+        if resolved_delay is None:
+            resolved_delay = getattr(bot.api, "_default_delete_delay", 3.0)
+        try:
+            resolved_delay = max(0.03, float(resolved_delay or 0.0))
+        except Exception:
+            resolved_delay = 3.0
+
+        key = (str(channel_id), str(message_id))
+        with managed_delete_lock:
+            token = managed_delete_state.get(key, 0) + 1
+            managed_delete_state[key] = token
+
+        def delete_when_current():
+            time.sleep(resolved_delay)
+            with managed_delete_lock:
+                if managed_delete_state.get(key) != token:
+                    return
+            try:
+                bot.api.delete_message(channel_id, message_id)
+            finally:
+                with managed_delete_lock:
+                    if managed_delete_state.get(key) == token:
+                        managed_delete_state.pop(key, None)
+
+        threading.Thread(target=delete_when_current, daemon=True).start()
 
     def managed_send_message(channel_id, content, reply_to=None, tts=False):
         msg = original_api_send_message(channel_id, content, reply_to=reply_to, tts=tts)
         active_channel = getattr(command_response_state, "channel_id", None)
-        active_delay = getattr(command_response_state, "delay", getattr(bot, "_auto_delete_delay", 20))
+        active_delay = getattr(command_response_state, "delay", getattr(bot, "_auto_delete_delay", 3.0))
         if msg and getattr(command_response_state, "enabled", False) and channel_id == active_channel:
-            delete_after_delay(bot.api, channel_id, msg.get("id"), active_delay)
+            schedule_managed_delete(channel_id, msg.get("id"), active_delay)
+        return msg
+
+    def managed_edit_message(channel_id, message_id, content):
+        msg = original_api_edit_message(channel_id, message_id, content)
+        active_channel = getattr(command_response_state, "channel_id", None)
+        active_delay = getattr(command_response_state, "delay", getattr(bot, "_auto_delete_delay", 3.0))
+        if getattr(command_response_state, "enabled", False) and channel_id == active_channel:
+            target_message_id = message_id
+            if isinstance(msg, dict) and msg.get("id"):
+                target_message_id = msg.get("id")
+            schedule_managed_delete(channel_id, target_message_id, active_delay)
         return msg
 
     bot.api.send_message = managed_send_message
+    bot.api.edit_message = managed_edit_message
 
-    # Optional real slash bot launcher (separate bot token / process).
-    slash_bot_process = None
-
-    def _get_slash_bot_token():
-        return (os.getenv("DISCORD_BOT_TOKEN") or config.get("discord_bot_token") or "").strip()
-
-    def _get_slash_sync_guild_id():
-        return (os.getenv("DISCORD_SLASH_GUILD_ID") or config.get("discord_slash_guild_id") or "").strip()
-
-    def _slashbot_status_text():
-        if slash_bot_process and slash_bot_process.poll() is None:
-            return f"running (pid {slash_bot_process.pid})"
-        return "stopped"
-
-    def _start_slash_bot(force=False):
-        nonlocal slash_bot_process
-        if HOSTED_MODE:
-            return False, "Disabled in hosted mode"
-        if slash_bot_process and slash_bot_process.poll() is None and not force:
-            return True, f"Already running (pid {slash_bot_process.pid})"
-
-        bot_token = _get_slash_bot_token()
-        if not bot_token:
-            return False, "No bot token configured (set DISCORD_BOT_TOKEN or discord_bot_token)"
-
-        env = os.environ.copy()
-        env.setdefault("DISCORD_BOT_TOKEN", bot_token)
-        guild_sync_id = _get_slash_sync_guild_id()
-        if guild_sync_id:
-            env.setdefault("DISCORD_SLASH_GUILD_ID", guild_sync_id)
-
-        try:
-            import subprocess
-            slash_path = os.path.join(os.path.dirname(__file__), "slash_bot.py")
-            slash_bot_process = subprocess.Popen(
-                [sys.executable, slash_path],
-                cwd=os.path.dirname(__file__),
-                env=env,
-                stdout=None,
-                stderr=None,
-            )
-            return True, f"Started slash bot (pid {slash_bot_process.pid})"
-        except Exception as e:
-            return False, f"Failed to start slash bot: {e}"
-
-    def _stop_slash_bot():
-        nonlocal slash_bot_process
-        if not slash_bot_process or slash_bot_process.poll() is not None:
-            slash_bot_process = None
-            return True, "Already stopped"
-
-        try:
-            slash_bot_process.terminate()
-            slash_bot_process.wait(timeout=8)
-            msg = "Stopped"
-        except Exception:
-            try:
-                slash_bot_process.kill()
-                msg = "Killed"
-            except Exception as e:
-                return False, f"Failed to stop slash bot: {e}"
-        finally:
-            slash_bot_process = None
-
-        return True, msg
-
-    auto_start_slash = bool(config.get("auto_start_slash_bot", True))
-    if auto_start_slash:
-        ok, info = _start_slash_bot()
-        print(f"[SlashBot] {info}")
+    # Slash bot support was removed. The main bot continues to run without a separate slash process.
 
     # Integrate enhanced command engine (500+ commands, ANSI-safe help)
     try:
@@ -1094,8 +1216,7 @@ def main():
     mod_manager = ModerationManager(bot.api)
 
     # Ensure instance_id is always a string globally and initialized properly
-    instance_id = str(getattr(bot, "instance_id", "main"))  # Ensure instance_id is always a string
-    print(f"DEBUG: instance_id type at runtime: {type(instance_id)}")  # Verify type
+    instance_id = str(getattr(bot, "instance_id", "main"))
 
     # Voice features are disabled
     # afk_system.load_state()
@@ -1302,6 +1423,75 @@ def main():
     def _clean_target_id(raw_value):
         return re.sub(r"\D", "", str(raw_value or ""))
 
+    def _lookup_target_user(api, user_id, guild_id=""):
+        target_id = _clean_target_id(user_id) or str(user_id or "").strip()
+        if not target_id:
+            return None, None
+
+        member_data = None
+        if guild_id:
+            try:
+                member_r = api.request("GET", f"/guilds/{guild_id}/members/{target_id}")
+                if member_r and member_r.status_code == 200:
+                    member_data = member_r.json() or {}
+                    user_data = member_data.get("user") or {}
+                    if isinstance(user_data, dict) and user_data:
+                        return user_data, member_data
+            except Exception:
+                pass
+
+        try:
+            if hasattr(api, "get_known_user"):
+                user_data = api.get_known_user(target_id, force=False)
+                if isinstance(user_data, dict) and user_data:
+                    return user_data, member_data
+        except Exception:
+            pass
+
+        return None, member_data
+
+    def _lookup_target_profile(api, user_id, guild_id="", with_mutual_guilds=False):
+        target_id = _clean_target_id(user_id) or str(user_id or "").strip()
+        if not target_id:
+            return None, None, None
+
+        user_data = None
+        member_data = None
+        if guild_id:
+            try:
+                member_r = api.request("GET", f"/guilds/{guild_id}/members/{target_id}")
+                if member_r and member_r.status_code == 200:
+                    member_data = member_r.json() or {}
+                    user_data = member_data.get("user") or None
+            except Exception:
+                pass
+
+        profile_endpoint = f"/users/{target_id}/profile?with_mutual_guilds={'true' if with_mutual_guilds else 'false'}"
+
+        try:
+            profile_r = api.request("GET", profile_endpoint)
+            if profile_r and profile_r.status_code in (200, 201):
+                profile_data = profile_r.json() or {}
+                if isinstance(profile_data, dict):
+                    if user_data and not isinstance(profile_data.get("user"), dict):
+                        profile_data["user"] = user_data
+                    return profile_data, profile_data.get("user") or user_data, member_data
+        except Exception:
+            pass
+
+        if user_data:
+            return {"user": user_data}, user_data, member_data
+
+        try:
+            if hasattr(api, "get_known_user"):
+                user_data = api.get_known_user(target_id, force=False)
+                if isinstance(user_data, dict) and user_data:
+                    return {"user": user_data}, user_data, member_data
+        except Exception:
+            pass
+
+        return None, None, member_data
+
     if _authed_users and not _dashboard_authed_users:
         _dashboard_authed_users = set(_authed_users)
         _save_id_set(_DASH_AUTH_FILE, _dashboard_authed_users)
@@ -1416,14 +1606,24 @@ def main():
             last_err = err or last_err
         return False, None, last_err
 
-    account_data_manager.start_stats_job(900)
-    account_data_manager.start_auto_scrape(900, ["all"])
+    try:
+        account_data_manager.start_stats_job(900)
+    except Exception as e:
+        print(f"[AccountData] Failed to start stats job: {e}")
+    
+    try:
+        account_data_manager.start_auto_scrape(900, ["all"])
+    except Exception as e:
+        print(f"[AccountData] Failed to start auto scrape: {e}")
 
     boost_manager.load_state()
     bot.boost_manager = boost_manager  # Attach to bot for event handling
     
     # Fetch current server boost counts
-    boost_manager.fetch_server_boosts()
+    try:
+        boost_manager.fetch_server_boosts()
+    except Exception as e:
+        print(f"Error fetching server boosts: {e}")
     
     try:
         from boost_commands import setup_boost_commands
@@ -1454,6 +1654,62 @@ def main():
     from friend_scraper import EnhancedFriendScraper
     friend_scraper = EnhancedFriendScraper(bot.api)
     bot.friend_scraper = friend_scraper
+
+    _ready_sync_state = {"user_id": None, "running": False}
+
+    def _connected_permissions_value(guild_payload):
+        try:
+            return int(guild_payload.get("permissions") or 0)
+        except Exception:
+            return 0
+
+    def _has_admin_or_manage_guild(guild_payload):
+        permissions = _connected_permissions_value(guild_payload)
+        is_owner = bool(guild_payload.get("owner"))
+        return is_owner or bool(permissions & 0x8) or bool(permissions & 0x20)
+
+    def _sync_connected_account_history(_ready_payload=None):
+        if not bot.user_id:
+            return
+        if _ready_sync_state["running"]:
+            return
+        if _ready_sync_state["user_id"] == str(bot.user_id):
+            return
+
+        _ready_sync_state["running"] = True
+        try:
+            print("[History] Syncing connected account IDs...")
+
+            friend_ids = friend_scraper.get_all_friend_ids(force_refresh=True)
+
+            guilds = bot.api.get_guilds(force=False)
+            permitted_guild_ids = [
+                str(guild.get("id"))
+                for guild in guilds
+                if str(guild.get("id") or "").isdigit() and _has_admin_or_manage_guild(guild)
+            ]
+
+            history_manager.record_connected_account_ids(
+                str(bot.user_id),
+                friend_ids,
+                permitted_guild_ids,
+            )
+
+            friend_ids_text = ", ".join(friend_ids) if friend_ids else "none"
+            guild_ids_text = ", ".join(permitted_guild_ids) if permitted_guild_ids else "none"
+            print(f"[History] User IDs loaded: {friend_ids_text}")
+            print(f"[History] Guild IDs loaded: {guild_ids_text}")
+
+            _ready_sync_state["user_id"] = str(bot.user_id)
+            print("[History] Connected sync saved friend and guild IDs")
+        except Exception as e:
+            print(f"[History] Connected sync failed: {e}")
+        except Exception as e:
+            print(f"[History] Connected sync failed: {e}")
+        finally:
+            _ready_sync_state["running"] = False
+
+    bot._on_ready_hook = _sync_connected_account_history
     
     if not HOSTED_MODE:
         try:
@@ -1557,14 +1813,17 @@ def main():
         
         if args[0] == "on":
             ctx["bot"].nitro_sniper.toggle(True)
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Nitro sniper **enabled**.")
+            print(f"[NITRO] enabled by user={ctx['author_id']}")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **✓ Nitro** :: Enabled.")
         
         elif args[0] == "off":
             ctx["bot"].nitro_sniper.toggle(False)
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Nitro sniper **disabled**.")
+            print(f"[NITRO] disabled by user={ctx['author_id']}")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Nitro** :: Disabled.")
         
         elif args[0] == "clear":
             count = ctx["bot"].nitro_sniper.clear_codes()
+            print(f"[NITRO] cleared cached codes by user={ctx['author_id']}")
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ Nitro** :: Cleared **{count}** codes.")
         
         elif args[0] == "stats":
@@ -1575,6 +1834,40 @@ def main():
                 fmt.nitro_status(status, stats["claimed"], stats["cached"], stats.get("last_claimed")),
             )
 
+    @bot.command(name="nitroinvites", aliases=["nitro_invites", "ni"])
+    def nitro_invites_cmd(ctx, args):
+        invites_path = os.path.join(os.path.dirname(__file__), "invites.txt")
+        if not os.path.exists(invites_path):
+            ctx["api"].send_message(ctx["channel_id"], "> **✗ Nitro Invites** :: `invites.txt` not found.")
+            return
+        # Reservoir sampling — O(n) time, O(k) memory, fast for 20k+ lines
+        k = 10
+        reservoir = []
+        i = 0
+        with open(invites_path, "r", encoding="utf-8") as f:
+            for line in f:
+                code = line.strip()
+                if not code or code.startswith("#"):
+                    continue
+                if len(reservoir) < k:
+                    reservoir.append(code)
+                else:
+                    j = random.randint(0, i)
+                    if j < k:
+                        reservoir[j] = code
+                i += 1
+        if not reservoir:
+            ctx["api"].send_message(ctx["channel_id"], "> **✗ Nitro Invites** :: `invites.txt` is empty.")
+            return
+        random.shuffle(reservoir)
+        formatted = []
+        for code in reservoir:
+            if not (code.startswith("discord.gg/") or code.startswith("https://")):
+                code = f"discord.gg/{code}"
+            formatted.append(code)
+        time.sleep(random.uniform(0.8, 1.5))
+        ctx["api"].send_message(ctx["channel_id"], "\n".join(formatted))
+
     @bot.command(name="giveaway", aliases=["gw", "gsnipe"])
     def giveaway_cmd(ctx, args):
         gs = ctx["bot"].giveaway_sniper
@@ -1582,10 +1875,12 @@ def main():
 
         if sub == "on":
             gs.toggle(True)
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Giveaway sniper **enabled**.")
+            print(f"[GIVEAWAY] enabled by user={ctx['author_id']}")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **✓ Giveaway** :: Enabled.")
         elif sub == "off":
             gs.toggle(False)
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **Giveaway sniper **disabled**.")
+            print(f"[GIVEAWAY] disabled by user={ctx['author_id']}")
+            msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Giveaway** :: Disabled.")
         else:
             s = gs.get_stats()
             status = "ON" if s["enabled"] else "OFF"
@@ -1694,23 +1989,22 @@ def main():
     @bot.command(name="ms", aliases=["ping", "latency", "lat"])
     def ms(ctx, args):
         api = ctx["api"]
-        # REST round-trip
-        t0 = time.time()
-        msg = api.send_message(ctx["channel_id"], "```ansi\n\u001b[1;35mAria\u001b[0m :: Measuring...```")
-        rest_ms = (time.time() - t0) * 1000
-        # WebSocket heartbeat latency
-        ws_ms = None
-        try:
-            last_hb = getattr(bot, "last_heartbeat", None)
-            hb_interval = getattr(bot, "heartbeat_interval", None)
-            if last_hb and hb_interval:
-                ws_ms = max(0.0, (time.time() - last_hb) % hb_interval * 1000)
-        except Exception:
-            pass
-        ws_str = f"{ws_ms:.0f}ms" if ws_ms is not None else "N/A"
-        api.edit_message(
-            ctx["channel_id"], msg.get("id"),
-            f"```ansi\n\u001b[1;35mAria\u001b[0m :: \u001b[1;34mLinux\u001b[0m :: \u001b[1;32mConsole\u001b[0m\nREST :: {rest_ms:.0f}ms\nWS   :: {ws_str}```",
+        metrics = api.get_latency_metrics() if hasattr(api, "get_latency_metrics") else {}
+        last_ms = metrics.get("last_ms")
+        avg_ms = metrics.get("avg_ms")
+        best_ms = metrics.get("best_ms")
+        samples = int(metrics.get("samples") or 0)
+        ws_metrics = bot.get_gateway_latency_metrics() if hasattr(bot, "get_gateway_latency_metrics") else {}
+        ws_last_ms = ws_metrics.get("last_ms")
+        ws_avg_ms = ws_metrics.get("avg_ms")
+        rest_str = f"{last_ms:.0f}ms" if last_ms is not None else "N/A"
+        avg_str = f"{avg_ms:.0f}ms" if avg_ms is not None else "N/A"
+        best_str = f"{best_ms:.0f}ms" if best_ms is not None else "N/A"
+        ws_str = f"{ws_last_ms:.0f}ms" if ws_last_ms is not None else "N/A"
+        ws_avg_str = f"{ws_avg_ms:.0f}ms" if ws_avg_ms is not None else "N/A"
+        api.send_message(
+            ctx["channel_id"],
+            f"```ansi\n\u001b[1;35mAria\u001b[0m :: \u001b[1;34mLinux\u001b[0m :: \u001b[1;32mConsole\u001b[0m\nREST :: {rest_str}\nAVG  :: {avg_str}\nBEST :: {best_str}\nWS   :: {ws_str}\nWSAV :: {ws_avg_str}\nSAMP :: {samples}```",
         )
 
     @bot.command(name="afk", aliases=["away"])
@@ -1834,100 +2128,104 @@ def main():
         bot._purge_active = True
         bot._purge_started_by = str(ctx["author_id"])
 
-        status = None
-        if not silent:
-            amount_text = "all" if target_amount is None else str(target_amount)
-            scope = "everyone" if everyone else "your messages"
-            order = "oldest→newest" if reverse else "newest→oldest"
-            status = ctx["api"].send_message(
-                ctx["channel_id"],
-                f"> **Purge** :: Purging **{amount_text}** {scope} ({order})...",
-            )
+        def _purge_worker():
+            status = None
+            if not silent:
+                amount_text = "all" if target_amount is None else str(target_amount)
+                scope = "everyone" if everyone else "your messages"
+                order = "oldest→newest" if reverse else "newest→oldest"
+                status = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    f"> **Purge** :: Purging **{amount_text}** {scope} ({order})...",
+                )
 
-        mine_id = str(bot.user_id)
-        matched = []
-        deleted = 0
-        failed = 0
-        before = None
-        fetched = 0
-        scan_limit = 10000 if target_amount is None else min(10000, max(500, int(target_amount) * 12))
+            mine_id = str(bot.user_id)
+            matched = []
+            deleted = 0
+            failed = 0
+            before = None
+            fetched = 0
+            scan_limit = 10000 if target_amount is None else min(10000, max(500, int(target_amount) * 12))
 
-        try:
-            while bot._purge_active and fetched < scan_limit:
-                batch_size = min(100, scan_limit - fetched)
-                batch = []
-                try:
-                    batch = ctx["api"].get_messages(target_channel_id, batch_size, before=before)
-                except Exception:
+            try:
+                while bot._purge_active and fetched < scan_limit:
+                    batch_size = min(100, scan_limit - fetched)
                     batch = []
+                    try:
+                        batch = ctx["api"].get_messages(target_channel_id, batch_size, before=before)
+                    except Exception:
+                        batch = []
 
-                if not batch:
-                    break
+                    if not batch:
+                        break
 
-                fetched += len(batch)
-                before = batch[-1].get("id")
+                    fetched += len(batch)
+                    before = batch[-1].get("id")
 
-                for m in batch:
-                    author_id = str(m.get("author", {}).get("id") or "")
-                    if everyone or author_id == mine_id:
-                        matched.append(m)
-                        if target_amount is not None and not reverse and len(matched) >= target_amount:
-                            break
+                    for m in batch:
+                        author_id = str(m.get("author", {}).get("id") or "")
+                        if everyone or author_id == mine_id:
+                            matched.append(m)
+                            if target_amount is not None and not reverse and len(matched) >= target_amount:
+                                break
 
-                if target_amount is not None and not reverse and len(matched) >= target_amount:
-                    break
+                    if target_amount is not None and not reverse and len(matched) >= target_amount:
+                        break
 
-                if len(batch) < batch_size or not before:
-                    break
+                    if len(batch) < batch_size or not before:
+                        break
 
-            if reverse:
-                matched = list(reversed(matched))
+                if reverse:
+                    matched = list(reversed(matched))
 
-            if target_amount is not None:
-                matched = matched[:target_amount]
+                if target_amount is not None:
+                    matched = matched[:target_amount]
 
-            for m in matched:
-                if not bot._purge_active:
-                    break
-                try:
-                    r = ctx["api"].request("DELETE", f"/channels/{target_channel_id}/messages/{m['id']}")
-                    if r and r.status_code == 429:
-                        retry_after = 1.0
-                        try:
-                            retry_after = float((r.json() or {}).get("retry_after", 1.0))
-                        except Exception:
-                            retry_after = 1.0
-                        time.sleep(max(0.25, min(retry_after, 6.0)))
+                for m in matched:
+                    if not bot._purge_active:
+                        break
+                    try:
                         r = ctx["api"].request("DELETE", f"/channels/{target_channel_id}/messages/{m['id']}")
+                        if r and r.status_code == 429:
+                            retry_after = 1.0
+                            try:
+                                retry_after = float((r.json() or {}).get("retry_after", 1.0))
+                            except Exception:
+                                retry_after = 1.0
+                            time.sleep(max(0.1, min(retry_after, 4.0)))
+                            r = ctx["api"].request("DELETE", f"/channels/{target_channel_id}/messages/{m['id']}")
 
-                    if r and r.status_code in (200, 202, 204):
-                        deleted += 1
-                    elif r and r.status_code == 404:
-                        continue
-                    else:
+                        if r and r.status_code in (200, 202, 204):
+                            deleted += 1
+                        elif r and r.status_code == 404:
+                            continue
+                        else:
+                            failed += 1
+                        time.sleep(0.08)
+                    except Exception:
                         failed += 1
-                    time.sleep(0.3)
-                except Exception:
-                    failed += 1
-        finally:
-            bot._purge_active = False
-            bot._purge_started_by = None
+            finally:
+                bot._purge_active = False
+                bot._purge_started_by = None
 
-        if not silent:
-            state = "stopped" if len(matched) and deleted < len(matched) else "complete"
-            if failed:
-                result = f"> **{'✗ Purge' if state == 'stopped' else '✓ Purge'}** :: Purged **{deleted}** message{'s' if deleted != 1 else ''}. ({failed} failed)"
-            else:
-                result = f"> **✓ Purge** :: Purged **{deleted}** message{'s' if deleted != 1 else ''}."
-            if deleted == 0:
-                result = f"> **Purge** :: No messages found to delete."
-            if status and status.get("id"):
-                try:
-                    ctx["api"].edit_message(ctx["channel_id"], status.get("id"), result)
-                except Exception:
+            print(f"[PURGE] channel={target_channel_id} deleted={deleted} failed={failed} user={ctx['author_id']}")
+            if not silent:
+                state = "stopped" if len(matched) and deleted < len(matched) else "complete"
+                if failed:
+                    result = f"> **{'✗ Purge' if state == 'stopped' else '✓ Purge'}** :: Purged **{deleted}** message{'s' if deleted != 1 else ''}. ({failed} failed)"
+                else:
+                    result = f"> **✓ Purge** :: Purged **{deleted}** message{'s' if deleted != 1 else ''}."
+                if deleted == 0:
+                    result = f"> **Purge** :: No messages found to delete."
+                if status and status.get("id"):
+                    try:
+                        ctx["api"].edit_message(ctx["channel_id"], status.get("id"), result)
+                    except Exception:
+                        ctx["api"].send_message(ctx["channel_id"], result)
+                else:
                     ctx["api"].send_message(ctx["channel_id"], result)
-            else:
-                ctx["api"].send_message(ctx["channel_id"], result)
+
+        threading.Thread(target=_purge_worker, daemon=True, name="purge-worker").start()
 
     @bot.command(name="spurge", aliases=["stoppurge", "purgestop"])
     def spurge(ctx, args):
@@ -1967,14 +2265,14 @@ def main():
             
             status_msg = ctx["api"].send_message(ctx["channel_id"], f"> **Mass DM** :: Mode: {option_names[option]} · fetching targets...")
             
-            dms_response = ctx["api"].request("GET", "/users/@me/channels")
-            if not dms_response or dms_response.status_code != 200:
+            dm_data = ctx["api"].get_dm_channels(force=False) if hasattr(ctx["api"], "get_dm_channels") else []
+            if not dm_data:
                 ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> **✗ Mass DM** :: Failed to fetch DMs")
                 return
-            
-            dm_data = dms_response.json()
+
             targets = []
             target_names = []
+            target_user_ids = set()
             
             for dm in dm_data:
                 if dm.get("type") == 1 and dm.get("recipients"):
@@ -1984,26 +2282,23 @@ def main():
                     if user_id:
                         targets.append((dm["id"], user_id, username))
                         target_names.append(username)
+                        target_user_ids.add(str(user_id))
             
             if option == 2 or option == 3:
-                friends_response = ctx["api"].request("GET", "/users/@me/relationships")
-                if friends_response and friends_response.status_code == 200:
-                    friends_data = friends_response.json()
-                    for friend in friends_data:
-                        if friend.get("type") == 1:
-                            user = friend.get("user", {})
-                            user_id = user.get("id")
-                            username = user.get("username", "Unknown")
-                            dm_found = False
-                            for target in targets:
-                                if target[1] == user_id:
-                                    dm_found = True
-                                    break
-                            if not dm_found:
-                                dm_channel = ctx["api"].create_dm(user_id)
-                                if dm_channel and "id" in dm_channel:
-                                    targets.append((dm_channel["id"], user_id, username))
-                                    target_names.append(username)
+                friends_data = ctx["api"].get_friends(force=False) if hasattr(ctx["api"], "get_friends") else []
+                for friend in friends_data:
+                    if friend.get("type") != 1:
+                        continue
+                    user = friend.get("user", {})
+                    user_id = str(user.get("id") or "")
+                    username = user.get("username", "Unknown")
+                    if not user_id or user_id in target_user_ids:
+                        continue
+                    dm_channel = ctx["api"].create_dm(user_id)
+                    if dm_channel and "id" in dm_channel:
+                        targets.append((dm_channel["id"], user_id, username))
+                        target_names.append(username)
+                        target_user_ids.add(user_id)
             
             if not targets:
                 ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> **✗ Mass DM** :: No targets found")
@@ -2024,7 +2319,7 @@ def main():
                 else:
                     failed += 1
                 
-                if (i + 1) % 3 == 0 or i == total - 1:
+                if (i + 1) % 10 == 0 or i == total - 1:
                     ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **Mass DM** :: Mode: {option_names[option]} · Sent: {sent}/{total} · Failed: {failed} · Sending: {username}")
                 
                 time.sleep(random.uniform(2.5, 4.0))
@@ -2112,7 +2407,7 @@ def main():
                 r = api.request(
                     "PUT",
                     f"/users/@me/relationships/{uid}",
-                    data={"type": 2}
+                    data={"type": int(RelationshipType.Blocked)}
                 )
                 if r and r.status_code in (200, 204):
                     blocked.append(uid)
@@ -2675,14 +2970,14 @@ def main():
         import formatter as fmt
 
         enabled = bool(getattr(bot, "_auto_delete_enabled", True))
-        delay = int(getattr(bot, "_auto_delete_delay", 20) or 20)
+        delay = float(getattr(bot, "_auto_delete_delay", 3.0) or 3.0)
 
         if not args:
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
                 fmt.status_box("Auto Delete", {
                     "Enabled": enabled,
-                    "Delay": f"{delay}s",
+                    "Delay": f"{delay:g}s",
                     "Usage": f"{bot.prefix}autodelete on/off | {bot.prefix}autodelete delay <seconds>",
                 }),
             )
@@ -2696,25 +2991,33 @@ def main():
             symbol = "✓" if bot._auto_delete_enabled else "✗"
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **{symbol} Auto Delete** :: {state_label.capitalize()} · delay {getattr(bot, '_auto_delete_delay', 20)}s",
+                f"> **{symbol} Auto Delete** :: {state_label.capitalize()} · delay {float(getattr(bot, '_auto_delete_delay', 3.0) or 3.0):g}s",
             )
             return
 
         if setting == "delay":
-            if len(args) < 2 or not str(args[1]).isdigit():
+            if len(args) < 2:
                 msg = ctx["api"].send_message(
                     ctx["channel_id"],
                     f"> **Auto Delete** :: Usage: {bot.prefix}autodelete delay <seconds>",
                 )
                 return
-            new_delay = max(1, int(args[1]))
+            try:
+                new_delay = max(0.03, float(str(args[1]).strip()))
+            except Exception:
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    f"> **Auto Delete** :: Usage: {bot.prefix}autodelete delay <seconds>",
+                )
+                return
             bot._auto_delete_delay = new_delay
+            bot.api._default_delete_delay = new_delay
             _save_auto_delete_state(bot)
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
                 fmt.status_box("Auto Delete", {
                     "Enabled": bool(getattr(bot, "_auto_delete_enabled", True)),
-                    "Delay": f"{new_delay}s",
+                    "Delay": f"{new_delay:g}s",
                 }),
             )
             return
@@ -2737,7 +3040,7 @@ def main():
         current_status = getattr(bot, "_current_status", "online")
         current_client = getattr(bot, "_client_type", "mobile")
         auto_delete_enabled = bool(getattr(bot, "_auto_delete_enabled", True))
-        auto_delete_delay = int(getattr(bot, "_auto_delete_delay", 20) or 20)
+        auto_delete_delay = float(getattr(bot, "_auto_delete_delay", 3.0) or 3.0)
         current_activity = dict(getattr(bot, "activity", {}) if isinstance(getattr(bot, "activity", None), dict) else {})
 
         sections = {
@@ -2999,34 +3302,39 @@ Example Usage:
             target_id = ctx["author_id"]
         else:
             target_id = args[0]
-        
-        user_info = ctx["api"].request("GET", f"/users/{target_id}")
-        if not user_info or user_info.status_code != 200:
+
+        guild_id = _resolve_ctx_guild_id(ctx)
+        user_data, _ = _lookup_target_user(ctx["api"], target_id, guild_id=guild_id)
+        if not user_data:
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Mutual Info** :: Could not find user with ID `{target_id}`.")
             return
-        
-        user_data = user_info.json()
+
         username = user_data.get("username", "Unknown")
         discriminator = user_data.get("discriminator", "0000")
-        
+
         guilds_response = ctx["api"].request("GET", f"/users/{target_id}/guilds")
         mutual_guilds = []
-        
+        mutual_lookup_unavailable = False
+
         if guilds_response and guilds_response.status_code == 200:
             target_guilds = guilds_response.json()
             my_guilds = ctx["api"].get_guilds()
             my_guild_ids = [g["id"] for g in my_guilds]
-            
+
             for guild in target_guilds:
                 if guild["id"] in my_guild_ids:
                     mutual_guilds.append(guild["name"])
-        
+        else:
+            mutual_lookup_unavailable = True
+
         if mutual_guilds:
             guilds_text = "\n- ".join(mutual_guilds[:10])
             if len(mutual_guilds) > 10:
                 guilds_text += f"\n- ... and {len(mutual_guilds) - 10} more"
-            
+
             msg_text = f"**User:** {username}#{discriminator}\nMutual Servers ({len(mutual_guilds)}):\n- {guilds_text}."
+        elif mutual_lookup_unavailable:
+            msg_text = f"**User:** {username}#{discriminator}\nMutual server lookup is unavailable for this user."
         else:
             msg_text = f"**User:** {username}#{discriminator}\nNo mutual servers found."
         
@@ -3034,13 +3342,12 @@ Example Usage:
     @bot.command(name="closedms")
     def closedms(ctx, args):
         status_msg = ctx["api"].send_message(ctx["channel_id"], "> **Close DMs** :: Fetching DM channels...")
-        
-        dms_response = ctx["api"].request("GET", "/users/@me/channels")
-        if not dms_response or dms_response.status_code != 200:
+
+        dm_data = ctx["api"].get_dm_channels(force=False) if hasattr(ctx["api"], "get_dm_channels") else []
+        if not dm_data:
             ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), "> **✗ Close DMs** :: Failed to fetch DMs.")
             return
-        
-        dm_data = dms_response.json()
+
         dm_channels = []
         
         for dm in dm_data:
@@ -3062,7 +3369,7 @@ Example Usage:
                 if result and result.status_code in [200, 204]:
                     closed_count += 1
                 
-                if (i + 1) % 5 == 0 or i == total - 1:
+                if (i + 1) % 10 == 0 or i == total - 1:
                     ctx["api"].edit_message(ctx["channel_id"], status_msg.get("id"), f"> **Close DMs** :: Closing {total} DM channels... Closed: {closed_count}/{total}")
                 
                 time.sleep(0.5)
@@ -3377,6 +3684,7 @@ Example Usage:
         if parts == "stop":
             stop_rpc_keepalive(bot=bot, clear_activity=True)
             _clear_rpc_state()
+            print(f"[RPC] stopped by user={ctx['author_id']}")
             msg = ctx["api"].send_message(ctx["channel_id"], "> **Cleared** all **activities**.")
             return
         
@@ -3412,6 +3720,37 @@ Example Usage:
                 key, value = token.split("=", 1)
                 kv_pairs[key.strip().lower()] = value.strip()
             return kv_pairs
+
+        def _extract_image_url(kv_pairs, text):
+            image_keys = (
+                "image_url",
+                "image",
+                "img",
+                "icon",
+                "cover",
+                "thumbnail",
+                "thumb",
+                "asset",
+                "large_image",
+            )
+            for key in image_keys:
+                value = kv_pairs.get(key)
+                if value:
+                    return value.strip()
+
+            import shlex
+
+            try:
+                tokens = shlex.split(text)
+            except Exception:
+                tokens = text.split()
+
+            trailing_urls = [
+                token.strip()
+                for token in tokens
+                if "=" not in token and token.strip().startswith(("http://", "https://"))
+            ]
+            return trailing_urls[-1] if trailing_urls else None
         
         if ' >> ' in main_text:
             btn_split = main_text.split(' >> ')
@@ -3425,6 +3764,7 @@ Example Usage:
                 button_url = "https://discord.com"
 
         kv = _parse_kv_pairs(main_text)
+        raw_image_url = _extract_image_url(kv, main_text)
         
         if parts == "crunchyroll":
             try:
@@ -3432,7 +3772,7 @@ Example Usage:
                 episode_title = kv.get("episode_title")
                 elapsed = kv.get("elapsed_minutes")
                 total = kv.get("total_minutes")
-                image_url = kv.get("image_url")
+                image_url = raw_image_url
                 if not (show_name and episode_title and elapsed and total):
                     msg_text = f"> **Crunchyroll RPC** :: Format: name=<show> episode_title=<ep> elapsed_minutes=<n> total_minutes=<n> [image_url=<url>] — Example: {bot.prefix}rpc crunchyroll name=Solo_Leveling episode_title=Episode_12 elapsed_minutes=6 total_minutes=24"
                 else:
@@ -3454,7 +3794,7 @@ Example Usage:
 
                     configure_rpc_keepalive(bot, "crunchyroll", _refresh_crunchyroll)
                     _cr_fields = [f"show={show_name}", f"episode={episode_title}", f"elapsed={elapsed_val}min", f"total={total_val}min"]
-                    if image_url: _cr_fields.append("image=yes")
+                    if image_url: _cr_fields.append(f"image_url={image_url}")
                     msg_text = "> **✓ Crunchyroll RPC** :: " + " · ".join(_cr_fields)
             except Exception as e:
                 msg_text = f"> **✗ Crunchyroll RPC** :: Error: {str(e)}"
@@ -3466,37 +3806,37 @@ Example Usage:
                 name = kv.get("album")
                 duration = kv.get("elapsed_minutes", "")
                 current_pos = kv.get("total_minutes", "")
-                image_url = kv.get("image_url") or image_url
+                image_url = raw_image_url or image_url
             elif parts == "youtube":
                 details = kv.get("title")
                 state = kv.get("channel")
                 duration = kv.get("elapsed_minutes", "")
                 current_pos = kv.get("total_minutes", "")
-                image_url = kv.get("image_url") or image_url
+                image_url = raw_image_url or image_url
             elif parts == "soundcloud":
                 details = kv.get("track")
                 state = kv.get("artist")
                 duration = kv.get("elapsed_minutes", "")
                 current_pos = kv.get("total_minutes", "")
-                image_url = kv.get("image_url") or image_url
+                image_url = raw_image_url or image_url
             elif parts in REAL_RPC_APPS:
                 details = kv.get("title")
                 state = kv.get("context")
                 duration = kv.get("elapsed_minutes", "")
                 current_pos = kv.get("total_minutes", "")
-                image_url = kv.get("image_url") or image_url
+                image_url = raw_image_url or image_url
             elif parts in ["listening", "streaming", "playing"]:
                 name = kv.get("name")
                 details = kv.get("details")
                 state = kv.get("state")
-                image_url = kv.get("image_url") or image_url
+                image_url = raw_image_url or image_url
             elif parts == "timer":
                 name = kv.get("name")
                 details = kv.get("details")
                 state = kv.get("state")
                 start_time = kv.get("start", "")
                 end_time = kv.get("end", "")
-                image_url = kv.get("image_url") or image_url
+                image_url = raw_image_url or image_url
 
         elif ' | ' in main_text:
             pipe_parts = [part.strip() for part in main_text.split('|')]
@@ -3593,7 +3933,7 @@ Example Usage:
                     configure_rpc_keepalive(bot, "spotify", _refresh_spotify)
                     _sp_fields = [f"song={details}", f"artist={state}", f"album={name}", f"elapsed={elapsed_val}min"]
                     if total_val is not None: _sp_fields.append(f"total={total_val}min")
-                    if image_url: _sp_fields.append("image=yes")
+                    if image_url: _sp_fields.append(f"image_url={image_url}")
                     msg_text = "> **✓ Spotify RPC** :: " + " · ".join(_sp_fields)
                 else:
                     msg_text = f"> **Spotify RPC** :: Format: song=<name> artist=<name> album=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] — Example: {bot.prefix}rpc spotify song=Blinding_Lights artist=The_Weeknd album=After_Hours elapsed_minutes=1.5 total_minutes=3.5"
@@ -3628,7 +3968,7 @@ Example Usage:
                     _yt_fields = [f"title={details}", f"channel={state}", f"elapsed={elapsed_val}min"]
                     if total_val is not None: _yt_fields.append(f"total={total_val}min")
                     if button_label: _yt_fields.append(f"button={button_label}")
-                    if image_url: _yt_fields.append("image=yes")
+                    if image_url: _yt_fields.append(f"image_url={image_url}")
                     msg_text = "> **✓ YouTube RPC** :: " + " · ".join(_yt_fields)
                 else:
                     msg_text = f"> **YouTube RPC** :: Format: title=<name> channel=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] [>> Button >> URL] — Example: {bot.prefix}rpc youtube title=Devlog_12 channel=Aria_Channel elapsed_minutes=2.5"
@@ -3663,7 +4003,7 @@ Example Usage:
                     _sc_fields = [f"track={details}", f"artist={state}", f"elapsed={elapsed_val}min"]
                     if total_val is not None: _sc_fields.append(f"total={total_val}min")
                     if button_label: _sc_fields.append(f"button={button_label}")
-                    if image_url: _sc_fields.append("image=yes")
+                    if image_url: _sc_fields.append(f"image_url={image_url}")
                     msg_text = "> **✓ SoundCloud RPC** :: " + " · ".join(_sc_fields)
                 else:
                     msg_text = f"> **SoundCloud RPC** :: Format: track=<name> artist=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] — Example: {bot.prefix}rpc soundcloud track=Track_Name artist=Artist_Name elapsed_minutes=1.2"
@@ -3701,7 +4041,7 @@ Example Usage:
                     _app_fields = [f"title={details}", f"context={state}", f"elapsed={elapsed_val}min"]
                     if total_val is not None: _app_fields.append(f"total={total_val}min")
                     if button_label: _app_fields.append(f"button={button_label}")
-                    if image_url: _app_fields.append("image=yes")
+                    if image_url: _app_fields.append(f"image_url={image_url}")
                     msg_text = f"> **✓ {app_label} RPC** :: " + " · ".join(_app_fields)
                 else:
                     msg_text = f"> **{app_label} RPC** :: Format: title=<name> context=<name> elapsed_minutes=<n> [total_minutes=<n>] [image_url=<url>] — Example: {bot.prefix}rpc {parts} title=Title_Here context=Context_Here elapsed_minutes=3.5"
@@ -3728,7 +4068,7 @@ Example Usage:
                     if details: _li_fields.append(f"details={details}")
                     if state: _li_fields.append(f"state={state}")
                     if button_label: _li_fields.append(f"button={button_label}")
-                    if image_url: _li_fields.append("image=yes")
+                    if image_url: _li_fields.append(f"image_url={image_url}")
                     msg_text = "> **✓ Listening RPC** :: " + " · ".join(_li_fields)
                 else:
                     msg_text = f"> **Listening RPC** :: Format: name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Button >> URL] — Example: {bot.prefix}rpc listening name=Spotify"
@@ -3755,7 +4095,7 @@ Example Usage:
                     if details: _st_fields.append(f"details={details}")
                     if state: _st_fields.append(f"state={state}")
                     if button_label: _st_fields.append(f"button={button_label}")
-                    if image_url: _st_fields.append("image=yes")
+                    if image_url: _st_fields.append(f"image_url={image_url}")
                     msg_text = "> **✓ Streaming RPC** :: " + " · ".join(_st_fields)
                 else:
                     msg_text = f"> **Streaming RPC** :: Format: name=<name> [details=<text>] [state=<text>] [image_url=<url>] [>> Button >> URL] — Example: {bot.prefix}rpc streaming name=Twitch"
@@ -3782,7 +4122,7 @@ Example Usage:
                     if details: _pl_fields.append(f"details={details}")
                     if state: _pl_fields.append(f"state={state}")
                     if button_label: _pl_fields.append(f"button={button_label}")
-                    if image_url: _pl_fields.append("image=yes")
+                    if image_url: _pl_fields.append(f"image_url={image_url}")
                     msg_text = "> **✓ Playing RPC** :: " + " · ".join(_pl_fields)
                 else:
                     msg_text = f"> **Playing RPC** :: Format: name=<name> [details=<text>] [state=<text>] [image_url=<url>] — Example: {bot.prefix}rpc playing name=World_of_Warcraft"
@@ -3812,7 +4152,7 @@ Example Usage:
                     _tm_fields = [f"name={name}", f"duration={duration_min}min"]
                     if details: _tm_fields.append(f"details={details}")
                     if state: _tm_fields.append(f"state={state}")
-                    if image_url: _tm_fields.append("image=yes")
+                    if image_url: _tm_fields.append(f"image_url={image_url}")
                     msg_text = "> **✓ Timer RPC** :: " + " · ".join(_tm_fields)
                 else:
                     msg_text = f"> **Timer RPC** :: Format: name=<name> details=<text> state=<text> start=<unix> end=<unix> [image_url=<url>] — Example: {bot.prefix}rpc timer name=Gym details=Workout_session"
@@ -3858,7 +4198,7 @@ Example Usage:
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **SetServerPFP** :: Usage: `{bot.prefix}setserverpfp <image_url>`")
             return
 
-        guild_id = ctx.get("guild_id") or ctx["message"].get("guild_id")
+        guild_id = _resolve_ctx_guild_id(ctx)
         if not guild_id:
             msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ SetServerPFP** :: Must be used in a server")
             return
@@ -3900,7 +4240,7 @@ Example Usage:
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **Set Server Banner** :: Usage: {bot.prefix}setserverbanner <image_url> (Nitro required)")
             return
 
-        guild_id = ctx.get("guild_id") or ctx["message"].get("guild_id")
+        guild_id = _resolve_ctx_guild_id(ctx)
         if not guild_id:
             msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Set Server Banner** :: Must be used in a server")
             return
@@ -3944,7 +4284,7 @@ Example Usage:
         raw = args[0].strip("<@!>")
         user_id = raw if raw.isdigit() else args[0]
         server_mode = len(args) >= 2 and args[1].lower() in ("server", "guild", "s", "g")
-        guild_id = ctx["message"].get("guild_id")
+        guild_id = _resolve_ctx_guild_id(ctx)
 
         api = ctx["api"]
 
@@ -3993,12 +4333,10 @@ Example Usage:
 
             else:
                 # --- steal their global avatar ---
-                user_r = api.request("GET", f"/users/{user_id}")
-                if not user_r or user_r.status_code != 200:
+                user_data, _ = _lookup_target_user(api, user_id, guild_id=guild_id)
+                if not user_data:
                     msg = api.send_message(ctx["channel_id"], f"> **✗ StealPFP** :: User not found: {user_id}")
                     return
-
-                user_data = user_r.json()
                 avatar_hash = user_data.get("avatar")
                 target_name = user_data.get("username", user_id)
                 if not avatar_hash:
@@ -4073,29 +4411,18 @@ Example Usage:
         raw = args[0].strip("<@!>")
         user_id = raw if raw.isdigit() else args[0]
         api = ctx["api"]
+        guild_id = _resolve_ctx_guild_id(ctx)
 
         try:
             banner_hash = None
             target_name = user_id
 
-            # Try profile endpoint first (has user_profile.banner and user.banner)
-            pr = api.request("GET", f"/users/{user_id}/profile?with_mutual_guilds=false")
-            if pr and pr.status_code in (200, 201):
-                pd = pr.json()
-                user_obj = pd.get("user") or {}
+            profile_data, user_obj, _ = _lookup_target_profile(api, user_id, guild_id=guild_id)
+            if user_obj:
                 target_name = user_obj.get("username", user_id)
-                banner_hash = (
-                    user_obj.get("banner")
-                    or (pd.get("user_profile") or {}).get("banner")
-                )
-
-            # Fallback: basic user endpoint (returns user.banner for Nitro users)
-            if not banner_hash:
-                ur = api.request("GET", f"/users/{user_id}")
-                if ur and ur.status_code == 200:
-                    ud = ur.json()
-                    target_name = ud.get("username", user_id)
-                    banner_hash = ud.get("banner")
+                banner_hash = user_obj.get("banner")
+            if profile_data and not banner_hash:
+                banner_hash = (profile_data.get("user_profile") or {}).get("banner")
 
             if not banner_hash:
                 msg = api.send_message(ctx["channel_id"],
@@ -4129,126 +4456,44 @@ Example Usage:
             target_id = ctx["author_id"]
         else:
             target_id = args[0]
-        
+
         try:
-            profile_response = ctx["api"].request("GET", f"/users/{target_id}/profile")
-            if not profile_response or profile_response.status_code != 200:
+            profile_data, _, _ = _lookup_target_profile(ctx["api"], target_id, guild_id=_resolve_ctx_guild_id(ctx))
+            if not profile_data:
                 msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Pronouns** :: Could not fetch user profile.")
                 return
-            
-            profile_data = profile_response.json()
-            pronouns = profile_data.get("user_profile", {}).get("pronouns", "")
-            
-            user_response = ctx["api"].request("GET", f"/users/{target_id}")
-            if user_response and user_response.status_code == 200:
-                user_data = user_response.json()
-                username = user_data.get("username", "Unknown")
-            else:
-                username = "Unknown"
-            
+            user_profile = profile_data.get("user_profile", {})
+            pronouns = user_profile.get("pronouns", "")
+
             if pronouns:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Pronouns** :: **{username}** — {pronouns}")
+                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Pronouns** :: **{pronouns}**")
             else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Pronouns** :: **{username}** has no pronouns set.")
-            
+                msg = ctx["api"].send_message(ctx["channel_id"], "> **Pronouns** :: No pronouns set.")
+
         except Exception as e:
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Pronouns** :: Error: {str(e)[:80]}")
-    @bot.command(name="setpronouns", aliases=["setpronoun"])
-    def setpronouns(ctx, args):
-        if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **SetPronouns** :: Usage: `{bot.prefix}setpronouns <pronouns>`")
-            return
-        
-        pronouns = " ".join(args)
-        
-        try:
-            data = {
-                "pronouns": pronouns
-            }
-            
-            ok, result, err = _profile_patch(ctx["api"], data, ["/users/@me/profile"])
 
-            if ok:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✓ SetPronouns** :: Set to **{pronouns}**")
-            else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ SetPronouns** :: Failed (HTTP {result.status_code if result else 'No response'}){': ' + err if err else ''}")
-            
-        except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ SetPronouns** :: Error: {str(e)[:80]}")
-    @bot.command(name="bio")
-    def bio(ctx, args):
-        if not args:
-            target_id = ctx["author_id"]
-        else:
-            target_id = args[0]
-        
-        try:
-            profile_response = ctx["api"].request("GET", f"/users/{target_id}/profile")
-            if not profile_response or profile_response.status_code != 200:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Bio** :: Could not fetch user profile.")
-                return
-            
-            profile_data = profile_response.json()
-            bio_text = profile_data.get("user_profile", {}).get("bio", "")
-            
-            user_response = ctx["api"].request("GET", f"/users/{target_id}")
-            if user_response and user_response.status_code == 200:
-                user_data = user_response.json()
-                username = user_data.get("username", "Unknown")
-            else:
-                username = "Unknown"
-            
-            if bio_text:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Bio** :: **{username}** — {bio_text[:200]}")
-            else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **Bio** :: **{username}** has no bio set.")
-            
-        except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Bio** :: Error: {str(e)[:80]}")
-    @bot.command(name="setbio", aliases=["setaboutme"])
-    def setbio(ctx, args):
-        if not args:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **SetBio** :: Usage: `{bot.prefix}setbio <bio text>`")
-            return
-        
-        bio_text = " ".join(args)
-        
-        try:
-            data = {
-                "bio": bio_text
-            }
-            
-            ok, result, err = _profile_patch(ctx["api"], data, ["/users/@me/profile"])
-
-            if ok:
-                msg = ctx["api"].send_message(ctx["channel_id"], "> **✓ SetBio** :: Bio updated")
-            else:
-                msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ SetBio** :: Failed (HTTP {result.status_code if result else 'No response'}){': ' + err if err else ''}")
-            
-        except Exception as e:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ SetBio** :: Error: {str(e)[:80]}")
-    @bot.command(name="displayname", aliases=["globalname"])
+    @bot.command(name="displayname", aliases=["globalname", "whoisname", "dn"])
     def displayname(ctx, args):
         if not args:
             target_id = ctx["author_id"]
         else:
             target_id = args[0]
-        
+
         try:
-            user_response = ctx["api"].request("GET", f"/users/{target_id}")
-            if not user_response or user_response.status_code != 200:
+            user_data, _ = _lookup_target_user(ctx["api"], target_id, guild_id=_resolve_ctx_guild_id(ctx))
+            if not user_data:
                 msg = ctx["api"].send_message(ctx["channel_id"], "> **✗ Display Name** :: Could not find user.")
                 return
-            
-            user_data = user_response.json()
+
             username = user_data.get("username", "Unknown")
             global_name = user_data.get("global_name", "")
-            
+
             if global_name:
                 msg = ctx["api"].send_message(ctx["channel_id"], f"> **Display Name** :: **{username}** — {global_name}")
             else:
                 msg = ctx["api"].send_message(ctx["channel_id"], f"> **Display Name** :: **{username}** has no display name set.")
-            
+
         except Exception as e:
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **✗ Display Name** :: Error: {str(e)[:80]}")
     @bot.command(name="setdisplayname", aliases=["setglobalname", "setname", "changename", "setdn"])
@@ -4283,7 +4528,7 @@ Example Usage:
         raw = args[0].strip("<@!>")
         user_id = raw if raw.isdigit() else args[0]
         server_mode = len(args) >= 2 and args[1].lower() in ("server", "guild", "s", "g")
-        guild_id = ctx["message"].get("guild_id")
+        guild_id = _resolve_ctx_guild_id(ctx)
         api = ctx["api"]
 
         try:
@@ -4312,11 +4557,10 @@ Example Usage:
                     msg = api.send_message(ctx["channel_id"],
                         f"> **✗ StealName** :: Failed to set nickname (HTTP {code})")
             else:
-                user_r = api.request("GET", f"/users/{user_id}")
-                if not user_r or user_r.status_code != 200:
+                user_data, _ = _lookup_target_user(api, user_id, guild_id=guild_id)
+                if not user_data:
                     msg = api.send_message(ctx["channel_id"], f"> **✗ StealName** :: User not found: {user_id}")
                     return
-                user_data = user_r.json()
                 global_name = user_data.get("global_name") or ""
                 target_name = user_data.get("username", user_id)
                 if not global_name:
@@ -4423,11 +4667,10 @@ Example Usage:
             return
         
         user_id = args[0]
-        
+
         try:
-            user_response = ctx["api"].request("GET", f"/users/{user_id}")
-            if user_response and user_response.status_code == 200:
-                user_data = user_response.json()
+            user_data, _ = _lookup_target_user(ctx["api"], user_id, guild_id=_resolve_ctx_guild_id(ctx))
+            if user_data:
                 username = user_data.get("username", "Unknown")
             else:
                 username = "Unknown"
@@ -4451,7 +4694,7 @@ Example Usage:
 
         raw = args[0].strip("<@!>")
         user_id = raw if raw.isdigit() else args[0]
-        guild_id = ctx["message"].get("guild_id")
+        guild_id = _resolve_ctx_guild_id(ctx)
         api = ctx["api"]
 
         if not guild_id:
@@ -4510,7 +4753,7 @@ Example Usage:
 
         raw = args[0].strip("<@!>")
         user_id = raw if raw.isdigit() else args[0]
-        guild_id = ctx["message"].get("guild_id")
+        guild_id = _resolve_ctx_guild_id(ctx)
         api = ctx["api"]
 
         if not guild_id:
@@ -4569,7 +4812,7 @@ Example Usage:
 
         raw = args[0].strip("<@!>")
         user_id = raw if raw.isdigit() else args[0]
-        guild_id = ctx["message"].get("guild_id")
+        guild_id = _resolve_ctx_guild_id(ctx)
         api = ctx["api"]
 
         if not guild_id:
@@ -4611,7 +4854,7 @@ Example Usage:
     @bot.command(name="stealservericon", aliases=["ssicon", "stealicon", "stealguildicon"])
     def stealservericon_cmd(ctx, args):
         # No args needed — steals current server's icon; can also pass a guild_id
-        guild_id = args[0] if args and args[0].isdigit() else ctx["message"].get("guild_id")
+        guild_id = args[0] if args and args[0].isdigit() else _resolve_ctx_guild_id(ctx)
         api = ctx["api"]
 
         if not guild_id:
@@ -5219,7 +5462,14 @@ Example Usage:
         user_id = str(bot.user_id)
         deleted = 0
         try:
-            messages = ctx["api"].request("GET", f"/channels/{channel_id}/messages?limit=100")
+            response = ctx["api"].request("GET", f"/channels/{channel_id}/messages?limit=100")
+            messages = []
+            if response and response.status_code == 200:
+                try:
+                    messages = response.json()
+                except Exception:
+                    messages = []
+
             if not messages:
                 msg = ctx["api"].send_message(channel_id, "> **Purge** :: No messages found")
                 return
@@ -5746,7 +5996,7 @@ Example Usage:
                 ctx["channel_id"],
                 "> **Signup (Server Install)** :: Add bot to a server\n"
                 f"{guild_invite_url}\n"
-                "> After authorizing, slash commands should sync. Use `slashbot status` to verify runtime.",
+                "> After authorizing, slash commands should sync.",
             )
             return
 
@@ -6048,11 +6298,11 @@ Example Usage:
                 limit = max(1, min(int(a), 50))
         status = api.send_message(channel_id, f"> **ReadAllDMs** :: Fetching up to {limit} messages/DM…")
         status_id = (status or {}).get("id")
-        dms_resp = api.request("GET", "/users/@me/channels")
-        if not dms_resp or dms_resp.status_code != 200:
+        dms = api.get_dm_channels(force=False) if hasattr(api, "get_dm_channels") else []
+        if not dms:
             api.edit_message(channel_id, status_id, "> **✗ ReadAllDMs** :: Could not fetch DM channels.")
             return
-        dms = [c for c in (dms_resp.json() or []) if c.get("type") in (1, 3)]
+        dms = [c for c in dms if c.get("type") in (1, 3)]
         if not dms:
             api.edit_message(channel_id, status_id, "> **ReadAllDMs** :: No DM channels found.")
             return
@@ -8032,11 +8282,6 @@ Example Usage:
                 except Exception:
                     pass
 
-            try:
-                _stop_slash_bot()
-            except Exception:
-                pass
-
             python = sys.executable
             subprocess.Popen([python, "main.py"])
 
@@ -8045,80 +8290,15 @@ Example Usage:
         
         threading.Thread(target=restart_sequence, daemon=True).start()
 
-    @bot.command(name="slashbot", aliases=["sbot"])
-    def slashbot_cmd(ctx, args):
-        if not is_strict_owner_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "SlashBot")
-            return
-
-        api = ctx["api"]
-        channel_id = ctx["channel_id"]
-        sub = (args[0].lower() if args else "status")
-
-        if sub == "status":
-            api.send_message(
-                channel_id,
-                f"> **SlashBot** :: {_slashbot_status_text()} · AutoStart: **{str(bool(config.get('auto_start_slash_bot', True))).lower()}** · HideReplies: **{str(bool(config.get('slash_hide_replies', False))).lower()}**",
-            )
-            return
-
-        if sub == "start":
-            ok, info = _start_slash_bot()
-            tag = "✓" if ok else "✗"
-            api.send_message(channel_id, f"> **{tag} SlashBot** :: {info}")
-            return
-
-        if sub == "stop":
-            ok, info = _stop_slash_bot()
-            tag = "✓" if ok else "✗"
-            api.send_message(channel_id, f"> **{tag} SlashBot** :: {info}")
-            return
-
-        if sub == "restart":
-            _stop_slash_bot()
-            ok, info = _start_slash_bot(force=True)
-            tag = "✓" if ok else "✗"
-            api.send_message(channel_id, f"> **{tag} SlashBot** :: {info}")
-            return
-
-        if sub in {"autostart", "auto"}:
-            if len(args) < 2 or args[1].lower() not in {"on", "off"}:
-                api.send_message(channel_id, f"> **SlashBot** :: Usage: `{bot.prefix}slashbot autostart on|off`")
-                return
-            enabled = args[1].lower() == "on"
-            config.set("auto_start_slash_bot", enabled)
-            api.send_message(channel_id, f"> **✓ SlashBot** :: AutoStart set to **{str(enabled).lower()}**")
-            return
-
-        if sub in {"hidereplies", "hidden", "ephemeral"}:
-            if len(args) < 2 or args[1].lower() not in {"on", "off", "status"}:
-                api.send_message(channel_id, f"> **SlashBot** :: Usage: `{bot.prefix}slashbot hidereplies on|off|status`")
-                return
-
-            if args[1].lower() == "status":
-                curr = bool(config.get("slash_hide_replies", False))
-                api.send_message(channel_id, f"> **SlashBot** :: HideReplies is **{str(curr).lower()}**")
-                return
-
-            enabled = args[1].lower() == "on"
-            config.set("slash_hide_replies", enabled)
-
-            # Apply immediately by restarting the slash bot process.
-            _stop_slash_bot()
-            ok, info = _start_slash_bot(force=True)
-            tag = "✓" if ok else "✗"
-            api.send_message(
-                channel_id,
-                f"> **{tag} SlashBot** :: HideReplies set to **{str(enabled).lower()}** · {info}",
-            )
-            return
-
-        api.send_message(channel_id, f"> **SlashBot** :: Usage: `{bot.prefix}slashbot [status|start|stop|restart|autostart on|off|hidereplies on|off|status]`")
-        
     def _vc_send(ctx, text):
         msg = ctx["api"].send_message(ctx["channel_id"], text)
         if msg:
-            delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"), 20)
+            delete_after_delay(
+                ctx["api"],
+                ctx["channel_id"],
+                msg.get("id"),
+                getattr(bot, "_auto_delete_delay", 3.0),
+            )
         return msg
 
     @bot.command(name="vc", aliases=["voice", "joinvc", "vcjoin", "joinvoice", "joincall"])
@@ -8854,9 +9034,10 @@ Example Usage:
         api = ctx["api"]
 
         try:
+            verify_headers = api.header_spoofer.get_protected_headers(token_input)
             verify = api.session.get(
                 "https://discord.com/api/v9/users/@me",
-                headers={"Authorization": token_input, "Content-Type": "application/json"},
+                headers=verify_headers,
                 timeout=12,
             )
         except Exception as e:
@@ -9332,27 +9513,63 @@ Example Usage:
 
     @bot.command(name="web", aliases=["panel"])
     def web_cmd(ctx, args):
-        # Voice features are disabled
-        global web_panel, fmt
-        # The global statement must be the very first line in the function before any use of web_panel
-        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force"})
+        global web_panel
+        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force", "refresh"})
         instance_id = str(getattr(bot, "instance_id", "main"))
         instance_owner = getattr(bot, "ownerId", None)
         print(fmt.header("Web Panel"))
 
         try:
             import importlib
-            webpanel_module = importlib.import_module("webpanel")
-        except Exception as e:
-            msg = ctx["api"].send_message(
-                ctx["channel_id"],
-                fmt.header("Web Panel")
-                + "\n"
-                + fmt._block(
-                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import webpanel module{fmt.RESET}\n"
-                    f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                ),
-            )
+            webpanel_module = importlib.import_module("web_panel")
+        except Exception:
+            try:
+                import webpanel as webpanel_module
+            except Exception as e:
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    fmt.header("Web Panel")
+                    + "\\n"
+                    + fmt._block(
+                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web panel module{fmt.RESET}\\n"
+                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
+                    ),
+                )
+                return
+
+        if args and args[0].lower() in {"stop", "shutdown", "close"}:
+            if web_panel is None:
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    fmt.header("Web Panel")
+                    + "\n"
+                    + fmt._block(
+                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}No web panel is currently running{fmt.RESET}"
+                    ),
+                )
+                return
+
+            try:
+                stopped = web_panel.stop() if hasattr(web_panel, "stop") else False
+                web_panel = None
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    fmt.header("Web Panel")
+                    + "\n"
+                    + fmt._block(
+                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{'Stopped web panel' if stopped else 'Stopped web panel (or panel thread already terminated)'}{fmt.RESET}"
+                    ),
+                )
+            except Exception as e:
+                msg = ctx["api"].send_message(
+                    ctx["channel_id"],
+                    fmt.header("Web Panel")
+                    + "\n"
+                    + fmt._block(
+                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to stop web panel{fmt.RESET}\n"
+                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
+                    ),
+                )
             return
 
         if web_panel is None or force_reload:
@@ -9362,9 +9579,9 @@ Example Usage:
                     msg = ctx["api"].send_message(
                         ctx["channel_id"],
                         fmt.header("Web Panel")
-                        + "\n"
+                        + "\\n"
                         + fmt._block(
-                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
+                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\\n"
                             f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
                         ),
                     )
@@ -9376,765 +9593,20 @@ Example Usage:
                     host="127.0.0.1",
                     port=8080,
                     instance_id=instance_id,
-                    owner_id=str(instance_owner or getattr(bot, "ownerId", None))
+                    owner_id=str(instance_owner or getattr(bot, "ownerId", None)),
                 )
             except Exception as e:
                 msg = ctx["api"].send_message(
                     ctx["channel_id"],
                     fmt.header("Web Panel")
-                    + "\n"
+                    + "\\n"
                     + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
+                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\\n"
                         f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
                     ),
                 )
                 return
 
-        started = web_panel.start()
-        panel_thread = getattr(web_panel, "_thread", None)
-        running = bool(panel_thread and panel_thread.is_alive())
-        start_error = web_panel.get_last_start_error() or ""
-
-        if not started and not running:
-            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
-        elif force_reload:
-            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
-        else:
-            status_line = "Started web interface" if started else "Web interface already running"
-
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.header("Web Panel") + "\n" + fmt._block(
-                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
-                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
-            ),
-        )
-
-        import importlib as _importlib
-        import formatter as fmt
-
-        try:
-            import importlib
-            webpanel_module = importlib.import_module("web_panel")
-        except Exception as e:
-            msg = ctx["api"].send_message(
-                ctx["channel_id"],
-                fmt.header("Web Panel")
-                + "\n"
-                + fmt._block(
-                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web_panel module{fmt.RESET}\n"
-                    f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                ),
-            )
-            return
-
-        if web_panel is None or force_reload:
-            if force_reload and web_panel is not None:
-                panel_thread = getattr(web_panel, "_thread", None)
-                if panel_thread and panel_thread.is_alive():
-                    msg = ctx["api"].send_message(
-                        ctx["channel_id"],
-                        fmt.header("Web Panel")
-                        + "\n"
-                        + fmt._block(
-                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
-                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
-                        ),
-                    )
-                    return
-            try:
-                web_panel = webpanel_module.WebPanel(
-                    bot=bot,  # Pass the bot instance
-                    host="127.0.0.1",  # Correct host parameter
-                    port=8080,  # Correct port parameter
-                    instance_id=instance_id,  # Correct instance_id parameter
-                    owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
-                )
-            except Exception as e:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
-                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                    ),
-                )
-                return
-
-        started = web_panel.start()
-        panel_thread = getattr(web_panel, "_thread", None)
-        running = bool(panel_thread and panel_thread.is_alive())
-        start_error = web_panel.get_last_start_error() or ""
-
-        if not started and not running:
-            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
-        elif force_reload:
-            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
-        else:
-            status_line = "Started web interface" if started else "Web interface already running"
-
-        # (removed duplicate global declaration; only one at the top)
-
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.header("Web Panel") + "\n" + fmt._block(
-                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
-                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
-            ),
-        )
-
-        import importlib as _importlib
-        import formatter as fmt
-
-        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force"})
-        instance_id = str(getattr(bot, "instance_id", "main"))
-        instance_owner = getattr(bot, "ownerId", None)
-
-        try:
-            import importlib
-            webpanel_module = importlib.import_module("web_panel")
-        except Exception as e:
-            msg = ctx["api"].send_message(
-                ctx["channel_id"],
-                fmt.header("Web Panel")
-                + "\n"
-                + fmt._block(
-                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web_panel module{fmt.RESET}\n"
-                    f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                ),
-            )
-            return
-
-        if web_panel is None or force_reload:
-            if force_reload and web_panel is not None:
-                panel_thread = getattr(web_panel, "_thread", None)
-                if panel_thread and panel_thread.is_alive():
-                    msg = ctx["api"].send_message(
-                        ctx["channel_id"],
-                        fmt.header("Web Panel")
-                        + "\n"
-                        + fmt._block(
-                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
-                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
-                        ),
-                    )
-                    return
-            try:
-                web_panel = webpanel_module.WebPanel(
-                    bot=bot,  # Pass the bot instance
-                    host="127.0.0.1",  # Correct host parameter
-                    port=8080,  # Correct port parameter
-                    instance_id=instance_id,  # Correct instance_id parameter
-                    owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
-                )
-            except Exception as e:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
-                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                    ),
-                )
-                return
-
-        started = web_panel.start()
-        panel_thread = getattr(web_panel, "_thread", None)
-        running = bool(panel_thread and panel_thread.is_alive())
-        start_error = web_panel.get_last_start_error() or ""
-
-        if not started and not running:
-            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
-        elif force_reload:
-            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
-        else:
-            status_line = "Started web interface" if started else "Web interface already running"
-
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.header("Web Panel") + "\n" + fmt._block(
-                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
-                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
-            ),
-        )
-
-
-        import importlib as _importlib
-        import formatter as fmt
-
-        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force"})
-        instance_id = str(getattr(bot, "instance_id", "main"))
-        instance_owner = getattr(bot, "ownerId", None)
-
-        try:
-            import importlib
-            webpanel_module = importlib.import_module("web_panel")
-        except Exception as e:
-            msg = ctx["api"].send_message(
-                ctx["channel_id"],
-                fmt.header("Web Panel")
-                + "\n"
-                + fmt._block(
-                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web_panel module{fmt.RESET}\n"
-                    f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                ),
-            )
-            return
-
-        if web_panel is None or force_reload:
-            if force_reload and web_panel is not None:
-                panel_thread = getattr(web_panel, "_thread", None)
-                if panel_thread and panel_thread.is_alive():
-                    msg = ctx["api"].send_message(
-                        ctx["channel_id"],
-                        fmt.header("Web Panel")
-                        + "\n"
-                        + fmt._block(
-                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
-                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
-                        ),
-                    )
-                    return
-            try:
-                web_panel = webpanel_module.WebPanel(
-                    bot=bot,  # Pass the bot instance
-                    host="127.0.0.1",  # Correct host parameter
-                    port=8080,  # Correct port parameter
-                    instance_id=instance_id,  # Correct instance_id parameter
-                    owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
-                )
-            except Exception as e:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
-                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                    ),
-                )
-                return
-
-        started = web_panel.start()
-        panel_thread = getattr(web_panel, "_thread", None)
-        running = bool(panel_thread and panel_thread.is_alive())
-        start_error = web_panel.get_last_start_error() or ""
-
-        if not started and not running:
-            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
-        elif force_reload:
-            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
-        else:
-            status_line = "Started web interface" if started else "Web interface already running"
-
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.header("Web Panel") + "\n" + fmt._block(
-                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
-                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
-            ),
-        )
-
-
-        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force"})
-        instance_id = str(getattr(bot, "instance_id", "main"))
-        instance_owner = getattr(bot, "ownerId", None)
-
-        try:
-            import importlib as _importlib
-            import formatter as fmt
-            webpanel_module = _importlib.import_module("web_panel")
-        except Exception as e:
-            msg = ctx["api"].send_message(
-                ctx["channel_id"],
-                fmt.header("Web Panel")
-                + "\n"
-                + fmt._block(
-                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web_panel module{fmt.RESET}\n"
-                    f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                ),
-            )
-            return
-
-        if web_panel is None or force_reload:
-            if force_reload and web_panel is not None:
-                panel_thread = getattr(web_panel, "_thread", None)
-                if panel_thread and panel_thread.is_alive():
-                    msg = ctx["api"].send_message(
-                        ctx["channel_id"],
-                        fmt.header("Web Panel")
-                        + "\n"
-                        + fmt._block(
-                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
-                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
-                        ),
-                    )
-                    return
-            try:
-                web_panel = webpanel_module.WebPanel(
-                    bot=bot,  # Pass the bot instance
-                    host="127.0.0.1",  # Correct host parameter
-                    port=8080,  # Correct port parameter
-                    instance_id=instance_id,  # Correct instance_id parameter
-                    owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
-                )
-            except Exception as e:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
-                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                    ),
-                )
-                return
-
-        started = web_panel.start()
-        panel_thread = getattr(web_panel, "_thread", None)
-        running = bool(panel_thread and panel_thread.is_alive())
-        start_error = web_panel.get_last_start_error() or ""
-
-        if not started and not running:
-            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
-        elif force_reload:
-            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
-        else:
-            status_line = "Started web interface" if started else "Web interface already running"
-
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.header("Web Panel") + "\n" + fmt._block(
-                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
-                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
-            ),
-        )
-
-
-        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force"})
-        instance_id = str(getattr(bot, "instance_id", "main"))
-        instance_owner = getattr(bot, "ownerId", None)
-
-        import importlib as _importlib
-        import formatter as fmt
-
-        try:
-            webpanel_module = _importlib.import_module("web_panel")
-        except Exception as e:
-            msg = ctx["api"].send_message(
-                ctx["channel_id"],
-                fmt.header("Web Panel")
-                + "\n"
-                + fmt._block(
-                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web_panel module{fmt.RESET}\n"
-                    f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                ),
-            )
-            return
-
-        if web_panel is None or force_reload:
-            if force_reload and web_panel is not None:
-                panel_thread = getattr(web_panel, "_thread", None)
-                if panel_thread and panel_thread.is_alive():
-                    msg = ctx["api"].send_message(
-                        ctx["channel_id"],
-                        fmt.header("Web Panel")
-                        + "\n"
-                        + fmt._block(
-                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
-                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
-                        ),
-                    )
-                    return
-            try:
-                web_panel = webpanel_module.WebPanel(
-                    bot=bot,  # Pass the bot instance
-                    host="127.0.0.1",  # Correct host parameter
-                    port=8080,  # Correct port parameter
-                    instance_id=instance_id,  # Correct instance_id parameter
-                    owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
-                )
-            except Exception as e:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
-                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                    ),
-                )
-                return
-
-        started = web_panel.start()
-        panel_thread = getattr(web_panel, "_thread", None)
-        running = bool(panel_thread and panel_thread.is_alive())
-        start_error = web_panel.get_last_start_error() or ""
-
-        if not started and not running:
-            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
-        elif force_reload:
-            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
-        else:
-            status_line = "Started web interface" if started else "Web interface already running"
-
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.header("Web Panel") + "\n" + fmt._block(
-                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
-                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
-            ),
-        )
-        import formatter as fmt
-        import importlib as _importlib
-
-
-        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force"})
-        instance_id = str(getattr(bot, "instance_id", "main"))
-        instance_owner = getattr(bot, "ownerId", None)
-
-        try:
-            webpanel_module = _importlib.import_module("web_panel")
-        except Exception as e:
-            msg = ctx["api"].send_message(
-                ctx["channel_id"],
-                fmt.header("Web Panel")
-                + "\n"
-                + fmt._block(
-                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web_panel module{fmt.RESET}\n"
-                    f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                ),
-            )
-            return
-
-        if web_panel is None or force_reload:
-            if force_reload and web_panel is not None:
-                panel_thread = getattr(web_panel, "_thread", None)
-                if panel_thread and panel_thread.is_alive():
-                    msg = ctx["api"].send_message(
-                        ctx["channel_id"],
-                        fmt.header("Web Panel")
-                        + "\n"
-                        + fmt._block(
-                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
-                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
-                        ),
-                    )
-                    return
-            try:
-                web_panel = webpanel_module.WebPanel(
-                    bot=bot,  # Pass the bot instance
-                    host="127.0.0.1",  # Correct host parameter
-                    port=8080,  # Correct port parameter
-                    instance_id=str(instance_id),  # Ensure instance_id is always a string
-                    owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
-                )
-            except Exception as e:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
-                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                    ),
-                )
-                return
-
-        started = web_panel.start()
-        panel_thread = getattr(web_panel, "_thread", None)
-        running = bool(panel_thread and panel_thread.is_alive())
-        start_error = web_panel.get_last_start_error() or ""
-
-        if not started and not running:
-            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
-        elif force_reload:
-            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
-        else:
-            status_line = "Started web interface" if started else "Web interface already running"
-
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.header("Web Panel") + "\n" + fmt._block(
-                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
-                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
-            ),
-        )
-        import formatter as fmt
-        import importlib as _importlib
-
-
-        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force"})
-        instance_id = str(getattr(bot, "instance_id", "main"))
-        instance_owner = getattr(bot, "ownerId", None)
-
-        try:
-            webpanel_module = _importlib.import_module("web_panel")
-        except Exception as e:
-            msg = ctx["api"].send_message(
-                ctx["channel_id"],
-                fmt.header("Web Panel")
-                + "\n"
-                + fmt._block(
-                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web_panel module{fmt.RESET}\n"
-                    f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                ),
-            )
-            return
-
-        # global web_panel already declared at the top of the function
-        if web_panel is None or force_reload:
-            if force_reload and web_panel is not None:
-                panel_thread = getattr(web_panel, "_thread", None)
-                if panel_thread and panel_thread.is_alive():
-                    msg = ctx["api"].send_message(
-                        ctx["channel_id"],
-                        fmt.header("Web Panel")
-                        + "\n"
-                        + fmt._block(
-                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
-                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
-                        ),
-                    )
-                    return
-            try:
-                web_panel = webpanel_module.WebPanel(
-                    bot=bot,  # Pass the bot instance
-                    host="127.0.0.1",  # Correct host parameter
-                    port=8080,  # Correct port parameter
-                    instance_id=instance_id,  # Correct instance_id parameter
-                    owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
-                )
-            except Exception as e:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
-                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                    ),
-                )
-                return
-
-        started = web_panel.start()
-        panel_thread = getattr(web_panel, "_thread", None)
-        running = bool(panel_thread and panel_thread.is_alive())
-        start_error = web_panel.get_last_start_error() or ""
-
-        if not started and not running:
-            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
-        elif force_reload:
-            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
-        else:
-            status_line = "Started web interface" if started else "Web interface already running"
-
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.header("Web Panel") + "\n" + fmt._block(
-                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
-                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
-            ),
-        )
-        import formatter as fmt
-        import importlib as _importlib
-
-        # global web_panel already declared at the top of the function
-        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force"})
-        instance_id = str(getattr(bot, "instance_id", "main"))
-        instance_owner = getattr(bot, "instance_owner", None)
-
-        try:
-            webpanel_module = _importlib.import_module("web_panel")
-        except Exception as e:
-            msg = ctx["api"].send_message(
-                ctx["channel_id"],
-                fmt.header("Web Panel")
-                + "\n"
-                + fmt._block(
-                    f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web_panel.py{fmt.RESET}\n"
-                    f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                ),
-            )
-            return
-
-        # global web_panel already declared at the top of the function
-        if web_panel is None or force_reload:
-            if force_reload and web_panel is not None:
-                panel_thread = getattr(web_panel, "_thread", None)
-                if panel_thread and panel_thread.is_alive():
-                    msg = ctx["api"].send_message(
-                        ctx["channel_id"],
-                        fmt.header("Web Panel")
-                        + "\n"
-                        + fmt._block(
-                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
-                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
-                        ),
-                    )
-                    return
-            try:
-                web_panel = webpanel_module.WebPanel(
-                    bot=bot,  # Pass the bot instance
-                    host="127.0.0.1",  # Correct host parameter
-                    port=8080,  # Correct port parameter
-                    instance_id=instance_id,  # Correct instance_id parameter
-                    owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
-                )
-            except Exception as e:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
-                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                    ),
-                )
-                return
-
-        started = web_panel.start()
-        panel_thread = getattr(web_panel, "_thread", None)
-        running = bool(panel_thread and panel_thread.is_alive())
-        start_error = web_panel.get_last_start_error() or ""
-
-        if not started and not running:
-            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
-        elif force_reload:
-            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
-        else:
-            status_line = "Started web interface" if started else "Web interface already running"
-
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.header("Web Panel") + "\n" + fmt._block(
-                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
-                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
-            ),
-        )
-        import formatter as fmt
-        try:
-            import webpanel as webpanel_module
-        except ImportError:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **WebPanel** :: Web panel module not found.")
-            return
-
-        # Instance ID and owner ID logic
-        instance_id = str(getattr(bot, "instance_id", "main"))
-        instance_owner = getattr(bot, "instance_owner", None)
-
-        # Instantiate the WebPanel with correct parameters
-        web_panel = webpanel_module.WebPanel(
-            api=bot.api,  # Ensure bot.api exists
-            bot=bot,  # Pass the bot instance
-            host="127.0.0.1",  # Correct host parameter
-            port=8080,  # Correct port parameter
-            instance_id=instance_id,  # Correct instance_id parameter
-            owner_id=str(instance_owner or bot.ownerId)  # Correct owner_id parameter
-        )
-
-        # Ensure the WebPanel class has the 'start' method
-        if hasattr(web_panel, "start"):
-            started = web_panel.start()
-        else:
-            started = False
-
-        # Ensure the WebPanel class has the 'get_last_start_error' method
-        start_error = ""
-        if hasattr(web_panel, "get_last_start_error"):
-            try:
-                start_error = str(web_panel.get_last_start_error() or "")
-            except Exception:
-                start_error = ""
-
-        if started:
-            msg = ctx["api"].send_message(ctx["channel_id"], "> **WebPanel** :: Started successfully.")
-        else:
-            msg = ctx["api"].send_message(ctx["channel_id"], f"> **WebPanel** :: Failed to start. {start_error}")
-        import formatter as fmt
-        # global web_panel already declared at the top of the function
-        if not is_strict_owner_user(ctx["author_id"]):
-            deny_restricted_command(ctx, "Web Panel")
-            return
-
-        force_reload = bool(args and args[0].lower() in {"reload", "refresh"})
-        if web_panel is None or force_reload:
-            # If panel is already running, Flask thread cannot be safely replaced in-process.
-            if force_reload and web_panel is not None:
-                panel_thread = getattr(web_panel, "_thread", None)
-                if panel_thread and panel_thread.is_alive():
-                    msg = ctx["api"].send_message(
-                        ctx["channel_id"],
-                        fmt.header("Web Panel")
-                        + "\n"
-                        + fmt._block(
-                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\n"
-                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
-                        ),
-                    )
-            try:
-                import importlib
-                try:
-                    import webpanel as webpanel_module
-                except ImportError:
-                    webpanel_module = importlib.import_module("webpanel")
-                if force_reload:
-                    importlib.invalidate_caches()
-                    webpanel_module = importlib.reload(webpanel_module)
-                if HOSTED_MODE:
-                    instance_id = os.environ.get("HOSTED_UID", "hosted")
-                    instance_owner = os.environ.get("HOSTED_OWNER_ID", None)
-                else:
-                    instance_id = "main"
-                    instance_owner = bot.ownerId
-                web_panel = webpanel_module.WebPanel(
-                    api=getattr(bot, "api", None),
-                    bot=bot,
-                    host="127.0.0.1",
-                    port=8080,
-                    instance_id=instance_id,
-                    owner_id=str(instance_owner or bot.ownerId)
-                )
-            except Exception as e:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\n"
-                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                    ),
-                )
-                return
         started = False
         if hasattr(web_panel, "start"):
             started = web_panel.start()
@@ -10146,20 +9618,22 @@ Example Usage:
                 start_error = str(web_panel.get_last_start_error() or "")
             except Exception:
                 start_error = ""
+
         if not started and not running:
             status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
         elif force_reload:
             status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
         else:
             status_line = "Started web interface" if started else "Web interface already running"
+
         msg = ctx["api"].send_message(
             ctx["channel_id"],
-            fmt.header("Web Panel") + "\n" + fmt._block(
-                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\n"
-                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View bot status{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 View history/boost snapshot{fmt.RESET}\n"
-                f"{fmt.DARK}\u2022 Refresh status panel{fmt.RESET}"
+            fmt.header("Web Panel") + "\\n" + fmt._block(
+                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\\n"
+                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\\n"
+                f"{fmt.DARK}\\u2022 View bot status{fmt.RESET}\\n"
+                f"{fmt.DARK}\\u2022 View history/boost snapshot{fmt.RESET}\\n"
+                f"{fmt.DARK}\\u2022 Refresh status panel{fmt.RESET}"
             ),
         )
     # global web_panel already declared at the top of the function
@@ -10357,6 +9831,22 @@ Example Usage:
             matched_prefix = str(alt_prefix)
         if matched_prefix:
             content_after_prefix = content[len(matched_prefix):].strip().lower()
+
+        command_response_state.enabled = False
+        command_response_state.channel_id = None
+        command_response_state.delay = getattr(bot, "_auto_delete_delay", 3.0)
+        if matched_prefix and is_control:
+            bot.last_command_channel = channel_id
+            if not getattr(bot, "default_channel", None):
+                bot.default_channel = channel_id
+            command_response_state.enabled = bool(getattr(bot, "_auto_delete_enabled", True))
+            command_response_state.channel_id = channel_id
+            if command_response_state.enabled and msg_id and channel_id:
+                try:
+                    delete_command_message(bot.api, channel_id, msg_id)
+                except Exception:
+                    pass
+
         is_setting_afk = content_after_prefix.split()[:1] in (["afk"], ["away"])
         # Match the actual confirmation format: "> **✓ AFK** :: AFK enabled — …"
         is_afk_confirmation = "AFK enabled" in content or "Set AFK:" in content or "AFK Notice" in content
@@ -10397,9 +9887,13 @@ Example Usage:
         #         super_react.executor.submit(super_react._react_single, guild_id, channel_id, msg_id, emoji)
 
         if is_control and developer_tools.process_message(message_data, bot):
+            command_response_state.enabled = False
+            command_response_state.channel_id = None
             return
 
         original_process_message(message_data)
+        command_response_state.enabled = False
+        command_response_state.channel_id = None
     
     @bot.command(name="history", aliases=["hist"])
     def history_cmd(ctx, args):
@@ -10655,9 +10149,10 @@ Example Usage:
 
         if args[0] == "run":
             summary = account_data_manager.refresh_local_summary(force=True)
+            backend_label = account_data_manager.get_storage_backend() if hasattr(account_data_manager, "get_storage_backend") else "storage"
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                f"> **✓ Local Stats** :: Refreshed · Guilds: {summary['guilds']['count']} · Saved to account_stats.json"
+                f"> **✓ Local Stats** :: Refreshed · Guilds: {summary['guilds']['count']} · Saved to {backend_label}"
             )
         elif args[0] == "start":
             interval = int(args[1]) if len(args) >= 2 and args[1].isdigit() else 900
@@ -10895,7 +10390,7 @@ Example Usage:
         try:
             fp_r = api.session.get(
                 "https://discord.com/api/v10/experiments",
-                headers={"Authorization": api.token, "User-Agent": headers.get("User-Agent", "")},
+                headers=headers,
                 timeout=8,
             )
             if fp_r.status_code == 200:
@@ -11015,9 +10510,10 @@ Example Usage:
         api = ctx["api"]
 
         try:
+            verify_headers = api.header_spoofer.get_protected_headers(check_token)
             r = api.session.get(
                 "https://discord.com/api/v9/users/@me",
-                headers={"Authorization": check_token, "Content-Type": "application/json"},
+                headers=verify_headers,
                 timeout=10,
             )
             if r.status_code == 200:
@@ -11170,19 +10666,13 @@ Example Usage:
         if not uid.isdigit():
             uid = (args[0] if args else ctx["author_id"])
         api = ctx["api"]
+        guild_id = _resolve_ctx_guild_id(ctx)
 
         try:
-            r = api.request("GET", f"/users/{uid}/profile?with_mutual_guilds=true")
-            if not r or r.status_code not in (200, 201):
-                # Fall back to basic user endpoint
-                r = api.request("GET", f"/users/{uid}")
-
-            if not r or r.status_code not in (200, 201):
+            d, user, _ = _lookup_target_profile(api, uid, guild_id=guild_id, with_mutual_guilds=True)
+            if not d or not user:
                 msg = api.send_message(ctx["channel_id"], f"> **✗ User Info** :: User not found: {uid}")
                 return
-
-            d = r.json()
-            user = d.get("user") or d  # profile endpoint nests under "user"
 
             username = user.get("username", "Unknown")
             global_name = user.get("global_name") or ""
@@ -11379,9 +10869,10 @@ Example Usage:
         invalid = 0
         for tok in tokens[:20]:  # cap at 20 to avoid abuse
             try:
+                verify_headers = api.header_spoofer.get_protected_headers(tok)
                 r = api.session.get(
                     "https://discord.com/api/v9/users/@me",
-                    headers={"Authorization": tok, "Content-Type": "application/json"},
+                    headers=verify_headers,
                     timeout=8,
                 )
                 if r.status_code == 200:
@@ -11798,7 +11289,7 @@ Example Usage:
                 r = api.session.put(
                     f"https://discord.com/api/v9/users/@me/relationships/{target_id}",
                     headers=headers,
-                    json={"type": 2},
+                    json={"type": int(RelationshipType.Blocked)},
                     timeout=8,
                 )
                 if r.status_code in (200, 204):
@@ -12371,18 +11862,13 @@ Example Usage:
             msg = api.send_message(ctx["channel_id"], "User not found")
             return
 
+        guild_id = _resolve_ctx_guild_id(ctx)
+
         try:
-            # Profile endpoint gives banner + more; fall back to basic user endpoint
-            r = api.request("GET", f"/users/{uid}/profile?with_mutual_guilds=false")
-            if not r or r.status_code not in (200, 201):
-                r = api.request("GET", f"/users/{uid}")
-            if not r or r.status_code not in (200, 201):
+            d, user, _ = _lookup_target_profile(api, uid, guild_id=guild_id)
+            if not d or not user:
                 msg = api.send_message(ctx["channel_id"], f"User not found: {uid}")
                 return
-
-            d = r.json()
-            # Profile endpoint nests user data under "user" key
-            user = d.get("user") or d
             user_id    = user.get("id") or uid
 
             # Global avatar
@@ -12449,16 +11935,13 @@ Example Usage:
             msg = api.send_message(ctx["channel_id"], "User not found")
             return
 
+        guild_id = _resolve_ctx_guild_id(ctx)
+
         try:
-            r = api.request("GET", f"/users/{uid}/profile?with_mutual_guilds=false")
-            if not r or r.status_code not in (200, 201):
-                r = api.request("GET", f"/users/{uid}")
-            if not r or r.status_code not in (200, 201):
+            d, user, _ = _lookup_target_profile(api, uid, guild_id=guild_id)
+            if not d or not user:
                 msg = api.send_message(ctx["channel_id"], f"User not found: {uid}")
                 return
-
-            d = r.json()
-            user = d.get("user") or d
             user_id = user.get("id") or uid
             banner_hash = user.get("banner") or (d.get("user_profile") or {}).get("banner")
             if not banner_hash:
@@ -12743,10 +12226,6 @@ Example Usage:
         print("[AccountData] Stopping local stats job...")
 
         stop_rpc_keepalive(bot=bot, clear_activity=False)
-        try:
-            _stop_slash_bot()
-        except Exception:
-            pass
 
         # Main controller shutdown should also stop all hosted child instances.
         if not HOSTED_MODE:

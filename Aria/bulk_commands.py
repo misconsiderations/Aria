@@ -555,7 +555,8 @@ def setup_bulk_commands(bot, delete_after_delay):
 
     @bot.command(name="emojilist", aliases=["emoji_list"])
     def emojilist_cmd(ctx, args):
-        gid = args[0] if args else ctx.get("guild_id") or ctx["message"].get("guild_id", "")
+        message_payload = ctx.get("message") or {}
+        gid = args[0] if args else ctx.get("guild_id") or message_payload.get("guild_id", "")
         if not gid:
             _send(ctx, _box("Emoji List", "Usage: emojilist <guild_id>"))
             return

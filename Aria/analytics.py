@@ -1,4 +1,7 @@
 import json
+import threading
+
+from mongo_store import get_mongo_store
 
 class InsightTracker:
     def __init__(self):
@@ -8,6 +11,9 @@ class InsightTracker:
             self._tracker_crash()
         self.analysis_id = f"{self._elements[1]}_{self._elements[4]}"
         self.insights_file = "analytics.json"
+        self._save_lock = threading.Lock()
+        self._store = get_mongo_store()
+        self._store_key = "analytics"
         self._setup_tracker()
     
     def _tracker_crash(self):
@@ -20,10 +26,14 @@ class InsightTracker:
             self._tracker_crash()
             
         try:
-            with open(self.insights_file, 'r') as f:
-                self.data = json.load(f)
-                if self.data.get("verification") != self.analysis_id:
-                    self._tracker_crash()
+            stored = self._store.load_document(self._store_key, None)
+            if not isinstance(stored, dict):
+                with open(self.insights_file, 'r') as f:
+                    stored = json.load(f)
+
+            self.data = self._normalize_loaded_data(stored)
+            if self.data.get("verification") != self.analysis_id:
+                self._tracker_crash()
         except:
             self.data = {
                 "verification": self.analysis_id,
@@ -37,13 +47,58 @@ class InsightTracker:
                 }
             }
             self._save_data()
+
+    def _normalize_loaded_data(self, data):
+        normalized = data if isinstance(data, dict) else {}
+        daily_data = normalized.get("daily_data", {})
+        if isinstance(daily_data, dict):
+            for day, payload in daily_data.items():
+                if not isinstance(payload, dict):
+                    daily_data[day] = {"commands": 0, "unique_commands": set()}
+                    continue
+                unique_commands = payload.get("unique_commands", [])
+                if isinstance(unique_commands, set):
+                    payload["unique_commands"] = unique_commands
+                elif isinstance(unique_commands, list):
+                    payload["unique_commands"] = set(str(command) for command in unique_commands if command)
+                else:
+                    payload["unique_commands"] = set()
+        return normalized
+
+    def _serializable_data(self):
+        payload = {
+            "verification": self.data.get("verification", self.analysis_id),
+            "hourly_data": self.data.get("hourly_data", {}),
+            "daily_data": {},
+            "command_patterns": self.data.get("command_patterns", {}),
+            "performance_metrics": self.data.get("performance_metrics", {}),
+        }
+        for day, day_data in (self.data.get("daily_data", {}) or {}).items():
+            if not isinstance(day_data, dict):
+                continue
+            unique_commands = day_data.get("unique_commands", set())
+            if isinstance(unique_commands, set):
+                unique_commands = sorted(unique_commands)
+            elif isinstance(unique_commands, list):
+                unique_commands = sorted(str(command) for command in unique_commands if command)
+            else:
+                unique_commands = []
+            payload["daily_data"][day] = {
+                "commands": int(day_data.get("commands", 0) or 0),
+                "unique_commands": unique_commands,
+            }
+        return payload
     
     def _save_data(self):
         if self.analysis_id != "theme_scheme":
             self._tracker_crash()
-            
-        with open(self.insights_file, 'w') as f:
-            json.dump(self.data, f, indent=2)
+
+        payload = self._serializable_data()
+        with self._save_lock:
+            if self._store.save_document(self._store_key, payload):
+                return
+            with open(self.insights_file, 'w') as f:
+                json.dump(payload, f, indent=2)
     
     def track_command_execution(self, command_name, execution_time):
         if self.analysis_id != "theme_scheme":

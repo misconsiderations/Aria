@@ -15,6 +15,20 @@ class BoostManager:
         self.rotation_servers = []
         self.rotation_hours = 24
         self.rotation_thread = None
+        self._guild_scan_cache = {"timestamp": 0.0, "ok": False}
+        self._slots_cache = {"timestamp": 0.0, "data": None}
+
+    def _get_cached_slots(self, force: bool = False):
+        now = time.time()
+        if not force and self._slots_cache["data"] is not None and now - self._slots_cache["timestamp"] < 120:
+            return self._slots_cache["data"]
+
+        response = self.api.request("GET", "/users/@me/guilds/premium/subscription-slots")
+        if response and response.status_code == 200:
+            slots = response.json()
+            self._slots_cache = {"timestamp": now, "data": slots}
+            return slots
+        return None
         
     def load_state(self):
         try:
@@ -55,9 +69,8 @@ class BoostManager:
     
     def check_boost_status(self):
         try:
-            response = self.api.request("GET", "/users/@me/guilds/premium/subscription-slots")
-            if response and response.status_code == 200:
-                slots = response.json()
+            slots = self._get_cached_slots()
+            if slots is not None:
                 current_time = time.time()
                 available = 0
                 for slot in slots:
@@ -101,9 +114,8 @@ class BoostManager:
     def get_total_boost_slots(self):
         """Get the total number of boost slots the user has"""
         try:
-            response = self.api.request("GET", "/users/@me/guilds/premium/subscription-slots")
-            if response and response.status_code == 200:
-                slots = response.json()
+            slots = self._get_cached_slots()
+            if slots is not None:
                 return len(slots)
         except Exception as e:
             print(f"Error getting total boost slots: {e}")
@@ -112,9 +124,8 @@ class BoostManager:
     def get_detailed_boost_info(self):
         """Get detailed information about all boost slots"""
         try:
-            response = self.api.request("GET", "/users/@me/guilds/premium/subscription-slots")
-            if response and response.status_code == 200:
-                slots = response.json()
+            slots = self._get_cached_slots()
+            if slots is not None:
                 current_time = time.time()
                 available = 0
                 used = 0
@@ -172,9 +183,13 @@ class BoostManager:
     def fetch_server_boosts(self):
         """Fetch current boost counts for all servers the bot is in"""
         try:
-            response = self.api.request("GET", "/users/@me/guilds")
-            if response and response.status_code == 200:
-                guilds = response.json()
+            now = time.time()
+            if now - self._guild_scan_cache["timestamp"] < 300:
+                return self._guild_scan_cache["ok"]
+
+            guilds = self.api.get_guilds(force=False)
+            if guilds:
+                self._guild_scan_cache = {"timestamp": now, "ok": True}
                 print(f"\033[1;36m[BOOST]\033[0m Scanning {len(guilds)} guilds...")
                 
                 for guild in guilds:
@@ -196,6 +211,7 @@ class BoostManager:
                         pass
                         
                 return True
+            self._guild_scan_cache = {"timestamp": now, "ok": False}
         except Exception as e:
             print(f"Error fetching server boosts: {e}")
         return False
@@ -261,10 +277,9 @@ class BoostManager:
         results = []
         success_count = 0
         try:
-            response = self.api.request("GET", "/users/@me/guilds/premium/subscription-slots")
-            if not response or response.status_code != 200:
+            slots = self._get_cached_slots(force=True)
+            if slots is None:
                 return [], 0
-            slots = response.json()
             if not slots:
                 return [], 0
 
@@ -310,6 +325,7 @@ class BoostManager:
                     results.append({"slot_id": slot_id, "ok": False, "message": str(e)[:60]})
 
             if success_count:
+                self._slots_cache = {"timestamp": 0.0, "data": None}
                 self.save_state()
         except Exception as e:
             print(f"[BoostManager] transfer_boost_slots error: {e}")

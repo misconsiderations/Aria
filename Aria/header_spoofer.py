@@ -3,19 +3,66 @@ import random
 import json
 import base64
 import ssl
+import re
 from typing import Dict, Any, Optional
 
 # Try to import curl_cffi, fallback to requests if not available
 try:
     from curl_cffi.requests import Session, Response
+    import curl_cffi.requests as _http
 except ImportError:
     try:
-        import requests
-        Session = requests.Session
-        Response = requests.Response
+        import requests as _http
+        Session = _http.Session
+        Response = _http.Response
     except ImportError:
+        _http = None
         Session = None
         Response = None
+
+
+_FALLBACK_BUILD = 305411  # April 2026 stable
+
+
+def get_latest_build() -> int:
+    """Fetch the current Discord client build number from public JS assets.
+
+    Returns the fallback build number if the fetch fails for any reason.
+    """
+    try:
+        import requests as _req  # use plain requests to avoid circular session issues
+    except ImportError:
+        return _FALLBACK_BUILD
+
+    try:
+        resp = _req.get("https://discord.com", timeout=10,
+                        headers={"User-Agent": "Mozilla/5.0"})
+        if resp.status_code != 200:
+            return _FALLBACK_BUILD
+
+        # Find JS asset filenames from the HTML
+        assets = re.findall(r'assets/([a-z0-9]+)\.js', resp.text)
+        if not assets:
+            return _FALLBACK_BUILD
+
+        # Walk the last few bundles — build number lives in one of them
+        for asset in reversed(assets[-8:]):
+            try:
+                js = _req.get(f"https://discord.com/assets/{asset}.js",
+                              timeout=10,
+                              headers={"User-Agent": "Mozilla/5.0"}).text
+                m = re.search(r'buildNumber["\s]*:["\s]*(\d{5,6})', js)
+                if m:
+                    build = int(m.group(1))
+                    print(f"[BUILD] Detected Discord build: {build}")
+                    return build
+            except Exception:
+                continue
+
+        return _FALLBACK_BUILD
+    except Exception as e:
+        print(f"[BUILD] Fetch failed, using fallback {_FALLBACK_BUILD}: {e}")
+        return _FALLBACK_BUILD
 
 class RateLimiter:
     """Advanced rate limiter with bucket management and DM protection"""
@@ -98,7 +145,7 @@ class BrowserProfile:
 
         # Chrome versions (2025-2026)
         self.chrome_versions = [
-            {"major": "136", "full": "136.0.7103.49"},
+            {"major": "124", "full": "124.0.0.0"},
             {"major": "135", "full": "135.0.7049.115"},
             {"major": "134", "full": "134.0.6998.117"},
             {"major": "133", "full": "133.0.6943.141"},
@@ -211,6 +258,57 @@ class BrowserProfile:
         self.hardware_concurrency = random.choice([4, 8, 16])
         self.device_memory = random.choice([4, 8, 16, 32])
 
+        width, height = map(int, self.screen_resolution.split("x"))
+        self.viewport_width = str(max(800, width - random.randint(0, 280)))
+        self.viewport_height = str(max(600, height - random.randint(100, 220)))
+        self.dpr = random.choice(["1", "1.25", "1.5", "2", "2.5", "3"])
+
+        self.sec_fetch_dest = "empty"
+        self.sec_fetch_mode = "cors"
+        self.sec_fetch_site = "same-origin"
+        self.ect = random.choice(["4g", "4g", "3g"])
+        self.downlink = str(random.choice([10.0, 15.0, 20.0, 30.0]))
+        self.rtt = str(random.choice([20, 30, 40, 50]))
+        self.save_data = "off"
+
+        self.sec_ch_ua = None
+        self.sec_ch_ua_mobile = "?0"
+        self.sec_ch_ua_platform = f'"{self.os}"'
+        self.sec_ch_ua_platform_version = "0.0.0"
+        self.sec_ch_ua_full_version = f'"{self.browser_version}"'
+        self.sec_ch_ua_arch = random.choice(["x86", "x86_64"])
+        self.sec_ch_ua_bitness = "64"
+        self.sec_ch_ua_model = ""
+        self.sec_ch_ua_form_factor = "Desktop"
+        self.sec_ch_prefers_color_scheme = "light"
+        self.sec_ch_prefers_reduced_motion = "no-preference"
+
+        if not self.is_firefox:
+            major = self.browser_version.split('.')[0]
+            self.sec_ch_ua = f'"Chromium";v="{major}", "Google Chrome";v="{major}", "Not(A:Brand";v="99"'
+            if self.os == "Windows":
+                self.sec_ch_ua_platform_version = "10.0.0"
+            elif self.os == "Mac OS X":
+                self.sec_ch_ua_platform_version = "14.7.0"
+            else:
+                self.sec_ch_ua_platform_version = "0.0.0"
+
+        self.custom_headers = []
+        self.x_forwarded_for = self._generate_random_ip()
+        self.x_real_ip = self._generate_random_ip()
+        self.cf_connecting_ip = self._generate_random_ip()
+        self.true_client_ip = self._generate_random_ip()
+
+    def _generate_random_ip(self) -> str:
+        """Generate a realistic public IPv4 address for spoofed IP headers."""
+        first_octets = [13, 34, 44, 52, 54, 63, 66, 68, 70, 72, 73, 74, 75, 76, 96, 98, 99, 100, 104, 107,
+                        108, 128, 129, 130, 131, 132, 134, 135, 143, 144, 147, 148, 150, 151, 152, 153, 154,
+                        155, 156, 157, 158, 159, 162, 163, 164, 165, 167, 168, 169, 170, 172, 173, 174, 175,
+                        176, 177, 178, 184, 185, 186, 187, 188, 189, 190, 191, 193, 194, 195, 196, 197, 198,
+                        199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 216, 217, 218, 219, 220, 221,
+                        222, 223]
+        first = random.choice(first_octets)
+        return f"{first}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}"
 
 
 class HeaderSpoofer:
@@ -223,8 +321,9 @@ class HeaderSpoofer:
         self.cookies: str = ""
         self.cache_time: float = 0
         self.profile = BrowserProfile()
-        self.build_number = 338000  # Updated for 2026
-        self.session: Session = self._create_session()
+        self.build_number = get_latest_build()  # Fetched live; falls back to 305124
+        self._cached_super_properties: Optional[str] = None  # Stable per session
+        self.session: Any = self._create_session()
         self.proxy_manager = None
         self._init_proxy_manager()
 
@@ -236,28 +335,55 @@ class HeaderSpoofer:
         except:
             self.proxy_manager = None
 
-    def _create_session(self) -> Session:
+    def _create_session(self) -> Any:
         """Create SSL-safe session"""
         try:
             context = ssl.create_default_context()
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
             
-            # Try curl_cffi first for better spoofing
+            # Try curl_cffi first for better spoofing — impersonate version must
+            # match the User-Agent Chrome major version to avoid TLS fingerprint mismatch.
             try:
                 from curl_cffi.requests import Session as CurlSession
-                return CurlSession(impersonate="chrome131")
+                # Prefer chrome136 (matches 2026 UA); fall back to chrome124 if unavailable.
+                for _imp in ("chrome136", "chrome124", "chrome110"):
+                    try:
+                        session = CurlSession(impersonate=_imp)
+                        break
+                    except Exception:
+                        continue
+                else:
+                    session = CurlSession(impersonate="chrome110")
+                session.trust_env = False
+                return session
             except:
                 # Fall back to requests if curl_cffi not available
                 session = Session()
                 session.verify = False
+                session.trust_env = False
                 return session
         except:
             # Ultimate fallback
             import requests
             session = requests.Session()
             session.verify = False
+            session.trust_env = False
             return session
+
+    def set_proxy(self, proxy: str):
+        """Set proxy for the session"""
+        if self.session:
+            self.session.proxies = {"http": proxy, "https": proxy}
+        """Keep the session default headers aligned with the current profile and token."""
+        if not self.session:
+            return
+
+        try:
+            default_headers = self.get_protected_headers(self.token)
+            self.session.headers.update(default_headers)
+        except Exception:
+            pass
 
     def initialize_with_token(self, token: str):
         """Initialize with bot token"""
@@ -268,6 +394,19 @@ class HeaderSpoofer:
             self.user_id = decoded.split('.')[0]
         except:
             self.user_id = None
+
+        self._update_session_headers()
+
+    def _update_session_headers(self):
+        """Keep the session default headers aligned with the current profile and token."""
+        if not self.session:
+            return
+
+        try:
+            default_headers = self.get_protected_headers(self.token)
+            self.session.headers.update(default_headers)
+        except Exception:
+            pass
 
     def _generate_fingerprint(self) -> str:
         """Generate realistic Discord-style fingerprint"""
@@ -285,8 +424,13 @@ class HeaderSpoofer:
         try:
             headers = {
                 "User-Agent": self.profile.user_agent,
-                "Accept": "application/json",
+                "Accept": "application/json, text/plain, */*",
                 "Accept-Language": self.profile.locale,
+                "Accept-Encoding": "gzip, deflate, br",
+                "Referer": "https://discord.com/channels/@me",
+                "Origin": "https://discord.com",
+                "Connection": "keep-alive",
+                "Dnt": "1",
             }
             response = self.session.get(
                 "https://discord.com/api/v9/experiments",
@@ -309,11 +453,15 @@ class HeaderSpoofer:
         return self.fingerprint, self.cookies
 
     def _generate_super_properties(self) -> str:
-        """Generate X-Super-Properties header with modern Discord values"""
-        # Discord build numbers (2025-2026 stable range)
-        build_numbers = [332494, 334140, 335603, 336468, 337240, 338000]
-        build = random.choice(build_numbers)
-        
+        """Return a stable X-Super-Properties string for this session.
+
+        Generated once per session (or after rotate_profile) so that every
+        request in the same session sends identical super-properties, which
+        is how a real browser behaves.
+        """
+        if self._cached_super_properties is not None:
+            return self._cached_super_properties
+
         props = {
             "os": self.profile.os,
             "browser": self.profile.browser,
@@ -322,16 +470,23 @@ class HeaderSpoofer:
             "browser_user_agent": self.profile.user_agent,
             "browser_version": self.profile.browser_version,
             "os_version": self.profile.os_version,
-            "referrer": "",
-            "referring_domain": "",
             "release_channel": "stable",
-            "client_build_number": build,
+            "client_build_number": self.build_number,
             "client_event_source": None,
-            "design_id": 0,
         }
 
         props_json = json.dumps(props, separators=(',', ':'), ensure_ascii=True)
-        return base64.b64encode(props_json.encode()).decode()
+        self._cached_super_properties = base64.b64encode(props_json.encode()).decode()
+        return self._cached_super_properties
+
+    def _generate_context_properties(self) -> str:
+        """Generate X-Context-Properties header for Discord API requests."""
+        ctx_props = {
+            "location": "Home",
+            "location_guild_id": None,
+            "location_channel_id": None,
+        }
+        return base64.b64encode(json.dumps(ctx_props, separators=(',', ':')).encode()).decode()
 
     def _generate_sec_ch_ua(self) -> Optional[str]:
         """Generate Sec-CH-UA header. Firefox does not send Client Hints — returns None for Firefox."""
@@ -340,51 +495,92 @@ class HeaderSpoofer:
         major_version = self.profile.browser_version.split('.')[0]
         return f'"Chromium";v="{major_version}", "Google Chrome";v="{major_version}", "Not(A:Brand";v="99"'
 
-    def get_protected_headers(self, token: Optional[str] = None) -> Dict[str, str]:
+    def get_protected_headers(self, token: Optional[str] = None, rq_token: Optional[str] = None, captcha_key: Optional[str] = None) -> Dict[str, str]:
         """Get fully protected headers for Discord API with modern spoofing"""
         if token:
             self.token = token
         
         fingerprint, cookies = self._fetch_fingerprint()
 
-        # Build headers with randomized order for better spoofing
-        headers: Dict[str, str] = {
-            "Authorization": self.token or "",
-            "User-Agent": self.profile.user_agent,
-            "Content-Type": "application/json",
-            "Accept": "*/*",
-            "Accept-Language": f"{self.profile.locale},en;q=0.9,en;q=0.8",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-            "Origin": "https://discord.com",
-            "Referer": "https://discord.com/channels/@me",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "Dnt": "1",
-            "X-Debug-Options": "bugReporterEnabled",
-            "X-Discord-Locale": self.profile.locale,
-            "X-Discord-Timezone": self.profile.timezone,
-            "X-Super-Properties": self._generate_super_properties(),
-            "X-Fingerprint": fingerprint,
-            "Cookie": cookies,
-        }
+        header_items = [
+            ("Authorization", self.token or ""),
+            ("User-Agent", self.profile.user_agent),
+            ("Accept", "*/*"),
+            ("Accept-Language", f"{self.profile.locale},en;q=0.9,en;q=0.8"),
+            ("Accept-Encoding", "gzip, deflate, br"),
+            ("Cache-Control", "no-cache"),
+            ("Pragma", "no-cache"),
+            ("Origin", "https://discord.com"),
+            ("Referer", "https://discord.com/channels/@me"),
+            ("Sec-Fetch-Dest", self.profile.sec_fetch_dest),
+            ("Sec-Fetch-Mode", self.profile.sec_fetch_mode),
+            ("Sec-Fetch-Site", self.profile.sec_fetch_site),
+            ("Dnt", "1"),
+            ("X-Debug-Options", "bugReporterEnabled"),
+            ("X-Discord-Locale", self.profile.locale),
+            ("X-Discord-Timezone", self.profile.timezone),
+            ("X-Super-Properties", self._generate_super_properties()),
+            ("X-Context-Properties", self._generate_context_properties()),
+            ("X-Fingerprint", fingerprint),
+            ("Cookie", cookies),
+            ("Device-Memory", str(self.profile.device_memory)),
+            ("Sec-Ch-Viewport-Width", self.profile.viewport_width),
+            ("Sec-Ch-Viewport-Height", self.profile.viewport_height),
+            ("Sec-Ch-DPR", self.profile.dpr),
+            ("DPR", self.profile.dpr),
+            ("ECT", self.profile.ect),
+            ("Downlink", self.profile.downlink),
+            ("RTT", self.profile.rtt),
+            ("Save-Data", self.profile.save_data),
+            ("Connection", "keep-alive"),
+            ("TE", "trailers"),
+        ]
 
-        # Chrome/Edge sends Client Hints; Firefox does not (matches real browser behaviour)
-        sec_ch_ua = self._generate_sec_ch_ua()
-        if sec_ch_ua is not None:
-            headers["Sec-Ch-Ua"] = sec_ch_ua
-            headers["Sec-Ch-Ua-Mobile"] = "?0"
-            headers["Sec-Ch-Ua-Platform"] = f'"{self.profile.os}"'
-            headers["Upgrade-Insecure-Requests"] = "1"
-            headers["Sec-Fetch-User"] = "?1"
+        if self.profile.sec_ch_ua is not None:
+            header_items.extend([
+                ("Sec-Ch-Ua", self.profile.sec_ch_ua),
+                ("Sec-Ch-Ua-Mobile", self.profile.sec_ch_ua_mobile),
+                ("Sec-Ch-Ua-Platform", self.profile.sec_ch_ua_platform),
+                ("Sec-Ch-Ua-Platform-Version", self.profile.sec_ch_ua_platform_version),
+                ("Sec-Ch-Ua-Full-Version-List", self.profile.sec_ch_ua_full_version),
+                ("Sec-Ch-Ua-Arch", self.profile.sec_ch_ua_arch),
+                ("Sec-Ch-Ua-Bitness", self.profile.sec_ch_ua_bitness),
+                ("Sec-Ch-Ua-Model", self.profile.sec_ch_ua_model),
+                ("Sec-Ch-Ua-Form-Factor", self.profile.sec_ch_ua_form_factor),
+                ("Sec-Ch-Prefers-Color-Scheme", self.profile.sec_ch_prefers_color_scheme),
+                ("Sec-Ch-Prefers-Reduced-Motion", self.profile.sec_ch_prefers_reduced_motion),
+                ("Upgrade-Insecure-Requests", "1"),
+                ("Sec-Fetch-User", "?1"),
+            ])
 
-        return headers
+        # Avoid sending proxy-style IP headers by default; these can trigger Discord 403s on normal user requests.
+        # These headers are valuable only when an actual proxy/transport layer supports them.
+        # If you want to experiment with IP spoofing, enable it explicitly in the future.
+        # header_items.extend([
+        #     ("X-Forwarded-For", self.profile.x_forwarded_for),
+        #     ("X-Real-IP", self.profile.x_real_ip),
+        #     ("CF-Connecting-IP", self.profile.cf_connecting_ip),
+        #     ("True-Client-IP", self.profile.true_client_ip),
+        # ])
+
+        for custom in getattr(self.profile, "custom_headers", []):
+            if isinstance(custom, dict):
+                name = custom.get("name")
+                value = custom.get("value")
+                if name and value:
+                    header_items.append((name, value))
+
+        if rq_token:
+            header_items.append(("X-Captcha-Rqtoken", rq_token))
+        if captcha_key:
+            header_items.append(("X-Captcha-Key", captcha_key))
+
+        random.shuffle(header_items)
+        return {name: value for name, value in header_items if value is not None}
 
     def get_websocket_headers(self) -> Dict[str, str]:
         """Get websocket headers"""
-        return {
+        headers = {
             "User-Agent": self.profile.user_agent,
             "Accept-Encoding": "gzip, deflate, br",
             "Accept-Language": self.profile.locale,
@@ -396,14 +592,33 @@ class HeaderSpoofer:
             "Upgrade": "websocket",
             "Connection": "Upgrade",
             "Origin": "https://discord.com",
-            "Sec-WebSocket-Protocol": "json"
+            "Sec-WebSocket-Protocol": "json",
         }
+
+        if self.profile.sec_ch_ua is not None:
+            headers.update({
+                "Sec-Ch-Ua": self.profile.sec_ch_ua,
+                "Sec-Ch-Ua-Mobile": self.profile.sec_ch_ua_mobile,
+                "Sec-Ch-Ua-Platform": self.profile.sec_ch_ua_platform,
+                "Sec-Ch-Ua-Platform-Version": self.profile.sec_ch_ua_platform_version,
+                "Sec-Ch-Ua-Full-Version-List": self.profile.sec_ch_ua_full_version,
+            })
+
+        if self.profile.dpr:
+            headers.update({
+                "Sec-Ch-Viewport-Width": self.profile.viewport_width,
+                "Sec-Ch-Viewport-Height": self.profile.viewport_height,
+                "Sec-Ch-DPR": self.profile.dpr,
+                "DPR": self.profile.dpr,
+            })
+
+        return headers
 
     def check_rate_limits(self) -> Optional[float]:
         """Check rate limits"""
         return None
 
-    def handle_response(self, response: Response) -> Optional[float]:
+    def handle_response(self, response: Any) -> Optional[float]:
         """Handle response"""
         if response.status_code == 429:
             retry_after = float(response.headers.get("Retry-After", "1.0"))
@@ -411,10 +626,13 @@ class HeaderSpoofer:
         return None
 
     def rotate_profile(self):
-        """Rotate browser profile"""
+        """Rotate browser profile and reset all per-session cached values."""
         self.profile = BrowserProfile()
+        self.build_number = get_latest_build()
         self.cache_time = 0
         self.fingerprint = ""
+        self._cached_super_properties = None  # Force rebuild with new profile
+        self._update_session_headers()
 
 
 __all__ = ['HeaderSpoofer', 'RateLimiter', 'BrowserProfile']

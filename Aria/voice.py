@@ -18,6 +18,7 @@ import threading
 import random
 import logging
 from typing import Optional, Dict
+from discord_api_types import GatewayOpcodes, VoiceOpcodes
 
 _VOICE_WS_VERSION = 4
 logger = logging.getLogger(__name__)
@@ -112,7 +113,7 @@ class VoiceClient:
 
         # Send Voice State Update (op 4) through the existing bot gateway
         payload = json.dumps({
-            "op": 4,
+            "op": GatewayOpcodes.VoiceStateUpdate,
             "d": {
                 "guild_id": self.guild_id,
                 "channel_id": self.channel_id,
@@ -153,7 +154,7 @@ class VoiceClient:
         # Tell Discord we're leaving by sending op4 with channel_id=null
         try:
             payload = json.dumps({
-                "op": 4,
+                "op": GatewayOpcodes.VoiceStateUpdate,
                 "d": {
                     "guild_id": self.guild_id,
                     "channel_id": None,
@@ -229,7 +230,7 @@ class VoiceClient:
 
                 # Send Identify (op 0)
                 await ws.send(json.dumps({
-                    "op": 0,
+                    "op": VoiceOpcodes.Identify,
                     "d": {
                         "server_id": self.guild_id or self.channel_id,
                         "user_id": self.user_id,
@@ -256,12 +257,12 @@ class VoiceClient:
     async def _handle_voice_op(self, ws, msg: dict):
         op = msg.get("op")
 
-        if op == 8:
+        if op == VoiceOpcodes.Hello:
             # Hello — start heartbeat
             interval = msg["d"]["heartbeat_interval"] / 1000
             asyncio.create_task(self._heartbeat(ws, interval))
 
-        elif op == 2:
+        elif op == VoiceOpcodes.Ready:
             # Voice Ready — do UDP IP discovery then select protocol
             d = msg["d"]
             self.ssrc = d["ssrc"]
@@ -274,7 +275,7 @@ class VoiceClient:
                 None, self._ip_discovery, udp_ip, udp_port, ssrc_int
             )
             await ws.send(json.dumps({
-                "op": 1,
+                "op": VoiceOpcodes.SelectProtocol,
                 "d": {
                     "protocol": "udp",
                     "data": {
@@ -285,20 +286,20 @@ class VoiceClient:
                 },
             }))
 
-        elif op == 4:
+        elif op == VoiceOpcodes.SessionDescription:
             # Session Description — we're fully connected
             self.secret_key = msg["d"].get("secret_key")
             logger.info("[Voice] Connected to voice session")
             self._connected_event.set()
             # Mark as not-speaking (silent join)
             await ws.send(json.dumps({
-                "op": 5,
+                "op": VoiceOpcodes.Speaking,
                 "d": {"speaking": 0, "delay": 0, "ssrc": self.ssrc},
             }))
             # Start silence keepalive so Discord doesn't evict the idle connection
             asyncio.create_task(self._silence_keepalive(ws))
 
-        elif op == 9:
+        elif op == VoiceOpcodes.Resumed:
             logger.info("[Voice] Session resumed")
 
     async def _silence_keepalive(self, ws, interval: float = 30.0):
@@ -309,7 +310,7 @@ class VoiceClient:
                 break
             try:
                 await ws.send(json.dumps({
-                    "op": 5,
+                    "op": VoiceOpcodes.Speaking,
                     "d": {"speaking": 0, "delay": 0, "ssrc": self.ssrc},
                 }))
             except Exception:
@@ -319,7 +320,7 @@ class VoiceClient:
         while self.running:
             try:
                 nonce = random.randint(1, 2 ** 32)
-                await ws.send(json.dumps({"op": 3, "d": nonce}))
+                await ws.send(json.dumps({"op": VoiceOpcodes.Heartbeat, "d": nonce}))
                 await asyncio.sleep(interval)
             except Exception:
                 break
@@ -387,7 +388,7 @@ class SimpleVoice:
     def _send_voice_state_update(self, client: VoiceClient) -> bool:
         try:
             payload = {
-                "op": 4,
+                "op": GatewayOpcodes.VoiceStateUpdate,
                 "d": {
                     "guild_id": client.guild_id,
                     "channel_id": client.channel_id,
@@ -535,7 +536,7 @@ class SimpleVoice:
         try:
             if enabled:
                 op_payload = {
-                    "op": 18,
+                    "op": GatewayOpcodes.StreamCreate,
                     "d": {
                         "type": "guild",
                         "guild_id": client.guild_id,
@@ -545,7 +546,7 @@ class SimpleVoice:
                 }
             else:
                 op_payload = {
-                    "op": 22,
+                    "op": GatewayOpcodes.StreamSetPaused,
                     "d": {
                         "guild_id": client.guild_id,
                         "channel_id": client.channel_id,

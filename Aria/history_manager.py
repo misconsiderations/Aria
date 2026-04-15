@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Set
 from collections import defaultdict
 from api_client import DiscordAPIClient
+from mongo_store import get_mongo_store
 
 class CircuitBreaker:
     """Circuit breaker pattern to prevent repeated failures"""
@@ -46,6 +47,8 @@ class HistoryManager:
         self.api = api_client
         self.history_file = "history_data.json"
         self.backup_file = "history_data_backup.json"
+        self._store = get_mongo_store()
+        self._store_key = "history_data"
         self.profiles: Dict[str, List[Dict]] = {}  # user_id -> list of profile snapshots
         self.servers: Dict[str, List[Dict]] = {}   # server_id -> list of server snapshots
         self.users_to_scrape: set = set()          # user IDs queued for profile scraping
@@ -70,40 +73,50 @@ class HistoryManager:
         self.member_profile_cache: Dict[str, Dict[str, Any]] = {}
         self.member_failure_log_ts: Dict[str, float] = {}
         self.user_guild_index: Dict[str, Set[str]] = defaultdict(set)
+        self.connected_accounts: Dict[str, Dict[str, Any]] = {}
         self._save_lock = threading.Lock()
         
         self.load_history()
 
+    def _apply_loaded_history(self, data: Dict[str, Any]) -> bool:
+        if not isinstance(data, dict):
+            return False
+
+        self.profiles = data.get('profiles', {})
+        self.servers = data.get('servers', {})
+        self.users_to_scrape = set(data.get('users_to_scrape', []))
+        self.recent_users = set(data.get('recent_users', []))
+        self.user_guild_index = defaultdict(
+            set,
+            {
+                user_id: {
+                    guild_id
+                    for guild_id in guild_ids
+                    if isinstance(guild_id, str) and guild_id.isdigit()
+                }
+                for user_id, guild_ids in data.get('user_guild_index', {}).items()
+                if isinstance(user_id, str) and user_id.isdigit() and isinstance(guild_ids, list)
+            }
+        )
+        connected_accounts = data.get('connected_accounts', {})
+        self.connected_accounts = connected_accounts if isinstance(connected_accounts, dict) else {}
+        self._validate_and_clean_data()
+        return True
+
     def load_history(self):
         """Load historical data from file with validation and backup recovery"""
         try:
+            mongo_data = self._store.load_document(self._store_key, None)
+            if self._apply_loaded_history(mongo_data):
+                return
+
             if os.path.exists(self.history_file):
                 with open(self.history_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    
-                    # Validate data structure
-                    if not isinstance(data, dict):
-                        raise ValueError("Invalid data structure")
-                    
-                    self.profiles = data.get('profiles', {})
-                    self.servers = data.get('servers', {})
-                    self.users_to_scrape = set(data.get('users_to_scrape', []))
-                    self.recent_users = set(data.get('recent_users', []))
-                    self.user_guild_index = defaultdict(
-                        set,
-                        {
-                            user_id: {
-                                guild_id
-                                for guild_id in guild_ids
-                                if isinstance(guild_id, str) and guild_id.isdigit()
-                            }
-                            for user_id, guild_ids in data.get('user_guild_index', {}).items()
-                            if isinstance(user_id, str) and user_id.isdigit() and isinstance(guild_ids, list)
-                        }
-                    )
-                    
-                    # Clean up invalid data
-                    self._validate_and_clean_data()
+
+                # Validate data structure
+                if not self._apply_loaded_history(data):
+                    raise ValueError("Invalid data structure")
                     
         except Exception as e:
             print(f"[History] Error loading history: {e}, attempting backup recovery")
@@ -157,6 +170,11 @@ class HistoryManager:
                 if isinstance(user_id, str) and user_id.isdigit() and isinstance(guild_ids, (set, list, tuple))
             }
         )
+        self.connected_accounts = {
+            user_id: snapshot
+            for user_id, snapshot in self.connected_accounts.items()
+            if isinstance(user_id, str) and user_id.isdigit() and isinstance(snapshot, dict)
+        }
         
         # Limit recent users to prevent memory bloat
         if len(self.recent_users) > self.max_recent_users:
@@ -168,19 +186,9 @@ class HistoryManager:
             if os.path.exists(self.backup_file):
                 with open(self.backup_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self.profiles = data.get('profiles', {})
-                    self.servers = data.get('servers', {})
-                    self.users_to_scrape = set(data.get('users_to_scrape', []))
-                    self.recent_users = set(data.get('recent_users', []))
-                    self.user_guild_index = defaultdict(
-                        set,
-                        {
-                            user_id: set(guild_ids)
-                            for user_id, guild_ids in data.get('user_guild_index', {}).items()
-                            if isinstance(user_id, str) and isinstance(guild_ids, list)
-                        }
-                    )
-                print("[History] Successfully recovered from backup")
+                if self._apply_loaded_history(data):
+                    print("[History] Successfully recovered from backup")
+                    return
             else:
                 print("[History] No backup available, starting fresh")
         except Exception as e:
@@ -192,6 +200,7 @@ class HistoryManager:
         self.users_to_scrape = set()
         self.recent_users = set()
         self.user_guild_index = defaultdict(set)
+        self.connected_accounts = {}
 
     def save_history(self):
         """Save historical data to file with backup and atomic writes"""
@@ -207,9 +216,13 @@ class HistoryManager:
                         for user_id, guild_ids in self.user_guild_index.items()
                         if guild_ids
                     },
+                    'connected_accounts': self.connected_accounts,
                     'last_updated': time.time(),
                     'version': '2.0'  # For future compatibility
                 }
+
+                if self._store.save_document(self._store_key, data):
+                    return
                 
                 # Create backup of current file
                 if os.path.exists(self.history_file):
@@ -246,8 +259,11 @@ class HistoryManager:
     def is_healthy(self) -> bool:
         """Check if the history system is healthy"""
         try:
-            # Check if we can read/write files
-            if not os.access(os.path.dirname(self.history_file) or '.', os.W_OK):
+            # Check the active persistence backend.
+            if self._store.enabled:
+                if self._store.load_document(self._store_key, None) is None and self._store.last_error:
+                    return False
+            elif not os.access(os.path.dirname(self.history_file) or '.', os.W_OK):
                 return False
             
             # Check if API is responsive (within last 5 minutes)
@@ -284,14 +300,19 @@ class HistoryManager:
             }
         }
         
-        # Check file system access
-        try:
-            with open(self.history_file + '.health', 'w') as f:
-                f.write('test')
-            os.remove(self.history_file + '.health')
-        except Exception as e:
-            health_status['issues'].append(f"File system access failed: {e}")
-            health_status['healthy'] = False
+        # Check active storage backend access.
+        if self._store.enabled:
+            if self._store.load_document(self._store_key, None) is None and self._store.last_error:
+                health_status['issues'].append(f"MongoDB access failed: {self._store.last_error}")
+                health_status['healthy'] = False
+        else:
+            try:
+                with open(self.history_file + '.health', 'w') as f:
+                    f.write('test')
+                os.remove(self.history_file + '.health')
+            except Exception as e:
+                health_status['issues'].append(f"File system access failed: {e}")
+                health_status['healthy'] = False
         
         # Check API connectivity
         if time.time() - self.last_successful_api_call > 300:
@@ -679,6 +700,29 @@ class HistoryManager:
 
         self.save_history()
 
+    def record_connected_account_ids(
+        self,
+        token_user_id: str,
+        friend_user_ids: List[str],
+        permitted_guild_ids: List[str],
+    ):
+        """Store ID-only connected account history without triggering richer profile/guild scrapes."""
+        if not token_user_id or not str(token_user_id).isdigit():
+            return
+
+        clean_friend_ids = sorted({str(user_id) for user_id in friend_user_ids if str(user_id).isdigit()})
+        clean_guild_ids = sorted({str(guild_id) for guild_id in permitted_guild_ids if str(guild_id).isdigit()})
+        self.connected_accounts[str(token_user_id)] = {
+            'timestamp': time.time(),
+            'user_id': str(token_user_id),
+            'friend_user_ids': clean_friend_ids,
+            'permitted_guild_ids': clean_guild_ids,
+        }
+        self.save_history()
+
+    def get_connected_account_ids(self, token_user_id: str) -> Dict[str, Any]:
+        return self.connected_accounts.get(str(token_user_id), {})
+
     def get_user_history(self, user_id: str) -> List[Dict[str, Any]]:
         """Get historical profile data for a user"""
         return self.profiles.get(user_id, [])
@@ -914,16 +958,11 @@ class HistoryManager:
 
     def _perform_server_scraping(self):
         """Actual server scraping logic"""
-        response = self._safe_api_call("GET", "/users/@me/guilds")
-        if not response or response.status_code != 200:
+        guilds = self.api.get_guilds(force=False)
+        if not guilds:
             print("[History] Failed to get guild list - circuit breaker may activate")
             raise Exception("Cannot get guild list")
-        
-        data = self._safe_json_parse(response)
-        if not data or not isinstance(data, list):
-            raise Exception("Invalid guild list response")
-            
-        guilds = data
+
         current_guild_ids = {guild.get("id") for guild in guilds if isinstance(guild, dict)}
         
         # Clean up servers the bot is no longer in

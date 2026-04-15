@@ -87,7 +87,8 @@ def setup_extended_commands(bot, delete_after_delay_func):
     def hash_cmd(ctx, args):
         """Hash text with MD5 or SHA256"""
         import hashlib
-        cmd = ctx["message"].get("content", "").split()[0].split("+")[-1] if ctx["message"] else "hash"
+        message_payload = ctx.get("message") or {}
+        cmd = str(message_payload.get("content", "")).split()[0].split("+")[-1] if message_payload else "hash"
         text = " ".join(args) if args else ""
         
         if cmd == "sha256":

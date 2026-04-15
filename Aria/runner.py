@@ -99,7 +99,7 @@ def chk_all():
     optional = [
         "requirements.txt", "runner.py", "aria.py", "agc_whitelist.json",
         "afk_state.json", "boost_state.json", "analytics.json",
-        "aria_data.json", "errors.json", "alerts.json", "slash_bot.py"
+        "aria_data.json", "errors.json", "alerts.json"
     ]
     
     print(col("\n[+] Core files:",'b'))
@@ -139,11 +139,8 @@ def mk_cfg():
         print(col("  ✗ Token required",'r'))
         return False
 
-    print(col("\nEnter slash bot token (optional, press Enter to skip):",'y'))
+    print(col("\nEnter bot token for the Discord gateway client (optional, press Enter to skip):",'y'))
     sbt = input("  ").strip()
-
-    print(col("\nEnter slash sync guild id (optional, press Enter to skip):",'y'))
-    sgid = input("  ").strip()
     
     cfg = {
         "token": t,
@@ -156,9 +153,6 @@ def mk_cfg():
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "impersonate_browser": "chrome120",
         "discord_bot_token": sbt,
-        "discord_slash_guild_id": sgid,
-        "auto_start_slash_bot": True,
-        "slash_hide_replies": True,
     }
     
     try:
@@ -178,19 +172,6 @@ def run_bot():
     
     try:
         subprocess.run([sys.executable,"main.py"])
-    except KeyboardInterrupt:
-        print(col("\n[!] Stopped",'y'))
-    except Exception as e:
-        print(col(f"\n[!] Error: {e}",'r'))
-
-def run_slash_bot_only():
-    print(col("\n[+] Starting slash bot...",'b'))
-    if not os.path.exists("slash_bot.py"):
-        print(col("  ✗ slash_bot.py missing",'r'))
-        return
-
-    try:
-        subprocess.run([sys.executable, "slash_bot.py"])
     except KeyboardInterrupt:
         print(col("\n[!] Stopped",'y'))
     except Exception as e:
@@ -219,10 +200,9 @@ def menu():
         "2. Check all files",
         "3. Install packages",
         "4. Create config",
-        "5. Run main bot (auto-starts slash bot)",
+        "5. Run main bot",
         "6. System info",
-        "7. Run slash bot only",
-        "8. Exit"
+        "7. Exit"
     ]
     for o in opts:
         print(col(f"  {o}",'w'))
@@ -262,11 +242,8 @@ def main():
         
         elif c == "6":
             show_info()
-        
-        elif c == "7":
-            run_slash_bot_only()
 
-        elif c == "8":
+        elif c == "7":
             print(col("\nExiting...",'c'))
             break
         

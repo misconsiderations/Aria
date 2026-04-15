@@ -243,6 +243,13 @@ class GiveawaySniper:
             )
         else:
             self.stats["failed"] += 1
+            guild = message_data.get("guild_id", "DM")
+            channel = message_data.get("channel_id", "?")
+            ts = time.strftime("%H:%M:%S")
+            print(
+                f"\033[1;31m[GIVEAWAY]\033[0m [{ts}] Failed entry | guild={guild} "
+                f"| channel={channel} | msg={msg_id} | total_failed={self.stats['failed']}"
+            )
 
     def _click_button(self, message_data: dict, button: dict) -> bool:
         application_id = (
