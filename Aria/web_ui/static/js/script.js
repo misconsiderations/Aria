@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-//  PREMIUM PARTICLE BACKGROUND
+//  ARIA PARTICLE BACKGROUND
 // ═══════════════════════════════════════════════════════════════
 (function initParticles() {
     const canvas = document.getElementById('particleCanvas');
@@ -83,11 +83,11 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-//  PREMIUM TOAST NOTIFICATION SYSTEM
+//  ARIA TOAST NOTIFICATION SYSTEM
 // ═══════════════════════════════════════════════════════════════
 const _TOAST_ICONS = { ok: '✅', warn: '⚠️', err: '❌', info: '💠' };
 function showToast(title, msg = '', type = 'info', duration = 3800) {
-    const host = document.getElementById('premiumToastHost');
+    const host = document.getElementById('ariaToastHost');
     if (!host) return;
     const t = document.createElement('div');
     t.className = `p-toast ${type}`;
@@ -210,12 +210,6 @@ async function loadOverviewQuick() {
     // Version info → hero env grid
     fetchJSON('/api/max/version-info').then(data => {
         setText('heroVersion', data?.version || '—');
-        setText('heroGit', data?.git || '—');
-    });
-    // Python env → hero env grid
-    fetchJSON('/api/max/python-env').then(data => {
-        setText('heroPython', data?.python || '—');
-        setText('heroPlatform', data?.platform || '—');
     });
     // MOTD → hero banner
     fetchJSON('/api/max/motd').then(data => {
@@ -234,6 +228,11 @@ const sections = document.querySelectorAll('.section');
 const pageTitle = document.getElementById('pageTitle');
 let _meProfile = null;
 const _liveOverviewState = { lastCount: null, lastTs: null };
+const _notificationState = {
+    open: false,
+    seenTs: 0,
+    events: [],
+};
 
 navItems.forEach(item => {
     item.addEventListener('click', () => {
@@ -287,6 +286,17 @@ function setText(id, val) {
     if (el) el.textContent = val != null ? val : '—';
 }
 
+function relativeTime(ts) {
+    const n = Number(ts || 0);
+    if (!n) return 'just now';
+    const nowSec = Date.now() / 1000;
+    const diff = Math.max(0, Math.floor(nowSec - n));
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+}
+
 function esc(s) {
     return String(s)
         .replace(/&/g, '&amp;')
@@ -318,6 +328,8 @@ async function loadOverview() {
     const res = await fetchJSON('/api/bot');
     if (!res || !res.data) { setGlobalStatus(false); return; }
     const d = res.data;
+    // Cache bot data for use by loadRpc Discord card
+    window._botDataCache = d;
     setGlobalStatus(d.connected);
     setText('prefix', d.prefix);
     setText('uptime', d.uptime);
@@ -341,6 +353,18 @@ async function loadOverview() {
     if (heroBadgePrefix) heroBadgePrefix.textContent = `prefix: ${d.prefix || '—'}`;
     const heroStatusDot = document.getElementById('heroStatusDot');
     if (heroStatusDot) heroStatusDot.classList.toggle('offline', !d.connected);
+    const heroUserId = document.getElementById('heroUserId');
+    if (heroUserId) heroUserId.textContent = d.user_id || '—';
+    const heroRuntimeState = document.getElementById('heroRuntimeState');
+    if (heroRuntimeState) heroRuntimeState.textContent = d.connected ? 'live' : 'offline';
+    const heroCommandEcho = document.getElementById('heroCommandEcho');
+    if (heroCommandEcho) heroCommandEcho.textContent = String(d.command_count || 0);
+
+    // ── Hero Banner title with username ─────────────────────────────────────
+    const dashboardTitle = document.getElementById('heroDashboardTitle');
+    if (dashboardTitle && d.username) {
+        dashboardTitle.textContent = `${d.username}`;
+    }
 
     // ── Topbar avatar/username sync ──────────────────────────────────────────
     const tbAvatar = document.getElementById('topbarAvatar');
@@ -362,6 +386,56 @@ async function loadOverview() {
     await loadClientSwitcher(d);
     updateSparkline();
     updateToastFeed();
+    loadAriaOverviewWidgets();
+}
+
+async function loadAriaOverviewWidgets() {
+    const [summaryRes, sysRes] = await Promise.all([
+        fetchJSON('/api/max/system-summary'),
+        fetchJSON('/api/max/system-stats'),
+    ]);
+
+    // Update fleet snapshot timestamp
+    const timeEl = document.getElementById('fleetSnapshotTime');
+    if (timeEl) {
+        const now = new Date();
+        timeEl.textContent = `Updated ${now.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', second: '2-digit'})}`;
+    }
+
+    if (summaryRes && summaryRes.ok && summaryRes.summary) {
+        const s = summaryRes.summary;
+        setText('ariaHostedTotal', s.hosted_total ?? 0);
+        setText('ariaHostedActive', s.hosted_active ?? 0);
+        setText('ariaRegisteredUsers', s.users_registered ?? 0);
+        setText('ariaSuccessRate', `${Number(s.success_rate || 0).toFixed(1)}%`);
+        setText('ariaLatency', `${Math.round(Number(s.avg_response_ms || 0))}ms`);
+        setText('ariaCommands', s.total_commands ?? 0);
+    }
+
+    if (sysRes && sysRes.ok) {
+        const cpu = Number(sysRes.cpu || 0);
+        const ram = Number(sysRes.ram || 0);
+        const disk = Number(sysRes.disk || 0);
+        const sentKb = Math.round(Number((sysRes.net || {}).sent || 0) / 1024);
+        const recvKb = Math.round(Number((sysRes.net || {}).recv || 0) / 1024);
+
+        setText('ariaCpu', `${cpu.toFixed(1)}%`);
+        setText('ariaRam', `${ram.toFixed(1)}%`);
+        setText('ariaDisk', `${disk.toFixed(1)}%`);
+        setText('ariaNet', `up ${sentKb}kb | down ${recvKb}kb`);
+
+        const badge = document.getElementById('infraHealthBadge');
+        if (badge) {
+            const maxUse = Math.max(cpu, ram, disk);
+            if (maxUse >= 90) {
+                badge.textContent = 'critical';
+            } else if (maxUse >= 75) {
+                badge.textContent = 'elevated';
+            } else {
+                badge.textContent = 'healthy';
+            }
+        }
+    }
 }
 
 // ── Uptime Ring ────────────────────────────────────────────────────────────
@@ -411,9 +485,9 @@ async function updateSparkline() {
         if (i===0) ctx.moveTo(x,y);
         else ctx.lineTo(x,y);
     }
-    ctx.strokeStyle = '#8b5cf6';
+    ctx.strokeStyle = '#accbee';
     ctx.lineWidth = 2.2;
-    ctx.shadowColor = '#ec4899';
+    ctx.shadowColor = '#7fafd6';
     ctx.shadowBlur = 4;
     ctx.stroke();
     ctx.shadowBlur = 0;
@@ -422,7 +496,7 @@ async function updateSparkline() {
     ctx.lineTo(7,32);
     ctx.closePath();
     ctx.globalAlpha = 0.18;
-    ctx.fillStyle = '#8b5cf6';
+    ctx.fillStyle = '#accbee';
     ctx.fill();
     ctx.globalAlpha = 1;
 }
@@ -640,16 +714,29 @@ async function loadHistory() {
     const feed = document.getElementById('historyFeed');
     if (!feed) return;
     if (!d.entries || d.entries.length === 0) {
-        feed.innerHTML = '<div class="log-loading">No history entries yet</div>';
+        feed.innerHTML = '<div class="log-loading">No history entries yet — Run some commands!</div>';
         return;
     }
     feed.innerHTML = d.entries.slice().reverse().map(e => {
         if (typeof e === 'object' && e !== null) {
-            const cmd   = e.command || e.cmd || e.name || '';
-            const user  = e.user || e.author || e.author_id || '';
-            const guild = e.guild_id || e.server || '';
+            // Improved command name resolution with multiple fallback paths
+            const cmd = String(e.command || e.cmd || e.name || e.op || '').trim() || '(unknown)';
+            const user = e.user || e.author || e.author_id || e.username || '';
+            const guild = e.guild_id || e.guild || e.server || '';
             const chan  = e.channel_id || e.channel || '';
-            const ts    = e.timestamp || e.time || '';
+            let ts    = e.timestamp || e.time || '';
+            
+            // Format timestamp if it's a unix number
+            if (ts && !isNaN(ts)) {
+                try {
+                    ts = new Date(Number(ts) * 1000).toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+                } catch (ex) {
+                    ts = String(ts);
+                }
+            } else {
+                ts = String(ts || '');
+            }
+            
             const status = e.status || e.result || '';
             const dur = e.duration_ms != null ? `${Math.round(Number(e.duration_ms) || 0)}ms` : '';
             const statusBadge = status === 'success' || status === 'ok'
@@ -658,13 +745,13 @@ async function loadHistory() {
             return `<div class="history-item">
                 <div class="history-dot"></div>
                 <div class="history-content">
-                    <span class="history-cmd">${esc(cmd || '(unknown)')}</span>
+                    <span class="history-cmd">${esc(cmd)}</span>
                     ${statusBadge}
                     <div class="history-meta">${[
-                        user  ? '👤 ' + user : '',
-                        guild ? '🏠 ' + guild : '',
-                        chan  ? '# ' + chan   : '',
-                        ts   ? '🕐 ' + ts    : '',
+                        user  ? '👤 ' + esc(String(user)) : '',
+                        guild ? '🏠 ' + esc(String(guild)) : '',
+                        chan  ? '# ' + esc(String(chan))   : '',
+                        ts   ? '🕐 ' + esc(ts)    : '',
                         dur  ? '⚡ ' + dur   : ''
                     ].filter(Boolean).join(' &nbsp;·&nbsp; ')}</div>
                 </div>
@@ -695,44 +782,70 @@ const BOOST_LABELS = {
 
 async function loadBoost() {
     const res = await fetchJSON('/api/boost');
-    const cards = document.getElementById('boostCards');
-    if (!res || !res.data || Object.keys(res.data).length === 0) {
-        if (cards) cards.innerHTML = '<div class="log-loading" style="grid-column:1/-1">No boost state data available.</div>';
-        return;
-    }
+    if (!res || !res.data) return;
     const data = res.data;
     const live = data.live || {};
-    const serverBoosts = data.server_boosts || {};
-    const boostValues = Object.values(serverBoosts).map(v => Number(v) || 0);
-    const trackedServers = Number(live.tracked_servers ?? boostValues.length);
-    const boostedServers = Number(live.boosted_servers ?? boostValues.filter(v => v > 0).length);
-    const totalBoosts = Number(live.total_boosts ?? boostValues.reduce((a, b) => a + b, 0));
-    const status = String(live.status || (totalBoosts > 0 ? 'active' : 'idle'));
+    const total = Number(live.total_slots) || 0;
+    const used  = Number(live.slots_used)  || 0;
+    const cd    = Number(live.slots_cooldown) || 0;
+    const avail = Number(live.slots_available) || 0;
 
-    // populate pretty cards
-    if (cards) {
-        const entries = [
-            ['boost_status', status.toUpperCase()],
-            ['tracked_servers', trackedServers],
-            ['boosted_servers', boostedServers],
-            ['total_boosts', totalBoosts],
-            ['total_slots', live.total_slots ?? '—'],
-            ['slots_available', live.slots_available ?? '—'],
-            ['slots_used', live.slots_used ?? '—'],
-            ['slots_cooldown', live.slots_cooldown ?? '—'],
-            ...Object.entries(data),
-        ].filter(([k]) => k !== 'server_boosts' && k !== 'live');
-        cards.innerHTML = entries.map(([k, v]) => {
-            const label = BOOST_LABELS[k] || k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-            const display = v === null || v === undefined ? '—'
-                          : typeof v === 'boolean' ? (v ? '✅ Yes' : '❌ No')
-                          : typeof v === 'object'  ? JSON.stringify(v)
-                          : String(v);
-            return `<div class="boost-card">
-                <div class="boost-key">${esc(label)}</div>
-                <div class="boost-val">${esc(display)}</div>
-            </div>`;
-        }).join('');
+    setText('boostTotalSlots',     total  || '—');
+    setText('boostSlotsAvail',     avail  || '—');
+    setText('boostSlotsUsed',      used   || '—');
+    setText('boostSlotsCd',        cd     || '—');
+    setText('boostTracked',        live.tracked_servers   ?? '—');
+    setText('boostBoostedServers', live.boosted_servers   ?? '—');
+    setText('boostTotalOut',       live.total_boosts      ?? '—');
+    setText('boostStatusText',     live.status            || '—');
+
+    // Visual slot bar
+    const pct   = total ? Math.round((used / total) * 100) : 0;
+    const cdPct = total ? Math.round((cd   / total) * 100) : 0;
+    setText('boostSlotPct', pct + '%');
+    const fill   = document.getElementById('boostSlotFill');
+    const cdFill = document.getElementById('boostSlotCdFill');
+    if (fill)   fill.style.width   = pct + '%';
+    if (cdFill) { cdFill.style.width = cdPct + '%'; cdFill.style.left = pct + '%'; }
+
+    // Server boost table
+    const serverBoosts  = data.server_boosts || {};
+    const serverEntries = Object.entries(serverBoosts);
+    const countEl = document.getElementById('boostServerCount');
+    if (countEl) countEl.textContent = serverEntries.length + ' servers';
+    const tbody = document.getElementById('boostServerBody');
+    if (tbody) {
+        if (!serverEntries.length) {
+            tbody.innerHTML = '<tr><td colspan="3" class="empty-row">No server boost data</td></tr>';
+        } else {
+            const max = Math.max(1, ...serverEntries.map(([, v]) => Number(v) || 0));
+            tbody.innerHTML = serverEntries.map(([id, count]) => {
+                const n = Number(count) || 0;
+                return `<tr>
+                    <td class="cmd-aliases mono">${esc(id)}</td>
+                    <td style="font-weight:700;color:var(--a2)">${n}</td>
+                    <td class="boost-bar-cell"><div class="boost-mini-bar" style="width:${Math.round((n/max)*100)}%"></div></td>
+                </tr>`;
+            }).join('');
+        }
+    }
+
+    // Extra info cards (rotation etc.)
+    const extra = document.getElementById('boostExtraCards');
+    if (extra) {
+        const rotServers = Array.isArray(data.rotation_servers)
+            ? (data.rotation_servers.join(', ') || 'None')
+            : '—';
+        extra.innerHTML = [
+            ['Available Boosts', data.available_boosts],
+            ['Rotation Hours',   data.rotation_hours],
+            ['Rotation Servers', rotServers],
+        ].map(([k, v]) =>
+            `<div class="boost-extra-card">
+                <div class="boost-extra-key">${esc(k)}</div>
+                <div class="boost-extra-val">${esc(String(v ?? '—'))}</div>
+            </div>`
+        ).join('');
     }
 }
 
@@ -949,15 +1062,120 @@ async function loadActivityMap() {
     }
 }
 
+// ── Discord notification center ───────────────────────────────────────────────
+
+const NOTIF_ICONS = {
+    dm:             '✉️',
+    mention:        '🔔',
+    friend_request: '👋',
+    friend_accept:  '✅',
+    friend_remove:  '👤',
+    guild_join:     '🏠',
+    guild_remove:   '🚪',
+    ban:            '🔨',
+    unban:          '🔓',
+    pin:            '📌',
+    reaction:       '❤️',
+    call:           '📞',
+    system:         '⚙️',
+};
+
+const NOTIF_COLORS = {
+    dm:             '#accbee',
+    mention:        '#f59e0b',
+    friend_request: '#67e8f9',
+    friend_accept:  '#86efac',
+    friend_remove:  '#94a3b8',
+    guild_join:     '#86efac',
+    guild_remove:   '#ef4444',
+    ban:            '#ef4444',
+    unban:          '#86efac',
+    pin:            '#accbee',
+    reaction:       '#ec4899',
+    call:           '#67e8f9',
+    system:         '#94a3b8',
+};
+
 async function loadNotifications() {
-    const res = await fetchJSON('/api/max/notifications');
+    // Legacy feed on Notifications section page
     const feed = document.getElementById('notificationFeed');
     if (!feed) return;
-    if (!res || !res.events || res.events.length === 0) {
-        feed.innerHTML = '<div class="log-loading">No notifications.</div>';
+    const res = await fetchJSON('/api/discord/notifications');
+    if (!res || !res.notifications || !res.notifications.length) {
+        feed.innerHTML = '<div class="log-loading">No Discord notifications yet.</div>';
         return;
     }
-    feed.innerHTML = res.events.map(ev => `<div class="history-item"><div class="history-dot"></div><div class="history-content"><span class="history-cmd">${esc(ev.action||'event')}</span><div class="history-meta">${esc(ev.user||'')} · ${fmtTs(ev.ts)}</div><div class="history-raw">${esc(ev.details||'')}</div></div></div>`).join('');
+    feed.innerHTML = res.notifications.map(n => {
+        const icon = n.icon || NOTIF_ICONS[n.kind] || '🔔';
+        const color = NOTIF_COLORS[n.kind] || 'var(--a2)';
+        const sub = [n.author, n.guild_id ? `Server ${n.guild_id}` : ''].filter(Boolean).join(' · ');
+        return `<div class="history-item">
+            <div class="history-dot" style="background:${color}"></div>
+            <div class="history-content">
+                <span class="history-cmd">${icon} ${esc(n.title)}</span>
+                <div class="history-meta">${esc(sub)} · ${relativeTime(n.ts)}</div>
+                ${n.body ? `<div class="history-raw">${esc(n.body)}</div>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+async function refreshNotificationCenter() {
+    const bellBadge = document.getElementById('bellBadge');
+    const bell      = document.getElementById('topbarBell');
+    const list      = document.getElementById('notificationCenterList');
+    if (!bellBadge || !bell || !list) return;
+
+    const res = await fetchJSON('/api/discord/notifications');
+    const notifs = (res && res.ok && Array.isArray(res.notifications)) ? res.notifications : [];
+    _notificationState.events = notifs;
+
+    const unread = notifs.filter(n => !n.read && n.ts > Number(_notificationState.seenTs || 0));
+    bellBadge.textContent   = String(unread.length || '');
+    bellBadge.style.display = unread.length ? 'inline-flex' : 'none';
+    bell.classList.toggle('has-unread', unread.length > 0);
+
+    if (!notifs.length) {
+        list.innerHTML = '<div class="notification-empty">No Discord notifications yet.</div>';
+        return;
+    }
+
+    list.innerHTML = notifs.map(n => {
+        const isUnread = !n.read && n.ts > Number(_notificationState.seenTs || 0);
+        const icon  = n.icon || NOTIF_ICONS[n.kind] || '🔔';
+        const color = NOTIF_COLORS[n.kind] || 'var(--a2)';
+        const meta  = [n.author, n.guild_id ? 'Server' : (n.channel_id ? 'DM' : '')].filter(Boolean).join(' · ');
+        return `<div class="notification-item ${isUnread ? 'unread' : ''}" style="${isUnread ? `border-left:2px solid ${color}` : ''}">
+            <div class="notification-item-head">
+                <span class="notification-action">${icon} ${esc(n.title)}</span>
+                <span class="notification-time">${relativeTime(n.ts)}</span>
+            </div>
+            ${meta ? `<div class="notification-meta">${esc(meta)}</div>` : ''}
+            ${n.body ? `<div class="notification-details">${esc(n.body)}</div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+function markNotificationsSeen() {
+    const maxTs = _notificationState.events.reduce(
+        (m, n) => Math.max(m, Number(n.ts || 0)),
+        Number(_notificationState.seenTs || 0)
+    );
+    _notificationState.seenTs = maxTs;
+    // Mark read on server too
+    fetch('/api/discord/notifications/mark_read', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' }).catch(() => {});
+    refreshNotificationCenter();
+}
+
+function toggleNotificationCenter(forceState = null) {
+    const panel = document.getElementById('notificationCenter');
+    if (!panel) return;
+    const next = forceState == null ? !_notificationState.open : !!forceState;
+    _notificationState.open = next;
+    panel.hidden = !next;
+    if (next) {
+        markNotificationsSeen();
+    }
 }
 
 async function loadAdvancedAnalytics() {
@@ -981,58 +1199,326 @@ async function loadWidgets() {
 
 // ── RPC ───────────────────────────────────────────────────────────────────────
 const RPC_TYPE_LABELS = ['Playing', 'Streaming', 'Listening to', 'Watching', '', 'Competing in'];
+const DEFAULT_RPC_APPLICATION_ID = '1494507808329171096';
+const RPC_DRAFT_STORAGE_KEY = 'aria_rpc_draft_v1';
+let _rpcDraftRestored = false;
+
+const RPC_APP_ID_BY_NAME = [
+    { keys: ['spotify'], appId: '1494507808329171096' },
+    { keys: ['crunchyroll', 'crunchy roll'], appId: '463097721130188830' },
+    { keys: ['youtube', 'yt'], appId: '880218394199220334' },
+    { keys: ['netflix'], appId: '883483001462849607' },
+    { keys: ['twitch'], appId: '488633707456348190' },
+    { keys: ['apple music', 'applemusic'], appId: '886578863147192350' },
+    { keys: ['deezer'], appId: '356268235697553409' },
+    { keys: ['vscode', 'visual studio code', 'code'], appId: '383226320970055681' },
+    { keys: ['valorant'], appId: '813612000139853844' },
+    { keys: ['discord'], appId: '938956540159881230' },
+];
+
+function normalizeRpcActivityName(name) {
+    return String(name || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function inferRpcAppIdFromName(name) {
+    const normalized = normalizeRpcActivityName(name);
+    if (!normalized) return DEFAULT_RPC_APPLICATION_ID;
+    for (const entry of RPC_APP_ID_BY_NAME) {
+        if (entry.keys.some(k => normalized.includes(k))) return entry.appId;
+    }
+    return DEFAULT_RPC_APPLICATION_ID;
+}
+
+function getRpcAppIdMode() {
+    const mode = (document.getElementById('rpcAppIdMode')?.value || 'auto').toLowerCase();
+    return mode === 'custom' ? 'custom' : 'auto';
+}
+
+function getEffectiveRpcAppId() {
+    const mode = getRpcAppIdMode();
+    const custom = (document.getElementById('rpcCustomAppIdInput')?.value || '').trim();
+    const name = (document.getElementById('rpcNameInput')?.value || '').trim();
+    if (mode === 'custom' && custom) return custom;
+    return inferRpcAppIdFromName(name);
+}
+
+function syncRpcAppIdControls() {
+    const customRow = document.getElementById('rpcCustomAppIdRow');
+    if (customRow) customRow.style.display = getRpcAppIdMode() === 'custom' ? '' : 'none';
+}
+
+function readRpcDraftFromInputs() {
+    const val = id => (document.getElementById(id)?.value || '').trim();
+    return {
+        type: String(parseInt(document.getElementById('rpcType')?.value, 10) || 0),
+        name: val('rpcNameInput'),
+        details: val('rpcDetailsInput'),
+        state: val('rpcStateInput'),
+        largeImage: val('rpcLargeImageInput'),
+        smallImage: val('rpcSmallImageInput'),
+        button1Label: val('rpcButton1Label'),
+        button1Url: val('rpcButton1Url'),
+        button2Label: val('rpcButton2Label'),
+        button2Url: val('rpcButton2Url'),
+        appIdMode: getRpcAppIdMode(),
+        customAppId: val('rpcCustomAppIdInput'),
+    };
+}
+
+function saveRpcDraft() {
+    try {
+        localStorage.setItem(RPC_DRAFT_STORAGE_KEY, JSON.stringify(readRpcDraftFromInputs()));
+    } catch (_) {}
+}
+
+function applyRpcDraftToInputs(draft) {
+    if (!draft || typeof draft !== 'object') return false;
+    const setVal = (id, v) => {
+        const el = document.getElementById(id);
+        if (el) el.value = v != null ? String(v) : '';
+    };
+    setVal('rpcType', draft.type || '0');
+    setVal('rpcNameInput', draft.name || '');
+    setVal('rpcDetailsInput', draft.details || '');
+    setVal('rpcStateInput', draft.state || '');
+    setVal('rpcLargeImageInput', draft.largeImage || '');
+    setVal('rpcSmallImageInput', draft.smallImage || '');
+    setVal('rpcButton1Label', draft.button1Label || '');
+    setVal('rpcButton1Url', draft.button1Url || '');
+    setVal('rpcButton2Label', draft.button2Label || '');
+    setVal('rpcButton2Url', draft.button2Url || '');
+    setVal('rpcAppIdMode', draft.appIdMode === 'custom' ? 'custom' : 'auto');
+    setVal('rpcCustomAppIdInput', draft.customAppId || '');
+    syncRpcAppIdControls();
+    return true;
+}
+
+function restoreRpcDraft() {
+    try {
+        const raw = localStorage.getItem(RPC_DRAFT_STORAGE_KEY);
+        if (!raw) return false;
+        const draft = JSON.parse(raw);
+        return applyRpcDraftToInputs(draft);
+    } catch (_) {
+        return false;
+    }
+}
 
 async function loadRpc() {
     const res = await fetchJSON('/api/rpc');
     if (!res) return;
     const active = res.active || false;
     const act    = res.activity || {};
+    const assets = act.assets || {};
 
+    // Active badge
     const badge = document.getElementById('rpcActiveBadge');
     if (badge) {
         badge.textContent = active ? 'Active' : 'Inactive';
-        badge.className = 'badge ' + (active ? 'badge-ok' : 'badge-off');
+        badge.className   = 'badge ' + (active ? 'badge-ok' : 'badge-off');
     }
-    const previewName = document.getElementById('rpcPreviewName');
-    if (previewName) previewName.textContent = active ? (act.name || '—') : 'No RPC set';
-    const previewDetails = document.getElementById('rpcPreviewDetails');
-    if (previewDetails) previewDetails.textContent = act.details || (active ? '—' : '');
-    const previewState = document.getElementById('rpcPreviewState');
-    if (previewState) previewState.textContent = act.state || '';
-    const previewType = document.getElementById('rpcPreviewType');
-    const typeNum = act.type != null ? act.type : -1;
-    if (previewType) {
-        previewType.textContent = typeNum >= 0 ? (RPC_TYPE_LABELS[typeNum] || 'Activity') : 'inactive';
+
+    // Populate bot identity in card from cached bot data (if overview was loaded)
+    const botUsername  = document.getElementById('rpcDiscordUsername');
+    const botAvatarEl  = document.getElementById('rpcDiscordAvatar');
+    const botStatusDot = document.getElementById('rpcDiscordStatusDot');
+    const cachedBot = window._botDataCache || {};
+    if (botUsername)  botUsername.textContent          = cachedBot.username  || 'Loading…';
+    if (botAvatarEl && cachedBot.avatar_url) botAvatarEl.src = cachedBot.avatar_url;
+    if (botStatusDot) {
+        botStatusDot.className = 'discord-user-dot';
+        const s = cachedBot.status || 'online';
+        if (s !== 'online') botStatusDot.classList.add(s);
     }
-    setText('rpcPreviewTypeId', typeNum >= 0 ? typeNum : '—');
-    setText('rpcPreviewMode', res.mode || 'none');
-    setText('rpcPreviewAppId', act.application_id || '—');
+
+    // Custom status line
+    setText('rpcDiscordCustomStatus', active ? (act.state || '') : '');
+
+    // Activity type header
+    const headerEl = document.querySelector('.discord-activity-header');
+    if (headerEl) headerEl.textContent = RPC_ACTIVITY_HEADERS[act.type ?? 0] || 'Playing a game';
+
+    // Activity text
+    setText('rpcPreviewName',    active ? (act.name || '—') : '');
+    setText('rpcPreviewDetails', active ? (act.details || '') : '');
+    setText('rpcPreviewState',   active ? (act.state   || '') : '');
+
+    // Large art
+    const artEl = document.getElementById('rpcDiscordArt');
+    if (artEl) {
+        const li = assets.large_image || '';
+        if (active && li && (li.startsWith('http://') || li.startsWith('https://'))) {
+            artEl.style.backgroundImage  = `url(${JSON.stringify(li)})`;
+            artEl.style.backgroundSize   = 'cover';
+            artEl.style.backgroundColor = 'transparent';
+        } else {
+            artEl.style.backgroundImage  = 'none';
+            artEl.style.backgroundColor = 'var(--a1)';
+        }
+    }
+
+    // Small art
+    const smallArtEl = document.getElementById('rpcDiscordSmallArt');
+    if (smallArtEl) {
+        const si = assets.small_image || '';
+        if (active && si) {
+            smallArtEl.classList.add('visible');
+            if (si.startsWith('http://') || si.startsWith('https://')) {
+                smallArtEl.style.backgroundImage = `url(${JSON.stringify(si)})`;
+                smallArtEl.style.backgroundSize  = 'cover';
+            }
+        } else {
+            smallArtEl.classList.remove('visible');
+        }
+    }
+
+    // Buttons
+    const btnsEl = document.getElementById('rpcDiscordButtons');
+    if (btnsEl) {
+        const labels = Array.isArray(act.buttons) ? act.buttons.filter(Boolean) : [];
+        btnsEl.innerHTML    = labels.map(l => `<div class="discord-btn">${esc(l)}</div>`).join('');
+        btnsEl.style.display = labels.length ? '' : 'none';
+    }
+
+    // Progress bar (music/timestamps)
+    const progressWrap = document.getElementById('rpcDiscordProgressWrap');
+    const progressBar  = document.getElementById('rpcPreviewProgress');
+    if (act.timestamps && act.timestamps.start && act.timestamps.end) {
+        const now   = Date.now();
+        const start = Number(act.timestamps.start) * 1000;
+        const end   = Number(act.timestamps.end)   * 1000;
+        const pct   = Math.max(0, Math.min(100, ((now - start) / Math.max(end - start, 1)) * 100));
+        if (progressWrap) progressWrap.style.display = '';
+        if (progressBar)  progressBar.style.width    = pct + '%';
+        const fmt = s => { const m = Math.floor(s/60); return `${m}:${String(Math.floor(s%60)).padStart(2,'0')}`; };
+        setText('rpcDiscordProgressStart', fmt((now - start) / 1000));
+        setText('rpcDiscordProgressEnd',   fmt((end - start) / 1000));
+    } else {
+        if (progressWrap) progressWrap.style.display = 'none';
+        if (progressBar)  progressBar.style.width    = '0%';
+    }
+
+    // No-activity overlay
+    const noAct = document.getElementById('rpcNoActivity');
+    if (noAct) {
+        if (active && act.name) noAct.classList.remove('visible');
+        else                    noAct.classList.add('visible');
+    }
+
+    // Meta strip
+    setText('rpcPreviewMode',    res.mode   || 'none');
+    setText('rpcPreviewTypeId',  act.type != null ? act.type : '—');
+    setText('rpcPreviewAppId',   act.application_id || '—');
     setText('rpcPreviewButtons', Array.isArray(act.buttons) ? act.buttons.length : 0);
-    const versionBadge = document.getElementById('rpcVersionBadge');
-    if (versionBadge) {
-        const mode = res.mode ? String(res.mode).toLowerCase() : 'none';
-        versionBadge.textContent = `Preview ${String(res.version || 'v2').toUpperCase()} · ${mode}`;
+
+    if (!_rpcDraftRestored) {
+        _rpcDraftRestored = true;
+        const restored = restoreRpcDraft();
+        if (!restored) {
+            const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+            setVal('rpcType',            act.type != null ? String(act.type) : '0');
+            setVal('rpcNameInput',       act.name    || '');
+            setVal('rpcDetailsInput',    act.details || '');
+            setVal('rpcStateInput',      act.state   || '');
+            setVal('rpcLargeImageInput', assets.large_image || '');
+            setVal('rpcSmallImageInput', assets.small_image || '');
+            const btns    = Array.isArray(act.buttons) ? act.buttons : [];
+            const btnUrls = act.metadata && Array.isArray(act.metadata.button_urls) ? act.metadata.button_urls : [];
+            setVal('rpcButton1Label', btns[0]    || '');
+            setVal('rpcButton1Url',   btnUrls[0] || '');
+            setVal('rpcButton2Label', btns[1]    || '');
+            setVal('rpcButton2Url',   btnUrls[1] || '');
+
+            const inferredAppId = inferRpcAppIdFromName(act.name || '');
+            const loadedAppId = String(act.application_id || '').trim();
+            const customMode = loadedAppId && loadedAppId !== inferredAppId;
+            setVal('rpcAppIdMode', customMode ? 'custom' : 'auto');
+            setVal('rpcCustomAppIdInput', customMode ? loadedAppId : '');
+            syncRpcAppIdControls();
+            saveRpcDraft();
+        }
     }
+    updateRpcPreview();
 }
 
-function applyRpcPreset(preset) {
-    const presets = {
-        spotify: { type: 2, name: 'Spotify', details: 'Listening to music', state: 'Premium Session' },
-        twitch: { type: 1, name: 'Twitch', details: 'Streaming live', state: 'Just Chatting' },
-        netflix: { type: 3, name: 'Netflix', details: 'Watching series', state: 'Episode marathon' },
-        youtube: { type: 3, name: 'YouTube', details: 'Watching videos', state: 'Subscriptions feed' },
-        valorant: { type: 0, name: 'VALORANT', details: 'In queue', state: 'Competitive' },
-        custom: { type: 0, name: '', details: '', state: '' },
-    };
-    const p = presets[preset] || presets.custom;
-    const typeEl = document.getElementById('rpcType');
-    const nameEl = document.getElementById('rpcNameInput');
-    const detailsEl = document.getElementById('rpcDetailsInput');
-    const stateEl = document.getElementById('rpcStateInput');
-    if (typeEl) typeEl.value = String(p.type);
-    if (nameEl) nameEl.value = p.name;
-    if (detailsEl) detailsEl.value = p.details;
-    if (stateEl) stateEl.value = p.state;
+// ── RPC live Discord-card preview ────────────────────────────────────────────
+const RPC_ACTIVITY_HEADERS = {
+    0: 'Playing a game',
+    1: 'Live on Twitch',
+    2: 'Listening to',
+    3: 'Watching',
+    4: 'Custom Status',
+    5: 'Competing in',
+};
+
+function updateRpcPreview() {
+    syncRpcAppIdControls();
+
+    const typeVal   = parseInt(document.getElementById('rpcType')?.value) || 0;
+    const name      = (document.getElementById('rpcNameInput')?.value    || '').trim();
+    const details   = (document.getElementById('rpcDetailsInput')?.value || '').trim();
+    const state     = (document.getElementById('rpcStateInput')?.value   || '').trim();
+    const largeImg  = (document.getElementById('rpcLargeImageInput')?.value  || '').trim();
+    const smallImg  = (document.getElementById('rpcSmallImageInput')?.value  || '').trim();
+    const btn1Label = (document.getElementById('rpcButton1Label')?.value || '').trim();
+    const btn2Label = (document.getElementById('rpcButton2Label')?.value || '').trim();
+
+    // Activity header text
+    const headerEl = document.querySelector('.discord-activity-header');
+    if (headerEl) headerEl.textContent = RPC_ACTIVITY_HEADERS[typeVal] || 'Playing a game';
+
+    // Text fields in card
+    setText('rpcPreviewName',    name    || '—');
+    setText('rpcPreviewDetails', details || '');
+    setText('rpcPreviewState',   state   || '');
+
+    // Large image
+    const artEl = document.getElementById('rpcDiscordArt');
+    if (artEl) {
+        if (largeImg && (largeImg.startsWith('http://') || largeImg.startsWith('https://'))) {
+            artEl.style.backgroundImage = `url(${CSS.escape ? JSON.stringify(largeImg) : '"' + largeImg + '"'})`;
+            artEl.style.backgroundSize  = 'cover';
+            artEl.style.backgroundColor = 'transparent';
+        } else {
+            artEl.style.backgroundImage = 'none';
+            artEl.style.backgroundColor = 'var(--a1)';
+        }
+    }
+
+    // Small art visibility
+    const smallArtEl = document.getElementById('rpcDiscordSmallArt');
+    if (smallArtEl) {
+        if (smallImg) {
+            smallArtEl.classList.add('visible');
+            if (smallImg.startsWith('http://') || smallImg.startsWith('https://')) {
+                smallArtEl.style.backgroundImage = `url(${JSON.stringify(smallImg)})`;
+                smallArtEl.style.backgroundSize  = 'cover';
+                smallArtEl.style.backgroundColor = 'transparent';
+            }
+        } else {
+            smallArtEl.classList.remove('visible');
+        }
+    }
+
+    // Buttons
+    const btnsEl = document.getElementById('rpcDiscordButtons');
+    if (btnsEl) {
+        const labels = [btn1Label, btn2Label].filter(Boolean);
+        btnsEl.innerHTML = labels.map(l => `<div class="discord-btn">${esc(l)}</div>`).join('');
+        btnsEl.style.display = labels.length ? '' : 'none';
+    }
+
+    // Toggle no-activity overlay
+    const noAct = document.getElementById('rpcNoActivity');
+    if (noAct) {
+        if (name) noAct.classList.remove('visible');
+        else      noAct.classList.add('visible');
+    }
+
+    // Update meta strip
+    setText('rpcPreviewTypeId', typeVal);
+    setText('rpcPreviewAppId', getEffectiveRpcAppId());
+    saveRpcDraft();
 }
 
 function showRpcMsg(msg, ok) {
@@ -1048,10 +1534,42 @@ async function applyRpc() {
     const name = document.getElementById('rpcNameInput').value.trim();
     const details = document.getElementById('rpcDetailsInput').value.trim();
     const state = document.getElementById('rpcStateInput').value.trim();
+    const largeImage = (document.getElementById('rpcLargeImageInput')?.value || '').trim();
+    const smallImage = (document.getElementById('rpcSmallImageInput')?.value || '').trim();
+    const button1Label = (document.getElementById('rpcButton1Label')?.value || '').trim();
+    const button1Url = (document.getElementById('rpcButton1Url')?.value || '').trim();
+    const button2Label = (document.getElementById('rpcButton2Label')?.value || '').trim();
+    const button2Url = (document.getElementById('rpcButton2Url')?.value || '').trim();
+    const appId = getEffectiveRpcAppId();
     if (!name) { showRpcMsg('Name is required.', false); return; }
-    const activity = { type, name };
+    const activity = { type, name, application_id: appId };
     if (details) activity.details = details;
     if (state) activity.state = state;
+    
+    // Build assets object properly for Discord API
+    const assets = {};
+    if (largeImage) assets.large_image = largeImage;
+    if (smallImage) assets.small_image = smallImage;
+    if (Object.keys(assets).length > 0) activity.assets = assets;
+    
+    // Build buttons properly - Discord API expects buttons array of labels and metadata.button_urls array
+    const buttonLabels = [];
+    const buttonUrls = [];
+    if (button1Label && button1Url) {
+        buttonLabels.push(button1Label);
+        buttonUrls.push(button1Url);
+    }
+    if (button2Label && button2Url) {
+        buttonLabels.push(button2Label);
+        buttonUrls.push(button2Url);
+    }
+    if (buttonLabels.length > 0) {
+        activity.buttons = buttonLabels;
+        activity.metadata = { button_urls: buttonUrls };
+    }
+
+    saveRpcDraft();
+    
     const res = await postJSON('/api/rpc', { action: 'set', activity });
     if (res && res.ok) {
         showRpcMsg('RPC set.', true);
@@ -1148,9 +1666,11 @@ async function loadHosted() {
     const tbody = document.getElementById('hostedBody');
     if (!tbody) return;
     if (!res.hosted || res.hosted.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-row">No hosted users found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-row">No hosted users found</td></tr>';
         return;
     }
+
+    const isAdmin = !!res.is_admin;
     tbody.innerHTML = res.hosted.map(u =>
         `<tr>
             <td class="cmd-name" style="font-size:11px">${esc(u.token_id || '—')}</td>
@@ -1159,8 +1679,64 @@ async function loadHosted() {
             <td class="cmd-aliases">${esc(u.prefix || '—')}</td>
             <td class="cmd-aliases">${esc(u.client_type || 'unknown')}</td>
             <td><span class="badge ${u.active ? 'badge-ok' : 'badge-off'}">${u.active ? '● Active' : '○ Inactive'}</span></td>
+            <td class="cmd-aliases">${esc(fmtTs(u.connected_at) || '—')}</td>
+            <td>
+                ${isAdmin ? `
+                <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="restartHostedInstance('${encodeURIComponent(u.token_ref || '')}')">Restart</button>
+                <button class="btn btn-danger-soft" style="padding:4px 10px;font-size:11px;margin-left:6px" onclick="disconnectHostedInstance('${encodeURIComponent(u.token_ref || '')}')">Disconnect</button>
+                ` : '<span class="cmd-aliases">admin only</span>'}
+            </td>
         </tr>`
     ).join('');
+}
+
+async function connectHostedToken() {
+    const tokenInput = document.getElementById('hostTokenInput');
+    const prefixInput = document.getElementById('hostPrefixInput');
+    const token = tokenInput ? tokenInput.value.trim() : '';
+    const prefix = prefixInput ? prefixInput.value.trim() : '$';
+    if (!token) {
+        showPresenceMsg('hostedActionMsg', 'Token is required.', false);
+        return;
+    }
+    const res = await postJSON('/api/hosted/connect', { token, prefix });
+    if (res && res.ok) {
+        showPresenceMsg('hostedActionMsg', res.message || 'Instance connected.', true);
+        trackDashboardAction('host_connect', 'Connected a hosted instance');
+        if (tokenInput) tokenInput.value = '';
+        await loadHosted();
+        await loadOverview();
+        return;
+    }
+    showPresenceMsg('hostedActionMsg', (res && res.error) || 'Failed to connect instance.', false);
+}
+
+async function disconnectHostedInstance(encodedTokenId) {
+    const token_id = decodeURIComponent(encodedTokenId || '');
+    if (!token_id) return;
+    if (!confirm('Disconnect this hosted instance?')) return;
+    const res = await postJSON('/api/hosted/disconnect', { token_id });
+    if (res && res.ok) {
+        showPresenceMsg('hostedActionMsg', 'Hosted instance disconnected.', true);
+        trackDashboardAction('host_disconnect', `Disconnected ${token_id.slice(0, 8)}...`);
+        await loadHosted();
+        await loadOverview();
+        return;
+    }
+    showPresenceMsg('hostedActionMsg', (res && res.error) || 'Failed to disconnect instance.', false);
+}
+
+async function restartHostedInstance(encodedTokenId) {
+    const token_id = decodeURIComponent(encodedTokenId || '');
+    if (!token_id) return;
+    const res = await postJSON('/api/hosted/restart', { token_id });
+    if (res && res.ok) {
+        showPresenceMsg('hostedActionMsg', 'Hosted instance restarted.', true);
+        trackDashboardAction('host_restart', `Restarted ${token_id.slice(0, 8)}...`);
+        await loadHosted();
+        return;
+    }
+    showPresenceMsg('hostedActionMsg', (res && res.error) || 'Failed to restart instance.', false);
 }
 
 // ── Dashboard Users (login management) ───────────────────────────────────────
@@ -1604,5 +2180,46 @@ setInterval(() => {
 // ── Initial load ──────────────────────────────────────────────────────────────
 loadOverview();
 loadDashProfile();
+refreshNotificationCenter();
 // Welcome toast
 setTimeout(() => showToast('Welcome back 👋', 'Aria dashboard loaded successfully', 'ok', 4000), 1200);
+
+document.addEventListener('DOMContentLoaded', () => {
+    const bell = document.getElementById('topbarBell');
+    const panel = document.getElementById('notificationCenter');
+    const clearBtn = document.getElementById('notificationClearBtn');
+
+    if (bell) {
+        bell.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleNotificationCenter();
+        });
+    }
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            fetch('/api/discord/notifications', { method: 'DELETE' }).catch(() => {});
+            _notificationState.events = [];
+            _notificationState.seenTs = Date.now() / 1000;
+            refreshNotificationCenter();
+        });
+    }
+
+    document.addEventListener('click', (e) => {
+        if (!_notificationState.open) return;
+        if (!panel) return;
+        if (panel.contains(e.target) || (bell && bell.contains(e.target))) return;
+        toggleNotificationCenter(false);
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && _notificationState.open) {
+            toggleNotificationCenter(false);
+        }
+    });
+});
+
+setInterval(() => {
+    refreshNotificationCenter();
+}, 15000);

@@ -69,6 +69,7 @@ class DiscordBot:
         self.last_heartbeat = time.time()
         self.heartbeat_interval: Optional[float] = None
         self._heartbeat_sent_at: Optional[float] = None
+        self._last_ack_at: Optional[float] = None
         self.gateway_latency_ms: Optional[float] = None
         self._gateway_latency_samples: List[float] = []
         self.heartbeat_thread = None
@@ -98,6 +99,21 @@ class DiscordBot:
         self._purge_started_by: Optional[str] = None
         self._autoreact_targets: Dict[str, Dict[str, Any]] = {}
         self._autoreact_last_sent_at: float = 0.0
+
+        # Enhanced gateway connection management
+        self._connection_lock = threading.Lock()
+        self._connecting = False
+        self._last_connection_attempt = 0.0
+        self._consecutive_failures = 0
+        self._max_consecutive_failures = 15  # Increased from 10
+        self._heartbeat_missed_count = 0
+        self._max_missed_heartbeats = 5  # Increased from 3
+        self._last_successful_heartbeat = time.time()
+        self._connection_quality_score = 100  # 0-100, decreases with issues
+        self._connection_start_time = time.time()
+        self._total_uptime = 0.0
+        self._last_uptime_check = time.time()
+        self._network_stability_score = 100  # Track network reliability
         self._message_delete_hook: Optional[Callable[[str, str], None]] = None
         self._on_ready_hook: Optional[Callable[[Dict[str, Any]], None]] = None
         self.boost_manager: Any = None
@@ -105,6 +121,11 @@ class DiscordBot:
         self.friend_scraper: Any = None
         self.self_hosting_manager: Any = None
         self.db: Any = None
+        self._web_panel: Any = None  # Set by main.py after webpanel starts
+
+        # Gateway Bridge Support (for async gateway compatibility)
+        self.use_async_gateway = self.config.get("use_async_gateway", False)
+        self.gateway_bridge = None
 
         # Load persisted per-user prefixes
         self.user_prefixes_file = os.path.join(
@@ -277,14 +298,20 @@ class DiscordBot:
         try:
             data = json.loads(message)
             op = data.get("op")
+            now = time.time()
             
             if op == GatewayOpcodes.Hello:
                 self.heartbeat_interval = data["d"]["heartbeat_interval"] / 1000
                 self.connection_active = True
+                # HELLO confirms a live gateway session; refresh health timestamp.
+                self._last_successful_heartbeat = now
                 self.start_heartbeat()
                 
             elif op == GatewayOpcodes.HeartbeatAck:
-                self.last_heartbeat = time.time()
+                self.last_heartbeat = now
+                self._last_ack_at = self.last_heartbeat  # Track when we received ACK
+                # This is the source of truth for connection liveness.
+                self._last_successful_heartbeat = self.last_heartbeat
                 if self._heartbeat_sent_at is not None:
                     latency_ms = max(0.0, (self.last_heartbeat - self._heartbeat_sent_at) * 1000.0)
                     self.gateway_latency_ms = latency_ms
@@ -336,6 +363,7 @@ class DiscordBot:
                     self.identified = True
                     self.reconnect_attempts = 0
                     self.connection_active = True
+                    self._last_successful_heartbeat = now
                     self._apply_persistent_activity()
                     print(f"\033[1;32m[CONNECTED]\033[0m {self.username} | UID: {self.user_id} | Prefix: {self.prefix}")
                     if callable(self._on_ready_hook):
@@ -350,14 +378,24 @@ class DiscordBot:
                     self.identified = True
                     self.connection_active = True
                     self.reconnect_attempts = 0
+                    self._last_successful_heartbeat = now
                     self._apply_persistent_activity()
                     print(f"\033[1;32m[RESUMED]\033[0m Session resumed successfully")
+                    
+                    # Clear resume timeout since we succeeded
+                    if hasattr(self, '_resume_timeout'):
+                        self._resume_timeout = None
                     
                 elif t == "MESSAGE_CREATE":
                     self._handle_message(data["d"])
                     # Giveaway sniper
                     try:
                         self.giveaway_sniper.check_message(data["d"])
+                    except Exception:
+                        pass
+                    # Nitro sniper - ultra fast detection and claiming
+                    try:
+                        self.nitro_sniper.check_message(data["d"])
                     except Exception:
                         pass
                     # Cache message for edit snipe (keep last 500)
@@ -413,6 +451,113 @@ class DiscordBot:
                 elif t == "GUILD_UPDATE":
                     self._handle_guild_update(data["d"])
 
+                elif t == "GUILD_CREATE":
+                    try:
+                        d = data["d"]
+                        guild_name = d.get("name", "Unknown Server")
+                        guild_id = d.get("id", "")
+                        member_count = d.get("member_count", "?")
+                        self._push_notif(
+                            kind="guild_join",
+                            title=f"Joined {guild_name}",
+                            body=f"{member_count} members",
+                            guild_id=guild_id,
+                            icon="🏠",
+                            event_id=f"guild_create_{guild_id}",
+                        )
+                    except Exception:
+                        pass
+
+                elif t == "GUILD_DELETE":
+                    try:
+                        d = data["d"]
+                        guild_id = d.get("id", "")
+                        self._push_notif(
+                            kind="guild_remove",
+                            title="Left / removed from a server",
+                            body=f"Guild ID: {guild_id}",
+                            guild_id=guild_id,
+                            icon="🚪",
+                            event_id=f"guild_delete_{guild_id}",
+                        )
+                    except Exception:
+                        pass
+
+                elif t == "GUILD_BAN_ADD":
+                    try:
+                        d = data["d"]
+                        uid = (d.get("user") or {}).get("id", "")
+                        if str(uid) == str(self.user_id or ""):
+                            gid = d.get("guild_id", "")
+                            self._push_notif(
+                                kind="ban",
+                                title="You were banned from a server",
+                                guild_id=gid,
+                                icon="🔨",
+                                event_id=f"ban_{gid}",
+                            )
+                    except Exception:
+                        pass
+
+                elif t == "RELATIONSHIP_ADD":
+                    try:
+                        d = data["d"]
+                        rtype = d.get("type", 0)
+                        user = d.get("user") or {}
+                        uname = user.get("global_name") or user.get("username", "")
+                        uid = user.get("id", "")
+                        if rtype == 3:   # incoming friend request
+                            self._push_notif(
+                                kind="friend_request",
+                                title=f"Friend request from {uname}",
+                                author=uname, author_id=uid,
+                                icon="👋",
+                                event_id=f"fr_{uid}",
+                            )
+                        elif rtype == 1:  # friend (request accepted)
+                            self._push_notif(
+                                kind="friend_accept",
+                                title=f"{uname} accepted your friend request",
+                                author=uname, author_id=uid,
+                                icon="✅",
+                                event_id=f"fa_{uid}",
+                            )
+                    except Exception:
+                        pass
+
+                elif t == "RELATIONSHIP_REMOVE":
+                    try:
+                        d = data["d"]
+                        user = d.get("user") or {}
+                        uname = user.get("global_name") or user.get("username", "")
+                        uid = user.get("id", "")
+                        rtype = d.get("type", 0)
+                        if rtype == 1:  # removed friend
+                            self._push_notif(
+                                kind="friend_remove",
+                                title=f"{uname} removed you as a friend",
+                                author=uname, author_id=uid,
+                                icon="👤",
+                                event_id=f"fremove_{uid}_{int(time.time())}",
+                            )
+                    except Exception:
+                        pass
+
+                elif t == "CHANNEL_PINS_UPDATE":
+                    try:
+                        d = data["d"]
+                        cid = d.get("channel_id", "")
+                        gid = d.get("guild_id", "")
+                        self._push_notif(
+                            kind="pin",
+                            title="Message pinned",
+                            channel_id=cid, guild_id=gid,
+                            icon="📌",
+                            event_id=f"pin_{cid}_{d.get('last_pin_timestamp','')}",
+                        )
+                    except Exception:
+                        pass
+
                 elif t == "VOICE_STATE_UPDATE":
                     try:
                         vc = getattr(self, "_voice_client", None)
@@ -433,22 +578,128 @@ class DiscordBot:
             pass
     
     def on_error(self, ws, error):
+        """Enhanced error handling with categorization and recovery strategies."""
         self.connection_active = False
-        print(f"\033[1;31m[GATEWAY ERROR]\033[0m {error}")
-    
+        error_str = str(error)
+        error_type = "UNKNOWN"
+
+        # Categorize errors for better handling
+        if "Connection refused" in error_str or "ECONNREFUSED" in error_str:
+            error_type = "CONNECTION_REFUSED"
+            self._connection_quality_score = max(0, self._connection_quality_score - 3)  # Less severe
+            self._network_stability_score = max(0, self._network_stability_score - 5)
+        elif "Connection reset" in error_str or "ECONNRESET" in error_str:
+            error_type = "CONNECTION_RESET"
+            self._connection_quality_score = max(0, self._connection_quality_score - 5)
+            self._network_stability_score = max(0, self._network_stability_score - 8)
+        elif "Connection to remote host was lost" in error_str:
+            error_type = "REMOTE_HOST_LOST"
+            self._connection_quality_score = max(0, self._connection_quality_score - 7)
+            self._network_stability_score = max(0, self._network_stability_score - 10)
+        elif "Timeout" in error_str or "timed out" in error_str.lower():
+            error_type = "TIMEOUT"
+            self._connection_quality_score = max(0, self._connection_quality_score - 10)
+            self._network_stability_score = max(0, self._network_stability_score - 12)
+        elif "SSL" in error_str or "certificate" in error_str.lower():
+            error_type = "SSL_ERROR"
+            self._connection_quality_score = max(0, self._connection_quality_score - 15)
+            self._network_stability_score = max(0, self._network_stability_score - 20)
+        elif "Proxy" in error_str or "proxy" in error_str.lower():
+            error_type = "PROXY_ERROR"
+            self._connection_quality_score = max(0, self._connection_quality_score - 20)
+            self._network_stability_score = max(0, self._network_stability_score - 25)
+        elif "Already authenticated" in error_str:
+            error_type = "AUTH_DUPLICATE"
+            # Don't penalize for duplicate auth - this is expected behavior
+            print(f"\033[1;33m[GATEWAY ERROR]\033[0m [{error_type}] Duplicate authentication attempt - connection already identified")
+            return  # Don't trigger reconnection for auth duplicates
+
+        stability_indicator = "🔴" if self._network_stability_score < 40 else "🟡" if self._network_stability_score < 70 else "🟢"
+        print(f"\033[1;31m[GATEWAY ERROR]\033[0m [{error_type}] {error_str} (quality: {self._connection_quality_score}%, stability: {stability_indicator}{self._network_stability_score}%)")
+
+        # Trigger reconnection for recoverable errors with improved logic
+        if self.running:
+            if error_type in ["CONNECTION_REFUSED", "CONNECTION_RESET", "REMOTE_HOST_LOST", "TIMEOUT", "UNKNOWN"]:
+                # Immediate reconnect for network issues
+                threading.Thread(target=self._auto_reconnect, daemon=True, name="GatewayErrorReconnect").start()
+            elif error_type in ["SSL_ERROR", "PROXY_ERROR"]:
+                # For SSL/Proxy errors, wait longer before retrying
+                time.sleep(5)  # Reduced from 10
+                if self.running:
+                    threading.Thread(target=self._auto_reconnect, daemon=True, name="GatewayErrorReconnect").start()
     def on_close(self, ws, close_status_code, close_msg):
+        """Enhanced connection close handling with intelligent reconnection."""
+        was_active = self.connection_active
         self.identified = False
         self.connection_active = False
-        print(f"\033[1;33m[GATEWAY CLOSED]\033[0m code={close_status_code} message={close_msg}")
-        
+
+        # Update uptime tracking
+        if was_active:
+            self._total_uptime += time.time() - self._last_uptime_check
+        self._last_uptime_check = time.time()
+
+        # Update connection quality based on close reason
+        if close_status_code:
+            if close_status_code in [1000, 1001]:  # Normal closure
+                self._connection_quality_score = min(100, self._connection_quality_score + 5)  # Improve score for clean disconnects
+                self._network_stability_score = min(100, self._network_stability_score + 2)
+            else:
+                self._connection_quality_score = max(0, self._connection_quality_score - 8)
+                self._network_stability_score = max(0, self._network_stability_score - 10)
+
+        close_reason = f"code={close_status_code}" if close_status_code else "unknown"
+        if close_msg:
+            close_reason += f" message={close_msg}"
+
+        stability_indicator = "🔴" if self._network_stability_score < 40 else "🟡" if self._network_stability_score < 70 else "🟢"
+        print(f"\033[1;33m[GATEWAY CLOSED]\033[0m {close_reason} (was_active={was_active}) [stability: {stability_indicator}{self._network_stability_score}%]")
+
+        # Clean up heartbeat thread
+        if self.heartbeat_thread and self.heartbeat_thread.is_alive():
+            self.heartbeat_thread = None
+
+        # Only attempt reconnection if we're still supposed to be running
         if self.running:
-            self.reconnect_attempts += 1
-            delay = min(2 ** min(self.reconnect_attempts, 5), 30)
-            time.sleep(delay)
-            threading.Thread(target=self._auto_reconnect, daemon=True).start()
+            # Different backoff strategies based on close code
+            if close_status_code in [4000, 4001, 4002, 4003]:  # Authentication errors
+                print(f"\033[1;31m[GATEWAY]\033[0m Authentication error ({close_status_code}) - checking token validity")
+                # Don't reconnect immediately for auth errors
+                time.sleep(15)  # Reduced from 30
+            elif close_status_code in [4004, 4010, 4011]:  # Permanent bans/disables
+                print(f"\033[1;31m[GATEWAY]\033[0m Permanent disconnect ({close_status_code}) - account may be disabled")
+                self.running = False  # Stop trying to reconnect
+                return
+            elif close_status_code == 4007:  # Invalid sequence
+                print(f"\033[1;33m[GATEWAY]\033[0m Invalid sequence - resetting session")
+                self.session_id = None
+                self.can_resume = False
+                time.sleep(2)  # Brief pause before reconnect
+            elif close_status_code in [1000, 1001]:  # Clean disconnect
+                print(f"\033[1;36m[GATEWAY]\033[0m Clean disconnect - will reconnect immediately")
+                time.sleep(1)  # Minimal delay for clean reconnects
+            else:
+                # For other close codes, use adaptive delay based on stability
+                base_delay = 3 if self._network_stability_score > 70 else 5 if self._network_stability_score > 40 else 8
+                time.sleep(base_delay)
+
+            # Start reconnection in background
+            reconnect_thread = threading.Thread(target=self._auto_reconnect, daemon=True, name="GatewayReconnect")
+            reconnect_thread.start()
+        else:
+            print(f"\033[1;36m[GATEWAY]\033[0m Bot shutdown requested - not reconnecting")
     
     def resume(self):
-        """Send op 6 RESUME to re-attach to an existing session."""
+        """Enhanced resume with timeout and fallback to identify."""
+        if not self.can_resume or not self.session_id:
+            print(f"\033[1;33m[RESUME]\033[0m Cannot resume - no valid session")
+            self.identify()
+            return
+        
+        # Don't attempt resume if already identified
+        if self.identified:
+            print(f"\033[1;33m[RESUME]\033[0m Skipping resume - already identified")
+            return
+        
         try:
             payload = {
                 "op": GatewayOpcodes.Resume,
@@ -460,8 +711,12 @@ class DiscordBot:
             }
             self.ws.send(json.dumps(payload))
             print(f"\033[1;36m[RESUME]\033[0m Attempting resume: session={self.session_id} seq={self.sequence}")
+            
+            # Set a more generous timeout for resume response
+            self._resume_timeout = time.time() + 15  # Increased from 10 to 15 seconds
+            
         except Exception as e:
-            print(f"\033[1;31m[RESUME ERROR]\033[0m {e}")
+            print(f"\033[1;31m[RESUME ERROR]\033[0m Failed to send resume: {e}")
             self.identify()
 
     def on_open(self, ws):
@@ -472,47 +727,223 @@ class DiscordBot:
             self.identify()
     
     def start_heartbeat(self):
+        """Enhanced heartbeat with timeout detection and automatic reconnection."""
         if self.heartbeat_thread and self.heartbeat_thread.is_alive():
             return
         
         def heartbeat():
+            consecutive_misses = 0
+            max_misses = 3
+            
             while self.running and self.connection_active:
                 try:
-                    if self.ws and self.ws.sock and self.ws.sock.connected:
-                        self._heartbeat_sent_at = time.time()
+                    current_time = time.time()
+                    interval = float(self.heartbeat_interval or 30.0)
+                    
+                    # Check for resume timeout
+                    if hasattr(self, '_resume_timeout') and self._resume_timeout and current_time > self._resume_timeout:
+                        print(f"\033[1;33m[RESUME]\033[0m Resume timeout - falling back to identify")
+                        self._resume_timeout = None
+                        self.can_resume = False  # Force identify next time
+                        # Only identify if we're not already identified
+                        if not self.identified:
+                            self.identify()
+                        consecutive_misses += 1
+                        time_since_last_ack = current_time - (self._last_ack_at or current_time)
+                        print(f"\033[1;33m[HEARTBEAT]\033[0m Missed ACK ({consecutive_misses}/{max_misses}) - latency: {time_since_last_ack:.1f}s")
+                        
+                        if consecutive_misses >= max_misses:
+                            print(f"\033[1;31m[HEARTBEAT]\033[0m Too many missed ACKs - triggering reconnection")
+                            self.connection_active = False
+                            self._connection_quality_score = max(0, self._connection_quality_score - 20)
+                            threading.Thread(target=self._auto_reconnect, daemon=True).start()
+                            return
+                    else:
+                        consecutive_misses = 0  # Reset on successful ACK
+                    
+                    # Send heartbeat if connection is still active
+                    if self.ws and self.ws.sock and self.ws.sock.connected and self.connection_active:
+                        self._heartbeat_sent_at = current_time
                         heartbeat_msg = {"op": GatewayOpcodes.Heartbeat, "d": self.sequence}
                         self.ws.send(json.dumps(heartbeat_msg))
-                    interval = float(self.heartbeat_interval or 30.0)
+                    
                     time.sleep(interval)
-                except:
+                    
+                except Exception as e:
+                    print(f"\033[1;31m[HEARTBEAT ERROR]\033[0m {e}")
                     if self.running:
                         self.connection_active = False
+                        self._connection_quality_score = max(0, self._connection_quality_score - 10)
                     break
         
-        self.heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
+        self.heartbeat_thread = threading.Thread(target=heartbeat, daemon=True, name="GatewayHeartbeat")
         self.heartbeat_thread.start()
         
-        time.sleep(1)
+        # Brief delay to let heartbeat start
+        time.sleep(0.1)
 
-    def get_gateway_latency_metrics(self) -> Dict[str, Optional[float]]:
+    def get_gateway_latency_metrics(self) -> Dict[str, Any]:
+        """Get gateway latency metrics, supporting both legacy and async gateway"""
+
+        # Use gateway bridge metrics if available
+        if self.use_async_gateway and self.gateway_bridge:
+            bridge_metrics = self.gateway_bridge.get_gateway_latency_metrics()
+            return {
+                "last_ms": bridge_metrics.get('latency_ms'),
+                "avg_ms": bridge_metrics.get('latency_ms'),  # Bridge doesn't provide samples yet
+                "best_ms": bridge_metrics.get('latency_ms'),
+                "samples": 1 if bridge_metrics.get('latency_ms') else 0,
+                "compressed": bridge_metrics.get('compressed', False),
+                "client_type": bridge_metrics.get('client_type', 'unknown'),
+                "gateway_type": "async_bridge"
+            }
+
+        # Legacy metrics
         samples = list(self._gateway_latency_samples)
         if not samples:
-            return {"last_ms": self.gateway_latency_ms, "avg_ms": None, "best_ms": None, "samples": 0}
+            return {
+                "last_ms": self.gateway_latency_ms,
+                "avg_ms": None,
+                "best_ms": None,
+                "samples": 0,
+                "compressed": False,
+                "client_type": self._client_type,
+                "gateway_type": "legacy_websocket"
+            }
         return {
             "last_ms": self.gateway_latency_ms,
             "avg_ms": sum(samples) / len(samples),
             "best_ms": min(samples),
             "samples": len(samples),
+            "compressed": False,
+            "client_type": self._client_type,
+            "gateway_type": "legacy_websocket"
         }
     
+    def get_connection_diagnostics(self) -> Dict[str, Any]:
+        """Enhanced connection diagnostics with uptime and stability metrics."""
+        current_time = time.time()
+        total_runtime = current_time - getattr(self, '_connection_start_time', current_time)
+        active_uptime = self._total_uptime
+
+        if self.connection_active:
+            active_uptime += current_time - self._last_uptime_check
+
+        uptime_percentage = (active_uptime / total_runtime * 100) if total_runtime > 0 else 0
+
+        return {
+            "connected": self.connection_active,
+            "identified": self.identified,
+            "session_id": self.session_id[:10] + "..." if self.session_id else None,
+            "can_resume": self.can_resume,
+            "sequence": self.sequence,
+            "client_type": self._client_type,
+            "connection_quality": self._connection_quality_score,
+            "network_stability": self._network_stability_score,
+            "consecutive_failures": self._consecutive_failures,
+            "total_uptime_seconds": active_uptime,
+            "total_runtime_seconds": total_runtime,
+            "uptime_percentage": uptime_percentage,
+            "last_heartbeat": self._last_successful_heartbeat,
+            "heartbeat_age_seconds": current_time - self._last_successful_heartbeat,
+            "gateway_latency_ms": self.gateway_latency_ms,
+        }
+    
+    def _monitor_connection_health(self):
+        """Monitor connection health and trigger recovery if needed."""
+        while self.running:
+            try:
+                time.sleep(30)  # Check every 30 seconds
+                
+                if not self.connection_active:
+                    continue
+                    
+                current_time = time.time()
+                diagnostics = self.get_connection_diagnostics()
+                
+                # Check for stale heartbeats (more conservative timeout)
+                heartbeat_timeout = max(300, (self.heartbeat_interval or 45) * 6)  # At least 5 minutes or 6x heartbeat interval
+                if current_time - diagnostics["last_heartbeat"] > heartbeat_timeout:
+                    print(f"\033[1;31m[HEALTH]\033[0m 🔴 STALE HEARTBEAT DETECTED ({heartbeat_timeout}s timeout) - Triggering recovery")
+                    self._network_stability_score = max(0, self._network_stability_score - 20)
+                    self._trigger_connection_recovery("stale_heartbeat")
+                    continue
+                
+                # Check for degraded network stability
+                if diagnostics["network_stability"] < 30:
+                    print(f"\033[1;33m[HEALTH]\033[0m 🟡 LOW NETWORK STABILITY ({diagnostics['network_stability']:.1f}) - Monitoring closely")
+                
+                # Check for low uptime percentage
+                if diagnostics["uptime_percentage"] < 50 and diagnostics["total_runtime_seconds"] > 300:
+                    print(f"\033[1;33m[HEALTH]\033[0m 🟡 LOW UPTIME ({diagnostics['uptime_percentage']:.1f}%) - Connection unstable")
+                    
+            except Exception as e:
+                print(f"\033[1;31m[HEALTH ERROR]\033[0m Connection health monitor error: {e}")
+                time.sleep(60)  # Back off on errors
+
+    def _trigger_connection_recovery(self, reason: str):
+        """Trigger connection recovery for specific issues."""
+        current_time = time.time()
+        
+        # Prevent too many rapid recoveries (max 1 per 5 minutes)
+        if hasattr(self, '_last_recovery_time') and current_time - self._last_recovery_time < 300:
+            print(f"\033[1;33m[RECOVERY]\033[0m ⚠️ Recovery too soon, skipping ({reason})")
+            return
+            
+        self._last_recovery_time = current_time
+        print(f"\033[1;36m[RECOVERY]\033[0m 🔄 TRIGGERING RECOVERY: {reason}")
+        
+        # Force a clean disconnect and reconnect
+        try:
+            if self.ws and self.ws.sock:
+                self.ws.close()
+        except:
+            pass
+            
+        self.connection_active = False
+        self.identified = False
+        
+        # Reset connection state
+        self._consecutive_failures += 1
+        self._last_connection_attempt = time.time()
+        
+        # Start reconnection with adaptive delay
+        delay = min(60 + (self._consecutive_failures * 10), 600)  # Start at 1 minute, max 10 minutes
+        print(f"\033[1;36m[RECOVERY]\033[0m ⏳ Recovery reconnect in {delay}s")
+        
+        threading.Timer(delay, self._auto_reconnect).start()
+
+    def get_status_summary(self) -> str:
+        """Get a human-readable status summary for monitoring."""
+        diagnostics = self.get_connection_diagnostics()
+        
+        status_emoji = "🟢" if diagnostics["connected"] and diagnostics["identified"] else "🔴"
+        if diagnostics["network_stability"] < 50:
+            status_emoji = "🟡"
+            
+        uptime_str = f"{diagnostics['uptime_percentage']:.1f}%" if diagnostics['total_runtime_seconds'] > 60 else "N/A"
+        
+        return (
+            f"{status_emoji} Bot Status | "
+            f"Connected: {diagnostics['connected']} | "
+            f"Identified: {diagnostics['identified']} | "
+            f"Uptime: {uptime_str} | "
+            f"Stability: {diagnostics['network_stability']:.1f} | "
+            f"Quality: {diagnostics['connection_quality']:.1f} | "
+            f"Failures: {diagnostics['consecutive_failures']}"
+        )
+
     def _build_gateway_headers(self) -> List[str]:
-        headers = {"User-Agent": "Mozilla/5.0"}
+        """Build headers for gateway WebSocket connection."""
         spoofer = getattr(self, "protection_coordinator", None)
         if spoofer and hasattr(spoofer, "get_websocket_headers"):
             try:
                 headers = spoofer.get_websocket_headers()
             except Exception:
-                pass
+                headers = {"User-Agent": "Mozilla/5.0"}
+        else:
+            headers = {"User-Agent": "Mozilla/5.0"}
+            
         blocked = {
             "sec-websocket-extensions",
             "sec-websocket-key",
@@ -532,6 +963,11 @@ class DiscordBot:
     _CLIENT_PROFILES = CLIENT_PROFILES
 
     def identify(self):
+        # Prevent duplicate identification attempts
+        if self.identified:
+            print(f"\033[1;33m[IDENTIFY]\033[0m Skipping identify - already authenticated")
+            return
+            
         try:
             # Only resolve from config on the very first identify (not yet identified).
             # After that, preserve whatever was set explicitly by set_client_type().
@@ -577,12 +1013,12 @@ class DiscordBot:
         # VRRPC management
         if not hasattr(self, "_vrrpc"):
             self._vrrpc = None
-        if client_type == "vr":
+        if client_type == "vr" and not getattr(self.config, 'disable_vrrpc', False):
             if self._vrrpc is None:
                 try:
                     self._vrrpc = VRRPC(self.config)
                     self._vrrpc._desired_running = True
-                    self._vrrpc.start(self.token)
+                    self._vrrpc.start()
                 except Exception as e:
                     print(f"[VRRPC] Failed to start VRRPC: {e}")
                     self._vrrpc = None
@@ -590,11 +1026,11 @@ class DiscordBot:
                 self._vrrpc._desired_running = True
                 if not self._vrrpc.running:
                     try:
-                        self._vrrpc.start(self.token)
+                        self._vrrpc.start()
                     except Exception as e:
                         print(f"[VRRPC] Failed to restart VRRPC: {e}")
         else:
-            # Stop VRRPC if running
+            # Stop VRRPC if running and not vr client type
             if hasattr(self, "_vrrpc") and self._vrrpc is not None:
                 try:
                     self._vrrpc._desired_running = False
@@ -613,16 +1049,134 @@ class DiscordBot:
         return True
 
     def _auto_reconnect(self):
-        """Reconnect gateway using current token and client type."""
-        while self.running:
-            try:
-                self._connect_gateway()
-                break
-            except Exception as e:
-                print(f"\033[1;31m[RECONNECT]\033[0m error: {e}")
-                time.sleep(5)
+        """Enhanced reconnect with intelligent backoff and connection quality tracking."""
+        with self._connection_lock:
+            if self._connecting:
+                return  # Already attempting connection
+            self._connecting = True
+
+        try:
+            while self.running and self._consecutive_failures < self._max_consecutive_failures:
+                current_time = time.time()
+
+                # Rate limit connection attempts with adaptive timing
+                time_since_last_attempt = current_time - self._last_connection_attempt
+                min_delay = 0.5 if self._network_stability_score > 70 else 1.0 if self._network_stability_score > 40 else 2.0
+                if time_since_last_attempt < min_delay:
+                    time.sleep(min_delay - time_since_last_attempt)
+
+                self._last_connection_attempt = time.time()
+
+                try:
+                    self._connect_gateway()
+                    # Success - reset failure counter and improve quality score
+                    self._consecutive_failures = 0
+                    self._connection_quality_score = min(100, self._connection_quality_score + 15)  # Bigger improvement
+                    self._network_stability_score = min(100, self._network_stability_score + 10)
+                    self._connection_start_time = time.time()
+                    print(f"\033[1;32m[GATEWAY]\033[0m Reconnected successfully - stability: 🟢{self._network_stability_score}%")
+                    break
+
+                except Exception as e:
+                    self._consecutive_failures += 1
+                    self._connection_quality_score = max(0, self._connection_quality_score - 3)  # Less penalty
+                    self._network_stability_score = max(0, self._network_stability_score - 5)
+
+                    # Adaptive backoff based on network stability
+                    if self._network_stability_score > 70:
+                        base_delay = min(2 ** min(self._consecutive_failures - 1, 4), 30.0)  # Faster recovery for stable networks
+                    elif self._network_stability_score > 40:
+                        base_delay = min(2 ** min(self._consecutive_failures, 5), 45.0)  # Moderate recovery
+                    else:
+                        base_delay = min(2 ** min(self._consecutive_failures, 6), 60.0)  # Slower for unstable networks
+
+                    jitter = base_delay * 0.15 * (0.5 - time.time() % 1)  # ±15% jitter
+                    delay = base_delay + jitter
+
+                    stability_indicator = "🔴" if self._network_stability_score < 30 else "🟡" if self._network_stability_score < 70 else "🟢"
+                    print(f"\033[1;31m[RECONNECT]\033[0m Failed (attempt {self._consecutive_failures}/{self._max_consecutive_failures}) {stability_indicator} {self._network_stability_score}% - retrying in {delay:.1f}s: {str(e)[:60]}")
+
+                    if self._consecutive_failures >= self._max_consecutive_failures:
+                        print(f"\033[1;31m[RECONNECT]\033[0m Max consecutive failures reached. Entering degraded mode with extended backoff.")
+                        self._connection_quality_score = 0
+                        # Don't break - continue with very slow retries in degraded mode
+                        time.sleep(120)  # 2 minute backoff in degraded mode
+                        self._consecutive_failures = self._max_consecutive_failures - 1  # Reset to continue trying
+                        continue
+
+                    time.sleep(delay)
+
+        finally:
+            with self._connection_lock:
+                self._connecting = False
 
     def _connect_gateway(self):
+        """Connect to Discord gateway using either async bridge or legacy websocket"""
+
+        # Use async gateway bridge if enabled
+        if self.use_async_gateway:
+            self._connect_gateway_bridge()
+            return
+
+        # Legacy websocket connection
+        self._connect_gateway_legacy()
+
+    def _connect_gateway_bridge(self):
+        """Connect using async gateway bridge"""
+        try:
+            from gateway_bridge import GatewayBridge
+        except ImportError as e:
+            print(f"❌ Failed to import gateway bridge: {e}")
+            print("Falling back to legacy gateway...")
+            self.use_async_gateway = False
+            self._connect_gateway_legacy()
+            return
+
+        action = "Resuming" if (self.can_resume and self.session_id) else "Connecting"
+        compress = self.config.get("gateway_compress", True)
+        client_type = self._client_type
+
+        print(f"\033[1;36m[GATEWAY]\033[0m {action} with async bridge (compress={compress}, client={client_type})")
+
+        # Create gateway bridge
+        self.gateway_bridge = GatewayBridge(self.token, compress=compress, client_type=client_type)
+
+        # Set up event callbacks to bridge to existing bot methods
+        self.gateway_bridge.on_ready(self._on_bridge_ready)
+        self.gateway_bridge.on_message(self._on_bridge_message)
+        self.gateway_bridge.on_error(self._on_bridge_error)
+        self.gateway_bridge.on_close(self._on_bridge_close)
+        self.gateway_bridge.on_payload(self._on_bridge_payload)
+
+        # Make bridge act like ws object so existing status/activity send path still works.
+        self.ws = self.gateway_bridge
+
+        # Set up additional event handlers for other Discord events
+        self.gateway_bridge.set_callback('on_guild_create', self._on_guild_create)
+        self.gateway_bridge.set_callback('on_guild_update', self._on_guild_update)
+        self.gateway_bridge.set_callback('on_guild_delete', self._on_guild_delete)
+        self.gateway_bridge.set_callback('on_channel_create', self._on_channel_create)
+        self.gateway_bridge.set_callback('on_channel_update', self._on_channel_update)
+        self.gateway_bridge.set_callback('on_channel_delete', self._on_channel_delete)
+        self.gateway_bridge.set_callback('on_guild_member_add', self._on_guild_member_add)
+        self.gateway_bridge.set_callback('on_guild_member_remove', self._on_guild_member_remove)
+        self.gateway_bridge.set_callback('on_guild_member_update', self._on_guild_member_update)
+        self.gateway_bridge.set_callback('on_presence_update', self._on_presence_update)
+        self.gateway_bridge.set_callback('on_typing_start', self._on_typing_start)
+        self.gateway_bridge.set_callback('on_message_delete', self._on_message_delete)
+        self.gateway_bridge.set_callback('on_message_update', self._on_message_update)
+
+        try:
+            self.gateway_bridge.start()
+            print("✅ Async gateway bridge connected successfully")
+        except Exception as e:
+            print(f"❌ Gateway bridge connection failed: {e}")
+            print("Falling back to legacy gateway...")
+            self.use_async_gateway = False
+            self._connect_gateway_legacy()
+
+    def _connect_gateway_legacy(self):
+        """Legacy websocket gateway connection"""
         # Use resume_gateway_url when resuming, else the standard endpoint
         url = (
             (self.resume_gateway_url + "?v=10&encoding=json")
@@ -631,7 +1185,7 @@ class DiscordBot:
         )
         self.identified = False
         action = "Resuming" if (self.can_resume and self.session_id) else "Connecting"
-        print(f"\033[1;36m[GATEWAY]\033[0m {action} with client={self._client_type}")
+        print(f"\033[1;36m[GATEWAY]\033[0m {action} with legacy websocket (client={self._client_type})")
 
         # Build proxy kwarg from proxy manager if available
         proxy_kwargs: Dict[str, Any] = {}
@@ -673,14 +1227,99 @@ class DiscordBot:
         self.ws_thread = threading.Thread(
             target=lambda: ws_app.run_forever(
                 sslopt={"cert_reqs": ssl.CERT_NONE},
-                ping_interval=30,
-                ping_timeout=10,
+                ping_interval=25,  # Reduced from 30 for more frequent health checks
+                ping_timeout=15,   # Increased from 10 for more tolerance
                 **proxy_kwargs,
             ),
             daemon=True,
             name="GatewayWS",
         )
         self.ws_thread.start()
+
+        # Start connection health monitor if not already running
+        if not hasattr(self, '_health_monitor_thread') or not self._health_monitor_thread.is_alive():
+            self._health_monitor_thread = threading.Thread(
+                target=self._monitor_connection_health,
+                daemon=True,
+                name="ConnectionHealthMonitor"
+            )
+            self._health_monitor_thread.start()
+
+    # Gateway Bridge Callback Methods
+    def _on_bridge_ready(self, data: Dict[str, Any]):
+        """Handle READY event from async gateway bridge"""
+        self.connection_active = True
+        self.session_id = data.get('session_id')
+        self.resume_gateway_url = data.get('resume_gateway_url')
+        self.can_resume = True
+
+        # Update latency if available
+        if self.gateway_bridge:
+            metrics = self.gateway_bridge.get_gateway_latency_metrics()
+            self.gateway_latency_ms = metrics.get('latency_ms')
+
+        # Extract user info
+        user = data.get('user', {})
+        self.user_id = user.get('id')
+        self.username = user.get('username')
+        print(f"✅ Async gateway bridge ready: {self.username}#{user.get('discriminator', '0')}")
+
+    def _on_bridge_message(self, data: Dict[str, Any]):
+        """Handle MESSAGE_CREATE event from async gateway bridge"""
+        self._handle_message(data)
+
+    def _on_bridge_payload(self, payload: Dict[str, Any]):
+        """Feed raw gateway payloads into existing handler for full compatibility."""
+        try:
+            # Async gateway already handles heartbeat opcodes; we only proxy dispatch
+            # events to avoid duplicate heartbeat threads and ACK accounting.
+            if payload.get("op") == GatewayOpcodes.Dispatch:
+                self.on_message(None, json.dumps(payload))
+        except Exception:
+            pass
+
+    def _on_bridge_error(self, error):
+        """Handle error event from async gateway bridge"""
+        print(f"❌ Async gateway bridge error: {error}")
+        self.on_error(None, error)
+
+    def _on_bridge_close(self, code: int, reason: str):
+        """Handle close event from async gateway bridge"""
+        print(f"🔌 Async gateway bridge closed: {code} - {reason}")
+        self.connection_active = False
+        self.on_close(None, code, reason)
+
+    # Placeholder methods for additional events (can be expanded)
+    def _on_guild_create(self, data): pass
+    def _on_guild_update(self, data): pass
+    def _on_guild_delete(self, data): pass
+    def _on_channel_create(self, data): pass
+    def _on_channel_update(self, data): pass
+    def _on_channel_delete(self, data): pass
+    def _on_guild_member_add(self, data): pass
+    def _on_guild_member_remove(self, data): pass
+    def _on_guild_member_update(self, data): pass
+    def _on_presence_update(self, data): pass
+    def _on_typing_start(self, data): pass
+    def _on_message_delete(self, data): pass
+    def _on_message_update(self, data): pass
+
+    # ── Dashboard notification helper ─────────────────────────────────────────
+
+    def _push_notif(self, kind: str, title: str, body: str = "", author: str = "",
+                    author_id: str = "", channel_id: str = "", guild_id: str = "",
+                    icon: str = "", event_id: str = "") -> None:
+        """Push a Discord event into the webpanel notification center (no-op if not connected)."""
+        try:
+            if self._web_panel is not None:
+                self._web_panel.push_discord_notification(
+                    kind=kind, title=title, body=body,
+                    author=author, author_id=author_id,
+                    channel_id=channel_id, guild_id=guild_id,
+                    icon=icon, event_id=event_id,
+                )
+        except Exception:
+            pass
 
     def _handle_message(self, message_data: dict):
         """Process an incoming MESSAGE_CREATE event and dispatch commands."""
@@ -690,6 +1329,52 @@ class DiscordBot:
             author_id = author.get("id", "")
             channel_id = message_data.get("channel_id", "")
             guild_id = message_data.get("guild_id")
+
+            # ── Dashboard: push Discord notifications ──────────────────────────
+            try:
+                if author_id and author_id != str(self.user_id or ""):
+                    author_name = author.get("global_name") or author.get("username", "")
+                    msg_id = message_data.get("id", "")
+                    snippet = (content or "")[:120]
+                    mentions = message_data.get("mentions", [])
+                    mention_roles = message_data.get("mention_roles", [])
+                    mention_everyone = message_data.get("mention_everyone", False)
+                    mentioned_me = (
+                        str(self.user_id or "") in [str(m.get("id", "")) for m in mentions]
+                        or mention_everyone
+                    )
+                    if not guild_id:
+                        # Direct message
+                        self._push_notif(
+                            kind="dm",
+                            title=f"DM from {author_name}",
+                            body=snippet,
+                            author=author_name,
+                            author_id=author_id,
+                            channel_id=channel_id,
+                            icon="✉️",
+                            event_id=f"dm_{msg_id}",
+                        )
+                    elif mentioned_me:
+                        # Mention in a server
+                        guild_name = ""
+                        try:
+                            guild_name = message_data.get("guild_id", "Server")
+                        except Exception:
+                            pass
+                        self._push_notif(
+                            kind="mention",
+                            title=f"Mentioned by {author_name}",
+                            body=snippet,
+                            author=author_name,
+                            author_id=author_id,
+                            channel_id=channel_id,
+                            guild_id=guild_id or "",
+                            icon="🔔",
+                            event_id=f"mention_{msg_id}",
+                        )
+            except Exception:
+                pass
 
             # Persist recent messages for developer retrieval commands.
             try:
@@ -917,6 +1602,15 @@ class DiscordBot:
         """Gracefully stop the bot."""
         self.running = False
         self.connection_active = False
+
+        # Stop gateway bridge if using async gateway
+        if self.use_async_gateway and self.gateway_bridge:
+            try:
+                self.gateway_bridge.stop()
+            except Exception as e:
+                print(f"Error stopping gateway bridge: {e}")
+
+        # Stop legacy websocket
         try:
             if self.ws:
                 self.ws.close()
@@ -927,23 +1621,31 @@ class DiscordBot:
         """Connect to Discord gateway and block until stopped.
 
         A watchdog loop runs on the main thread: every 15 s it checks whether
-        the gateway WS thread is still alive.  If the thread has died (e.g.
-        network drop that websocket-client didn't notice), it triggers a
+        the gateway connection is still alive. If the connection has died, it triggers a
         reconnect so the bot wakes back up automatically.
         """
         self._connect_gateway()
         while self.running:
             try:
                 time.sleep(15)
-                # Watchdog: restart gateway if WS thread died silently
-                if (
-                    self.running
-                    and (
-                        self.ws_thread is None
-                        or not self.ws_thread.is_alive()
+                # Watchdog: restart gateway if connection died silently
+                connection_alive = False
+
+                if self.use_async_gateway:
+                    # Check async gateway bridge
+                    connection_alive = (
+                        self.gateway_bridge and
+                        self.gateway_bridge.connection_active
                     )
-                ):
-                    print("\033[1;33m[WATCHDOG]\033[0m Gateway thread dead — reconnecting…")
+                else:
+                    # Check legacy websocket thread
+                    connection_alive = (
+                        self.ws_thread and
+                        self.ws_thread.is_alive()
+                    )
+
+                if self.running and not connection_alive:
+                    print("\033[1;33m[WATCHDOG]\033[0m Gateway connection dead — reconnecting…")
                     self.identified = False
                     self.connection_active = False
                     self._connect_gateway()

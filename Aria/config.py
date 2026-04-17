@@ -1,6 +1,12 @@
 import json
 import os
 
+try:
+    from token_encrypter import TokenEncrypter as _TokenEncrypter
+    _encrypter = _TokenEncrypter()
+except Exception:
+    _encrypter = None
+
 class Config:
     def __init__(self, config_file="config.json"):
         self.config_file = config_file
@@ -27,10 +33,10 @@ class Config:
             "vr_rpc_auto_start": False,
             "vr_rpc_icon_only": True,
             "discord_client_id": "1491307436148129822",
-            "discord_client_secret": "u969UvYVRgaYG8kGleosNl3JkQxUHHnd",
+            "discord_client_secret": "discord_client_secret_here",
             "dashboard_url": "https://stackss.lol",
             "oauth_redirect_uri": "https://stackss.lol/callback",
-            "discord_bot_token": "MTQ5MTMwNzQzNjE0ODEyOTgyMg.GcU03l.0K3Rw6Eoy4_NkqrD_zSaYKLxj8Sy5HgPgOJ9O4",
+            "discord_bot_token": "discord_bot_token_here",
             "gateway_client": "web",
             "mongo_enabled": False,
             "mongo_uri": "mongodb://127.0.0.1:27017",
@@ -38,7 +44,7 @@ class Config:
             "mongo_collection": "app_state",
             "mongo_timeout_ms": 1500,
             "captcha_enabled": False,
-            "captcha_api_key": "6354c8b64c602d94cadf5912f437cd28",
+            "captcha_api_key": "captcha_api_key_here",
             "captcha_service": "2captcha"  # 2captcha, anticaptcha, capmonster, capsolver, spoof
         }
         self.config = self.load_config()
@@ -50,7 +56,11 @@ class Config:
                     loaded = json.load(f)
                     config = self.default_config.copy()
                     config.update(loaded)
-                    
+
+                    # Decrypt any encrypted sensitive fields transparently
+                    if _encrypter:
+                        config = _encrypter.decrypt_config(config)
+
                     if not config["token"] or config["token"] == "token here":
                         if os.path.exists("hosted_token.txt"):
                             with open("hosted_token.txt", "r") as tf:
@@ -60,14 +70,21 @@ class Config:
             except:
                 return self.default_config
         return self.default_config
-    
+
     def save_config(self):
+        data = dict(self.config)
+        # Encrypt sensitive fields before writing to disk
+        if _encrypter:
+            from token_encrypter import SENSITIVE_KEYS
+            for key in SENSITIVE_KEYS:
+                if key in data and data[key] and not _encrypter.is_encrypted(data[key]):
+                    data[key] = _encrypter.encrypt(data[key])
         with open(self.config_file, 'w') as f:
-            json.dump(self.config, f, indent=4)
-    
+            json.dump(data, f, indent=4)
+
     def get(self, key, default=None):
         return self.config.get(key, default)
-    
+
     def set(self, key, value):
         self.config[key] = value
         self.save_config()

@@ -243,8 +243,17 @@ class VRRPC:
                 print("[VR RPC] Disconnected — discord.py will reconnect automatically")
 
             async def on_error(self, event, *args, **kwargs):
-                print(f"[VR RPC] Error in event {event}")
-                traceback.print_exc()
+                import sys
+                error_type, error_value, tb = sys.exc_info()
+                error_str = str(error_value).upper()
+                
+                if 'INVALID_SESSION' in error_str or '9' in error_str:
+                    print(f"[VR RPC] ! INVALID_SESSION detected - session will be reestablished on reconnect")
+                    self.ready_logged = False
+                    outer._gateway_connected = False
+                else:
+                    print(f"[VR RPC] Error in event {event}: {error_type.__name__}: {error_value}")
+                    traceback.print_exc()
 
         # Minimal intents — VR client only needs to connect and set presence,
         # it doesn't need to receive guild/member/message events.
@@ -303,10 +312,11 @@ class VRRPC:
         while time.time() < end_time:
             if self._stop_requested or not self._desired_running:
                 break
-            time.sleep(0.5)
+            time.sleep(0.2)
 
     def _launch_client_thread(self, token, auth_mode, rpc_name, details, state, large_image, icon_only):
-        self.client = self._build_client(auth_mode, rpc_name, details, state, large_image, icon_only)
+        # Store args for the thread to use
+        self._last_start_args = (token, auth_mode, rpc_name, details, state, large_image, icon_only)
         self.running = True
         self._gateway_connected = False
         self._last_launch_time = time.time()
@@ -314,6 +324,19 @@ class VRRPC:
 
         def run_client():
             try:
+                # Set up event loop for this thread before creating client
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    # No event loop in this thread, create one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                print(f"[VR RPC] Thread event loop ready, creating client...")
+                # Create the client in this thread with the event loop
+                self.client = self._build_client(auth_mode, rpc_name, details, state, large_image, icon_only)
+
                 print(f"[VR RPC] Thread starting, running client.run()...")
                 self.client.run(token, reconnect=False)
                 if not self._stop_requested and self._desired_running:
@@ -403,13 +426,17 @@ class VRRPC:
             DiscordWebSocket.identify = identify_vr
             VRRPC._identify_patched = True
     
-    def start(self, token, rpc_name="VR", details="In VR", state="Meta Quest", large_image="", icon_only=False):
+    def start(self, token=None, rpc_name="In VR", details="Meta Quest", state="Playing", large_image="", icon_only=True):
         """Start VR RPC with the provided settings"""
         if not DISCORD_AVAILABLE:
             return False, f"discord.py import failed: {DISCORD_IMPORT_ERROR}"
 
         if self.running or (self.thread and self.thread.is_alive()):
             return False, "VR RPC already running"
+        
+        # Get token from config if not provided
+        if token is None:
+            token = self.config.get('token')
         
         try:
             app_id_str = self.config.get('application_id', '0')
@@ -418,9 +445,9 @@ class VRRPC:
             print(f"[VR RPC] Auth mode: {auth_mode} (detected from token format)")
             
             # Validate token before attempting to start
-            if not token or token == "YOUR_BOT_TOKEN":
+            if not token or token == "YOUR_BOT_TOKEN" or token == "token here":
                 self.running = False
-                return False, "Invalid or missing Discord bot token"
+                return False, "Invalid or missing Discord token from config.json"
 
             self._desired_running = True
             self._stop_requested = False

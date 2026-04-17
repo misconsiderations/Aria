@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aria Connect Instance</title>
+  <link rel="icon" type="image/png" href="/static/images/aria-favicon.png" />
+  <link rel="apple-touch-icon" href="/static/images/aria-favicon.png" />
+  <link rel="stylesheet" href="/static/css/panel_pages.css" />
+</head>
+<body class="panel-page">
+  <div class="page-wrap page-wrap-md">
+    <div class="top-nav">
+      <div class="brand"><span class="dot"></span> ARIA INSTANCE</div>
+      <div class="nav-links">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/logout">Logout</a>
+      </div>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head site-hero">
+        <div class="hero-copy">
+          <span class="kicker"><i></i> Instance Link</span>
+          <h1 class="page-title">Connect your runtime and open the surface.</h1>
+          <p class="page-sub">This is the one-time link step for approved users. Attach the token, set the prefix, and Aria stores the profile so the dashboard can boot straight into your live context.</p>
+          <div class="hero-note">One-time setup <strong>private instance binding</strong></div>
+        </div>
+        <div class="hero-stack">
+          <div class="metric-card">
+            <span class="label">Bind</span>
+            <span class="value">Token</span>
+            <div class="hint">A successful link creates your primary hosted entry for dashboard access.</div>
+          </div>
+          <div class="metric-card">
+            <span class="label">Flow</span>
+            <span class="value">Setup</span>
+            <div class="hint">Connect once, then return to the dashboard without repeating the onboarding step.</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel-body">
+        __ERROR_BLOCK__
+        <div class="panel-form-shell">
+          <div class="form-card">
+            <div class="eyebrow">Connection Payload</div>
+            <form class="form" method="post" action="/connect-instance">
+              <div class="field">
+                <label for="token">Discord Token</label>
+                <input id="token" name="token" type="password" autocomplete="off" required />
+              </div>
+              <div class="field">
+                <label for="prefix">Prefix</label>
+                <input id="prefix" name="prefix" type="text" value="$" maxlength="5" />
+              </div>
+              <div class="actions">
+                <button class="btn btn-primary" type="submit">Connect and Open Dashboard</button>
+                <a class="btn btn-ghost" href="/logout">Logout</a>
+              </div>
+            </form>
+          </div>
+
+          <div class="aside-card">
+            <div class="eyebrow">What Happens Next</div>
+            <ul class="aside-list">
+              <li><strong>Profile Stored</strong> Your panel session gets a primary hosted entry tied to your dashboard user.</li>
+              <li><strong>Prefix Ready</strong> The chosen prefix becomes the default command trigger for the connected runtime.</li>
+              <li><strong>Dashboard Jump</strong> After a valid link you are redirected straight into the main operator surface.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

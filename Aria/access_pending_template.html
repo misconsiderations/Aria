@@ -3,189 +3,88 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Aria — Request Access</title>
-  <link rel="icon" type="image/png" href="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012" />
-  <link rel="apple-touch-icon" href="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      min-height: 100vh;
-      display: grid; place-items: center;
-      background: #030712;
-      color: #f1f5f9;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 24px;
-    }
-    body::before {
-      content: '';
-      position: fixed; inset: 0; pointer-events: none; z-index: 0;
-      background:
-        radial-gradient(ellipse 70% 55% at 10% 0%, rgba(139,92,246,.18) 0%, transparent 55%),
-        radial-gradient(ellipse 50% 40% at 90% 100%, rgba(236,72,153,.12) 0%, transparent 50%);
-    }
-    .card {
-      width: min(640px, 100%);
-      background: rgba(15,23,42,.94);
-      border: 1px solid rgba(236,72,153,.3);
-      border-radius: 20px; padding: 36px 32px;
-      box-shadow: 0 32px 90px rgba(0,0,0,.55);
-      backdrop-filter: blur(20px);
-      position: relative; z-index: 1;
-    }
-    .icon {
-      width: 54px; height: 54px; border-radius: 14px;
-      background: linear-gradient(135deg, rgba(236,72,153,.18), rgba(139,92,246,.18));
-      border: 1px solid rgba(236,72,153,.3);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1.6rem; margin-bottom: 18px;
-    }
-    h1 { font-size: 1.75rem; font-weight: 900; margin-bottom: 8px; color: #ec4899; }
-    .desc { color: #cbd5e1; line-height: 1.62; font-size: .92rem; margin-bottom: 14px; }
-    .note {
-      background: rgba(139,92,246,.1);
-      border: 1px solid rgba(139,92,246,.28);
-      border-left: 3px solid #8b5cf6;
-      border-radius: 10px; padding: 13px 15px;
-      margin-bottom: 22px;
-      color: #e2e8f0; font-size: .87rem; line-height: 1.55;
-    }
-    .note strong { color: #a78bfa; }
-    .steps {
-      background: rgba(3,7,18,.5);
-      border: 1px solid rgba(148,163,184,.1);
-      border-radius: 11px; padding: 16px;
-      margin-bottom: 22px;
-    }
-    .step {
-      display: flex; gap: 11px; align-items: flex-start;
-      padding: 7px 0;
-      border-bottom: 1px solid rgba(148,163,184,.08);
-      font-size: .85rem; color: #cbd5e1;
-    }
-    .step:last-child { border: none; }
-    .step-n {
-      width: 22px; height: 22px; border-radius: 50%;
-      background: linear-gradient(135deg, #ec4899, #8b5cf6);
-      display: flex; align-items: center; justify-content: center;
-      font-size: .7rem; font-weight: 900; color: #fff; flex-shrink: 0;
-    }
-    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
-    .actions a {
-      text-decoration: none; padding: 10px 18px;
-      border-radius: 10px; font-weight: 800; font-size: .87rem;
-      transition: all .22s;
-    }
-    .a-p {
-      background: linear-gradient(135deg, #ec4899, #8b5cf6);
-      color: #fff;
-    }
-    .a-p:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(236,72,153,.32); }
-    .a-g { background: rgba(15,23,42,.8); border: 1px solid rgba(148,163,184,.14); color: #94a3b8; }
-    .a-g:hover { color: #f1f5f9; border-color: rgba(148,163,184,.3); }
-    .alert {
-      border-radius: 10px;
-      padding: 11px 12px;
-      margin-bottom: 14px;
-      font-size: .84rem;
-      font-weight: 700;
-    }
-    .alert-error {
-      background: rgba(239,68,68,.10);
-      border: 1px solid rgba(239,68,68,.35);
-      color: #fca5a5;
-    }
-    .alert-success {
-      background: rgba(16,185,129,.10);
-      border: 1px solid rgba(16,185,129,.35);
-      color: #6ee7b7;
-    }
-    .form {
-      background: rgba(3,7,18,.5);
-      border: 1px solid rgba(148,163,184,.1);
-      border-radius: 11px;
-      padding: 14px;
-      margin-bottom: 20px;
-    }
-    .field { margin-bottom: 10px; }
-    .field:last-child { margin-bottom: 0; }
-    .field label {
-      display: block;
-      margin-bottom: 5px;
-      font-size: .73rem;
-      letter-spacing: .06em;
-      text-transform: uppercase;
-      color: #94a3b8;
-      font-weight: 800;
-    }
-    .field input,
-    .field textarea {
-      width: 100%;
-      padding: 10px 11px;
-      border-radius: 9px;
-      border: 1px solid rgba(148,163,184,.2);
-      background: rgba(15,23,42,.8);
-      color: #f1f5f9;
-      font: inherit;
-      font-size: .86rem;
-    }
-    .field textarea { min-height: 90px; resize: vertical; }
-    .field input:focus,
-    .field textarea:focus {
-      outline: none;
-      border-color: rgba(139,92,246,.7);
-      box-shadow: 0 0 0 3px rgba(139,92,246,.12);
-    }
-    .submit {
-      width: 100%;
-      border: none;
-      border-radius: 10px;
-      padding: 10px 12px;
-      font-weight: 800;
-      font-size: .87rem;
-      color: #fff;
-      background: linear-gradient(135deg, #ec4899, #8b5cf6);
-      cursor: pointer;
-      transition: all .22s;
-    }
-    .submit:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(236,72,153,.32); }
-  </style>
+  <title>Aria Access Request</title>
+  <link rel="icon" type="image/png" href="/static/images/aria-favicon.png" />
+  <link rel="apple-touch-icon" href="/static/images/aria-favicon.png" />
+  <link rel="stylesheet" href="/static/css/panel_pages.css" />
 </head>
-<body>
-  <div class="card">
-    <div class="icon">⏳</div>
-    <h1>Request Access</h1>
-    <p class="desc">Need dashboard access? Send a quick request and the owner can whitelist your account.</p>
-
-    __ERROR_BLOCK__
-    __SUCCESS_BLOCK__
-
-    <form class="form" method="post" action="/request-access">
-      <div class="field">
-        <label for="username">Discord username</label>
-        <input id="username" name="username" type="text" maxlength="64" required />
+<body class="panel-page">
+  <div class="page-wrap">
+    <div class="top-nav">
+      <div class="brand"><span class="dot"></span> ARIA ACCESS</div>
+      <div class="nav-links">
+        <a href="/home">Home</a>
+        <a href="/login">Login</a>
+        <a href="/tos">Terms</a>
+        <a href="/privacy">Privacy</a>
       </div>
-      <div class="field">
-        <label for="reason">Reason for access</label>
-        <textarea id="reason" name="reason" maxlength="512" required></textarea>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head site-hero">
+        <div class="hero-copy">
+          <span class="kicker"><i></i> Access Queue</span>
+          <h1 class="page-title">Request entry into the Aria operator surface.</h1>
+          <p class="page-sub">Access is reviewed manually. Keep the request short, clear, and real. Once approved, you can sign in and link an instance without touching any fallback route.</p>
+          <div class="hero-note">Approval gate <strong>manual review active</strong></div>
+        </div>
+        <div class="hero-stack">
+          <div class="metric-card">
+            <span class="label">Mode</span>
+            <span class="value">__MODE__</span>
+            <div class="hint">This route is used for onboarding before login becomes available to your user ID.</div>
+          </div>
+          <div class="metric-card">
+            <span class="label">Review</span>
+            <span class="value">Owner</span>
+            <div class="hint">Pending requests are surfaced inside the panel for approval or denial.</div>
+          </div>
+        </div>
       </div>
-      <button class="submit" type="submit">Send Access Request</button>
-    </form>
+      <div class="panel-body split-grid">
+        <div class="form-card">
+          <div class="eyebrow">Access Request</div>
+          __ERROR_BLOCK__
+          __SUCCESS_BLOCK__
+          <form class="form" method="post" action="/request-access">
+            <div class="field">
+              <label for="username">Discord Username</label>
+              <input id="username" name="username" type="text" maxlength="64" required />
+            </div>
+            <div class="field">
+              <label for="reason">Reason for Access</label>
+              <textarea id="reason" name="reason" maxlength="512" required></textarea>
+            </div>
+            <div class="actions">
+              <button class="btn btn-primary" type="submit">Send Request</button>
+            </div>
+          </form>
+          <p class="tiny mt-12">Queue mode: __MODE__</p>
+        </div>
 
-    <div class="note">
-      <strong>Owner contact:</strong> Message <strong>@miscomprehend</strong> and include your Discord user ID for faster approval.
-    </div>
+        <div class="info-rail">
+          <div class="info-card">
+            <h3>Approval Flow</h3>
+            <div class="list-steps">
+              <div class="step"><span class="step-num">1</span><span class="step-text">Submit username and a short reason.</span></div>
+              <div class="step"><span class="step-num">2</span><span class="step-text">Owner reviews pending requests in dashboard users panel.</span></div>
+              <div class="step"><span class="step-num">3</span><span class="step-text">Approved users can log in and connect an instance.</span></div>
+            </div>
+          </div>
 
-    <div class="steps">
-      <div class="step"><div class="step-n">1</div><span>Register or log in with your Discord user ID</span></div>
-      <div class="step"><div class="step-n">2</div><span>Contact @miscomprehend on Discord</span></div>
-      <div class="step"><div class="step-n">3</div><span>Provide your user ID — owner will run the auth command</span></div>
-      <div class="step"><div class="step-n">4</div><span>Log back in to access the full dashboard</span></div>
-    </div>
+          <div class="info-card">
+            <h3>Quick Links</h3>
+            <div class="footer-links mt-0">
+              <a href="/login">Back to Login</a>
+              <a href="/home">Back to Home</a>
+              <a href="/dashboard">Dashboard</a>
+            </div>
+          </div>
 
-    <div class="actions">
-      <a class="a-p" href="/login">Back to Login</a>
-      <a class="a-g" href="/home">Back to Home</a>
-    </div>
+
+        </div>
+      </div>
+    </section>
   </div>
 </body>
 </html>

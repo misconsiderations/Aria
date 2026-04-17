@@ -13,7 +13,7 @@ YELLOW = "\u001b[0;33m"
 PINK = "\u001b[1;35m"  # Bright magenta/pink
 
 NAME = "Aria"
-VERSION = "v1.0.0"
+VERSION = "v1.1.0"
 AUTHOR = "Misconsideration"
 
 def _block(content: str) -> str:

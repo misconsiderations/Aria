@@ -65,7 +65,7 @@ class Context(umbra.Context):
                             print(f"SPAM PROTECTION: {reason}")
                             return None
 
-            # Check client-side rate limits (to prevent Discord UI rate limits)
+            # Check client-side rate limits (optimized for speed)
             action_type = "message" if "/messages" in endpoint else "typing" if "/typing" in endpoint else "reaction" if "/reactions" in endpoint else "other"
             channel_id = "global"
 
@@ -76,15 +76,14 @@ class Context(umbra.Context):
                     channel_id = parts[1].split("/")[0]
 
             client_wait = self.rate_limiter.check_client_rate_limit(action_type, channel_id)
-            if client_wait and client_wait > 0:
-                await asyncio.sleep(client_wait)
+            if client_wait and client_wait > 0.01:  # Only wait if significant delay needed
+                await asyncio.sleep(min(client_wait, 0.1))  # Cap at 100ms
 
-            # Check rate limits using bucket handler
-            # Get cached bucket for this endpoint or use global
+            # Check rate limits using bucket handler (optimized)
             bucket_hash = self.rate_limiter.endpoint_to_bucket.get(endpoint, "global")
             wait_time = self.rate_limiter.should_wait(bucket_hash)
-            if wait_time and wait_time > 0:
-                await asyncio.sleep(wait_time)
+            if wait_time and wait_time > 0.01:  # Only wait if significant delay needed
+                await asyncio.sleep(min(wait_time, 0.05))  # Cap at 50ms
 
             # Check protection coordinator first
             if hasattr(self.umbra, 'api') and self.umbra.api and hasattr(self.umbra.api, 'header_spoofer'):

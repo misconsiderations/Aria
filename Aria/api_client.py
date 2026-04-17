@@ -54,6 +54,69 @@ class DiscordAPIClient:
         self._rate_limit_log_times: Dict[str, float] = {}
         self.last_request_latency_ms: Optional[float] = None
         self._latency_samples = deque(maxlen=25)
+        # Global message rate limiter: 30 messages per minute (more conservative)
+        self.message_timestamps = deque(maxlen=60)
+        # Global reaction rate limiter: 60 reactions per minute (more conservative)
+        self.reaction_timestamps = deque(maxlen=60)
+        # Circuit breaker for safety
+        self.circuit_breaker_hits = 0
+        self.last_circuit_reset = time.time()
+        self.circuit_open = False
+
+    def _check_circuit_breaker(self) -> bool:
+        """Check if circuit breaker should open due to excessive rate limiting."""
+        current_time = time.time()
+        
+        # Reset circuit breaker counters every 5 minutes
+        if current_time - self.last_circuit_reset > 300:
+            self.circuit_breaker_hits = 0
+            self.last_circuit_reset = current_time
+            self.circuit_open = False
+        
+        # Open circuit if too many rate limit hits in window
+        if self.circuit_breaker_hits >= 10:
+            if not self.circuit_open:
+                self.circuit_open = True
+                print("[CIRCUIT-BREAKER] Opening circuit - too many rate limits. Bot will be throttled for 5 minutes.")
+            return True
+        return False
+
+    def _record_rate_limit_hit(self):
+        """Record a rate limit hit for circuit breaker."""
+        self.circuit_breaker_hits += 1
+
+    def _get_exponential_backoff_wait(self, timestamps: deque, limit: int, base_wait: float = 1.0) -> Optional[float]:
+        """Calculate exponential backoff wait time."""
+        current_time = time.time()
+        
+        # Remove old timestamps
+        while timestamps and current_time - timestamps[0] > 60:
+            timestamps.popleft()
+        
+        if len(timestamps) >= limit:
+            # Exponential backoff: wait longer if we're consistently hitting limits
+            excess = len(timestamps) - limit + 1
+            wait_time = base_wait * (2 ** min(excess, 5))  # Cap at 32x base wait
+            return min(wait_time, 60.0)  # Max 1 minute wait
+        return None
+
+    def reset_circuit_breaker(self):
+        """Manually reset the circuit breaker."""
+        self.circuit_breaker_hits = 0
+        self.last_circuit_reset = time.time()
+        self.circuit_open = False
+        print("[CIRCUIT-BREAKER] Manually reset")
+
+    def get_safety_status(self) -> Dict[str, Any]:
+        """Get current safety status for monitoring."""
+        current_time = time.time()
+        return {
+            "circuit_breaker_open": self.circuit_open,
+            "circuit_breaker_hits": self.circuit_breaker_hits,
+            "messages_last_minute": len([t for t in self.message_timestamps if current_time - t <= 60]),
+            "reactions_last_minute": len([t for t in self.reaction_timestamps if current_time - t <= 60]),
+            "time_since_circuit_reset": current_time - self.last_circuit_reset
+        }
 
     def _is_cacheable_get(self, method: str, endpoint: str) -> bool:
         if method != "GET":
@@ -206,7 +269,7 @@ class DiscordAPIClient:
             time.sleep(wait_time)
 
         # Small human-like jitter so adjacent requests don't land at identical timestamps
-        time.sleep(random.uniform(0.05, 0.3))
+        time.sleep(random.uniform(0.01, 0.1))
 
         # Rotate proxy if available (25% chance)
         if self.header_spoofer.proxy_manager and random.random() < 0.25:
@@ -258,7 +321,7 @@ class DiscordAPIClient:
                     print(f"[AUTH-ERROR] 403 on {endpoint} - refreshing headers and retrying ({retry_count + 1}/2)...")
                     self.header_spoofer.rotate_profile()
                     self.header_spoofer._update_session_headers()
-                    time.sleep(0.5)
+                    time.sleep(0.1)
                     return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
 
             # Handle 400 errors - often include captcha challenges
@@ -271,14 +334,14 @@ class DiscordAPIClient:
                         if captcha_info.get("requires_client_refresh") and retry_count == 0:
                             print(f"[CAPTCHA] {endpoint} requested a client refresh; rotating spoofed client profile.")
                             self._refresh_client_identity()
-                            time.sleep(0.5)
+                            time.sleep(0.1)
                             return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
 
                         if self.captcha_solver.can_bypass_with_spoof():
                             print(f"[CAPTCHA] Detected {captcha_info.get('type', 'unknown')} in {endpoint} and no solver key is configured.")
                             print("[CAPTCHA] Rotating spoofed headers and retrying request...")
                             self._refresh_client_identity()
-                            time.sleep(0.5)
+                            time.sleep(0.1)
                             return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
 
                         if self.captcha_solver.is_enabled():
@@ -307,6 +370,7 @@ class DiscordAPIClient:
 
             # Handle rate limiting (429)
             if response.status_code == 429:
+                self._record_rate_limit_hit()  # Record for circuit breaker
                 retry_after = self.rate_limiter.handle_429(dict(response.headers), endpoint)
                 if self._is_cacheable_get(method, endpoint):
                     cached = self._get_cached_response(endpoint, allow_stale=True)
@@ -363,6 +427,21 @@ class DiscordAPIClient:
     
     def send_message(self, channel_id: str, content: str, reply_to: Optional[str] = None, 
                     tts: bool = False) -> Optional[Dict[str, Any]]:
+        # Check circuit breaker first
+        if self._check_circuit_breaker():
+            print("[CIRCUIT-BREAKER] Message blocked - circuit is open")
+            return None
+        
+        # Global message rate limiting: max 30 messages per minute with exponential backoff
+        current_time = time.time()
+        wait_time = self._get_exponential_backoff_wait(self.message_timestamps, 30, 1.0)
+        if wait_time:
+            print(f"[GLOBAL-RATE-LIMIT] Message rate limit reached, waiting {wait_time:.1f}s")
+            time.sleep(wait_time)
+            self._record_rate_limit_hit()
+        
+        self.message_timestamps.append(current_time)
+        
         data = {"content": content, "tts": tts}
         if reply_to:
             data["message_reference"] = {"message_id": reply_to}
@@ -393,6 +472,21 @@ class DiscordAPIClient:
         return []
     
     def add_reaction(self, channel_id: str, message_id: str, emoji: str) -> bool:
+        # Check circuit breaker first
+        if self._check_circuit_breaker():
+            print("[CIRCUIT-BREAKER] Reaction blocked - circuit is open")
+            return False
+        
+        # Global reaction rate limiting: max 60 reactions per minute with exponential backoff
+        current_time = time.time()
+        wait_time = self._get_exponential_backoff_wait(self.reaction_timestamps, 60, 0.5)
+        if wait_time:
+            print(f"[GLOBAL-RATE-LIMIT] Reaction rate limit reached, waiting {wait_time:.1f}s")
+            time.sleep(wait_time)
+            self._record_rate_limit_hit()
+        
+        self.reaction_timestamps.append(current_time)
+        
         encoded_emoji = quote(emoji)
         response = self.request("PUT", f"/channels/{channel_id}/messages/{message_id}/reactions/{encoded_emoji}/@me")
         return response.status_code == 204 if response else False
@@ -646,7 +740,7 @@ class DiscordAPIClient:
             msgs_resp = self.request('GET', f'/channels/{cid}/messages?limit={min(limit_per_channel, 100)}')
             if msgs_resp and msgs_resp.status_code == 200:
                 result[cid] = msgs_resp.json() or []
-            _t.sleep(0.3)
+            _t.sleep(0.1)
         return result
 
     def read_all_dms(self, limit_per_dm: int = 50):
@@ -664,5 +758,5 @@ class DiscordAPIClient:
             msgs_resp = self.request('GET', f'/channels/{cid}/messages?limit={min(limit_per_dm, 100)}')
             if msgs_resp and msgs_resp.status_code == 200:
                 result[cid] = msgs_resp.json() or []
-            _t.sleep(0.25)
+            _t.sleep(0.15)
         return result

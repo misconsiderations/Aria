@@ -3,166 +3,96 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Aria — __TITLE__</title>
-  <link rel="icon" type="image/png" href="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012" />
-  <link rel="apple-touch-icon" href="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --pink:   #ec4899;
-      --violet: #8b5cf6;
-      --green:  #10b981;
-      --bg0:    #030712;
-      --bg1:    #0f172a;
-      --glass:  rgba(15,23,42,0.96);
-      --border: rgba(148,163,184,0.14);
-      --text:   #f1f5f9;
-      --muted:  #94a3b8;
-    }
-    body {
-      min-height: 100vh;
-      display: grid; place-items: center;
-      background: var(--bg0);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 24px;
-    }
-    body::before {
-      content: '';
-      position: fixed; inset: 0; pointer-events: none; z-index: 0;
-      background:
-        radial-gradient(ellipse 70% 55% at 5%  0%,  rgba(139,92,246,.22) 0%, transparent 55%),
-        radial-gradient(ellipse 55% 45% at 95% 100%, rgba(236,72,153,.16) 0%, transparent 50%);
-    }
-    .wrap {
-      display: flex; gap: 48px;
-      width: min(940px, 100%);
-      align-items: center;
-      position: relative; z-index: 1;
-    }
-
-    /* branding */
-    .brand { flex: 1; display: flex; flex-direction: column; gap: 28px; }
-    .logo {
-      font-size: 3.2rem; font-weight: 900; letter-spacing: -1px;
-      background: linear-gradient(135deg, var(--pink), var(--violet));
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    }
-    .tagline { color: var(--muted); font-size: .96rem; line-height: 1.6; max-width: 320px; }
-    .feats { display: flex; flex-direction: column; gap: 13px; }
-    .feat { display: flex; gap: 11px; align-items: flex-start; }
-    .feat .ck { color: var(--green); font-size: .9rem; flex-shrink: 0; margin-top: 1px; }
-    .feat .ft { font-size: .88rem; color: var(--muted); line-height: 1.5; }
-    .feat .ft strong { color: var(--text); font-weight: 700; }
-
-    /* form card */
-    .card {
-      flex: 0 0 390px;
-      background: var(--glass);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 34px 30px;
-      box-shadow: 0 24px 80px rgba(0,0,0,.55);
-      backdrop-filter: blur(20px);
-    }
-    .card h1 {
-      font-size: 1.65rem; font-weight: 900; margin-bottom: 4px;
-      background: linear-gradient(135deg, var(--pink), var(--violet));
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    }
-    .sub { color: var(--muted); font-size: .83rem; margin-bottom: 22px; }
-    .fg { margin-bottom: 13px; }
-    label { display: block; font-size: .7rem; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
-    input {
-      width: 100%; padding: 10px 13px;
-      background: rgba(3,7,18,.75);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      color: var(--text); font-size: .88rem; font-family: inherit;
-      transition: all .2s;
-    }
-    input:focus { outline: none; border-color: rgba(139,92,246,.7); box-shadow: 0 0 0 3px rgba(139,92,246,.12); background: rgba(3,7,18,.9); }
-    .error {
-      background: rgba(239,68,68,.09);
-      border: 1px solid rgba(239,68,68,.35);
-      border-left: 3px solid #ef4444;
-      border-radius: 9px; padding: 10px 12px;
-      color: #fca5a5; font-size: .83rem; font-weight: 600;
-      margin-bottom: 16px;
-    }
-    button[type=submit] {
-      width: 100%; padding: 12px;
-      background: linear-gradient(135deg, var(--pink), var(--violet));
-      border: none; border-radius: 11px;
-      color: #fff; font-weight: 800; font-size: .95rem;
-      cursor: pointer; margin-top: 6px;
-      transition: all .22s;
-    }
-    button[type=submit]:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(139,92,246,.38); }
-    button[type=submit]:active { transform: translateY(0); }
-    .toggle {
-      text-align: center; margin-top: 18px;
-      font-size: .8rem; color: var(--muted);
-    }
-    .remember {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin: 4px 0 10px;
-      color: var(--muted);
-      font-size: .8rem;
-      user-select: none;
-    }
-    .remember input {
-      width: auto;
-      accent-color: var(--violet);
-      margin: 0;
-      padding: 0;
-    }
-    .toggle a { color: var(--violet); text-decoration: none; font-weight: 700; transition: color .2s; }
-    .toggle a:hover { color: var(--pink); }
-    .legal {
-      text-align: center; margin-top: 12px;
-      font-size: .72rem; color: var(--muted);
-    }
-    .legal a { color: var(--muted); text-decoration: underline; }
-    .legal a:hover { color: var(--text); }
-
-    @media (max-width: 768px) {
-      .wrap { flex-direction: column; gap: 26px; }
-      .brand { display: none; }
-      .card { flex: 1; width: 100%; max-width: 420px; }
-    }
-  </style>
+  <title>Aria Login</title>
+  <link rel="icon" type="image/png" href="/static/images/aria-favicon.png" />
+  <link rel="apple-touch-icon" href="/static/images/aria-favicon.png" />
+  <link rel="stylesheet" href="/static/css/panel_pages.css" />
 </head>
-<body>
-  <div class="wrap">
-    <div class="brand">
-      <div class="logo">Aria.</div>
-      <p class="tagline">The premium selfbot hosting platform, built for power users.</p>
-      <div class="feats">
-        <div class="feat"><span class="ck">✓</span><span class="ft"><strong>RPC &amp; Activity Control</strong> — Spotify, Twitch, Netflix, custom modes</span></div>
-        <div class="feat"><span class="ck">✓</span><span class="ft"><strong>Multi-User Dashboard</strong> — per-user token context &amp; settings</span></div>
-        <div class="feat"><span class="ck">✓</span><span class="ft"><strong>Real-Time Analytics</strong> — uptime, message stats, command history</span></div>
-        <div class="feat"><span class="ck">✓</span><span class="ft"><strong>Owner Admin Tools</strong> — manage users, logs, hosted instances</span></div>
+<body class="panel-page">
+  <div class="page-wrap page-wrap-sm">
+    <div class="top-nav">
+      <div class="brand"><span class="dot"></span> ARIA ACCESS</div>
+      <div class="nav-links">
+        <a href="/home">Home</a>
+        <a href="/request-access">Request Access</a>
+        <a href="/tos">Terms</a>
       </div>
     </div>
 
-    <form class="card" method="post" action="/login?mode=__MODE__">
-      <h1>__TITLE__</h1>
-      <p class="sub">__SUBTITLE__</p>
-      __ERROR_BLOCK__
-      <div class="fg"><label>User ID</label><input type="text" name="user_id" placeholder="Your Discord user ID" autocomplete="username" required /></div>
-      __USERNAME_FIELD__
-      __BOT_TOKEN_FIELD__
-      <div class="fg"><label>Password</label><input type="password" name="password" placeholder="Password" autocomplete="current-password" required /></div>
-      <label class="remember"><input type="checkbox" name="remember_me" __REMEMBER_CHECKED__> Keep me signed in</label>
-      <input type="hidden" name="next" value="__SAFE_NEXT__" />
-      <button type="submit">__BUTTON_TEXT__</button>
-      <div class="toggle">__TOGGLE_PREFIX__<a href="__TOGGLE_LINK__">__TOGGLE_TEXT__</a></div>
-      <div class="toggle" style="margin-top:8px">No account? <a href="/request-access">Request Access</a></div>
-      <div class="legal"><a href="/tos">Terms of Service</a> &nbsp;·&nbsp; <a href="/privacy">Privacy Policy</a></div>
-    </form>
+    <section class="panel">
+      <div class="panel-head site-hero">
+        <div class="hero-copy">
+          <span class="kicker"><i></i> Secure Entry</span>
+          <h1 class="page-title">__TITLE__</h1>
+          <p class="page-sub">__SUBTITLE__</p>
+          <div class="hero-note">Approved users only <strong>session-locked access</strong></div>
+        </div>
+        <div class="hero-stack">
+          <div class="metric-card">
+            <span class="label">Route</span>
+            <span class="value">/login</span>
+            <div class="hint">Sign in and move directly into the Aria control surface.</div>
+          </div>
+          <div class="metric-card">
+            <span class="label">State</span>
+            <span class="value">Live</span>
+            <div class="hint">User access is gated per account and bound to the approved panel instance.</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel-body">
+        __ERROR_BLOCK__
+
+        <div class="panel-form-shell">
+          <div class="form-card">
+            <div class="eyebrow">Credential Form</div>
+            <form class="form" method="post" action="/login?mode=__MODE__">
+              <div class="field">
+                <label>User ID</label>
+                <input type="text" name="user_id" placeholder="Your Discord user ID" autocomplete="username" required />
+              </div>
+
+              __USERNAME_FIELD__
+              __BOT_TOKEN_FIELD__
+
+              <div class="field">
+                <label>Password</label>
+                <input type="password" name="password" placeholder="Password" autocomplete="current-password" required />
+              </div>
+
+              <label class="tiny remember-row">
+                <input type="checkbox" name="remember_me" __REMEMBER_CHECKED__ class="remember-check" />
+                Keep me signed in
+              </label>
+
+              <input type="hidden" name="next" value="__SAFE_NEXT__" />
+              <div class="actions">
+                <button class="btn btn-primary" type="submit">__BUTTON_TEXT__</button>
+                <a class="btn btn-ghost" href="/home">Back Home</a>
+              </div>
+            </form>
+
+            <div class="tiny mt-12">
+              __TOGGLE_PREFIX__<a href="__TOGGLE_LINK__" class="toggle-link">__TOGGLE_TEXT__</a>
+            </div>
+          </div>
+
+          <div class="aside-card">
+            <div class="eyebrow">Before You Enter</div>
+            <ul class="aside-list">
+              <li><strong>Approval First</strong> Use the access route if your user ID has not been approved yet.</li>
+              <li><strong>Instance Aware</strong> Regular users are scoped to their own linked panel instance.</li>
+              <li><strong>Fast Return</strong> Remembered sessions reduce friction when you come back.</li>
+            </ul>
+            <div class="footer-links mt-12">
+              <a href="/request-access">Request Access</a>
+              <a href="/privacy">Privacy</a>
+              <a href="/tos">Terms</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 </body>
 </html>

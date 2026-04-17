@@ -3,78 +3,125 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aria x Stackss.lol — Dashboard</title>
-    <link rel="icon" type="image/svg+xml" href="/static/images/aria-favicon.svg">
-    <link rel="shortcut icon" type="image/svg+xml" href="/static/images/aria-favicon.svg">
-    <link rel="apple-touch-icon" href="/static/images/aria-favicon.svg">
+    <title>Aria Dashboard</title>
+    <link rel="icon" type="image/png" href="/static/images/aria-favicon.png">
+    <link rel="shortcut icon" type="image/png" href="/static/images/aria-favicon.png">
+    <link rel="apple-touch-icon" href="/static/images/aria-favicon.png">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
-<body>
-    <!-- Particle canvas background -->
-    <canvas id="particleCanvas"></canvas>
+<body class="dashboard-mode">
 
-    <!-- Global loader -->
     <div id="globalLoader">
         <div class="loader-ring"></div>
-        <div class="loader-text">ARIA &mdash; Loading Dashboard&hellip;</div>
+        <div class="loader-text">Aria — Loading</div>
     </div>
 
-    <!-- Premium toast notification host -->
-    <div id="premiumToastHost"></div>
+    <div id="ariaToastHost"></div>
 
-    <div class="mascot-watermark" aria-hidden="true">
-        <img src="/brand-image" alt="" loading="lazy" onerror="this.onerror=null;this.src='/static/images/aria-favicon.svg'">
-    </div>
-    <input type="checkbox" id="sidebarToggle" style="display:none">
+    <input type="checkbox" id="sidebarToggle" class="sidebar-toggle-input">
     <label for="sidebarToggle" class="sidebar-toggle-btn" tabindex="0" aria-label="Toggle sidebar">
         <span class="sidebar-toggle-bar"></span>
         <span class="sidebar-toggle-bar"></span>
         <span class="sidebar-toggle-bar"></span>
     </label>
+
     <nav class="sidebar">
         <div class="sidebar-logo">
-            <img class="logo-icon" src="/static/images/aria-favicon.svg" alt="Aria icon" loading="lazy" onerror="this.style.display='none'">
-            <span class="logo-text">Aria</span>
-            <span class="logo-domain">Stackss.lol</span>
+            <img class="logo-icon" src="/static/images/aria-favicon.png" alt="Aria" loading="lazy" onerror="this.style.display='none'">
+            <div class="sidebar-brand-copy">
+                <span class="logo-text">Aria</span>
+                <span class="logo-domain">control panel</span>
+            </div>
             <span class="logo-badge">v2</span>
         </div>
+
         <ul class="sidebar-nav">
-            <li class="nav-item active" data-section="overview"><span class="ni">⚡</span> Overview</li>
-            <li class="nav-item" data-section="commands"><span class="ni">⚙️</span> Commands</li>
-            <li class="nav-item" data-section="analytics" data-admin-only="true"><span class="ni">📊</span> Analytics</li>
-            <li class="nav-item" data-section="history"><span class="ni">💬</span> History</li>
-            <li class="nav-item" data-section="boost" data-admin-only="true"><span class="ni">🚀</span> Boost</li>
-            <li class="nav-item" data-section="rpc" data-admin-only="true"><span class="ni">🎮</span> RPC</li>
-            <li class="nav-item" data-section="presence" data-admin-only="true"><span class="ni">🟢</span> Presence</li>
-            <li class="nav-item" data-section="hosted" data-admin-only="true"><span class="ni">👥</span> Hosted</li>
-            <li class="nav-item" data-section="logs" data-admin-only="true"><span class="ni">📋</span> Logs</li>
-            <li class="nav-item" data-section="users"><span class="ni">🔑</span> Users</li>
-            <li class="nav-item" data-section="settings" data-admin-only="true"><span class="ni">🛠️</span> Settings</li>
+            <li class="nav-item active" data-section="overview">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/></svg>
+                Overview
+            </li>
+            <li class="nav-item" data-section="commands">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5.5L3 10l4 4.5M13 5.5L17 10l-4 4.5"/></svg>
+                Commands
+            </li>
+            <li class="nav-item" data-section="analytics" data-admin-only="true">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17V10m4 7V7m4 7V5m4 7V3"/></svg>
+                Telemetry
+            </li>
+            <li class="nav-item" data-section="history">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h14M3 9h14M3 13h10"/></svg>
+                Feed
+            </li>
+            <li class="nav-item" data-section="boost" data-admin-only="true">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2l1.8 5.5H17L12.6 11l1.7 5.5L10 13l-4.3 3.5L7.4 11 3 7.5h5.2L10 2z"/></svg>
+                Nitro
+            </li>
+            <li class="nav-item" data-section="rpc" data-admin-only="true">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10h2l2-4 2 8 2-6 2 3 2-1h2"/></svg>
+                Presence
+            </li>
+            <li class="nav-item" data-section="presence" data-admin-only="true">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="13" r="1.5" fill="currentColor" stroke="none"/><path d="M6.5 10.5a5 5 0 017 0M3.5 7.5a9.5 9.5 0 0113 0"/></svg>
+                Status
+            </li>
+            <li class="nav-item" data-section="hosted">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="16" height="6" rx="1.5"/><rect x="2" y="11" width="16" height="6" rx="1.5"/><circle cx="15.5" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="14" r="1" fill="currentColor" stroke="none"/></svg>
+                Instances
+            </li>
+            <li class="nav-item" data-section="logs" data-admin-only="true">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M6 9l2 2 4-4"/></svg>
+                Runtime
+            </li>
+            <li class="nav-item" data-section="users">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2L4 5v5c0 3.5 2.5 6.3 6 7.3 3.5-1 6-3.8 6-7.3V5l-6-3z"/></svg>
+                Access
+            </li>
+            <li class="nav-item" data-section="settings" data-admin-only="true">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.5"/><path d="M10 2v2m0 12v2M2 10h2m12 0h2m-3.17-4.83l-1.42 1.42M4.59 15.41l1.42-1.42M15.41 15.41l-1.42-1.42M5.17 5.17L6.59 6.59"/></svg>
+                Config
+            </li>
         </ul>
+
         <div class="sidebar-footer">
-            <button class="refresh-btn" id="refreshBtn">↺ Refresh</button>
-            <a href="/logout"><button class="logout-btn">Logout</button></a>
+            <div class="sidebar-footer-copy">session</div>
+            <button class="refresh-btn" id="refreshBtn">Sync</button>
+            <a href="/logout"><button class="logout-btn">Exit</button></a>
         </div>
     </nav>
 
+    <!-- ═══ MAIN ═══ -->
     <div class="main-content">
         <header class="topbar">
-            <div style="display:flex;align-items:center;gap:0">
-                <h1 class="page-title-wrap"><img class="page-icon" src="/static/images/aria-favicon.svg" alt="" loading="lazy"><span class="page-title" id="pageTitle">Overview</span></h1>
-                <div class="topbar-breadcrumb"><span>/</span><span id="topbarBreadcrumb" style="color:rgba(196,181,253,.6)">overview</span></div>
+            <div class="topbar-left">
+                <h1 class="page-title-wrap">
+                    <span class="page-title" id="pageTitle">Overview</span>
+                </h1>
+                <div class="topbar-breadcrumb">
+                    <span>/</span>
+                    <span id="topbarBreadcrumb" class="breadcrumb-current">overview</span>
+                </div>
             </div>
             <div class="topbar-right">
                 <div class="topbar-bell" id="topbarBell" title="Notifications">
-                    🔔
-                    <span class="topbar-bell-badge" id="bellBadge" style="display:none">0</span>
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><path d="M10 2a6 6 0 016 6v3l1.5 2.5H2.5L4 11V8a6 6 0 016-6zm-1.5 13.5a1.5 1.5 0 003 0"/></svg>
+                    <span class="topbar-bell-badge bell-badge-hidden" id="bellBadge">0</span>
                 </div>
                 <div class="status-pill">
                     <div class="status-dot" id="globalStatus"></div>
                     <span class="status-label" id="globalStatusLabel">Loading&hellip;</span>
                 </div>
                 <div class="topbar-user-chip" id="topbarUserChip" onclick="navigateTo('users')">
-                    <img class="topbar-user-avatar" id="topbarAvatar" src="/static/images/aria-favicon.svg" alt="">
+                    <img class="topbar-user-avatar" id="topbarAvatar" src="/static/images/aria-favicon.png" alt="">
                     <span class="topbar-user-name" id="topbarUsername">&mdash;</span>
+                </div>
+            </div>
+            <div class="notification-center" id="notificationCenter" hidden>
+                <div class="notification-center-head">
+                    <strong>Notifications</strong>
+                    <button class="notification-clear" id="notificationClearBtn" type="button">Clear</button>
+                </div>
+                <div class="notification-center-list" id="notificationCenterList">
+                    <div class="notification-empty">No notifications.</div>
                 </div>
             </div>
         </header>
@@ -84,35 +131,54 @@
         ══════════════════════════════════════════════ -->
         <section class="section active" id="section-overview">
 
-            <!-- ─── Hero Banner ─────────────────────────────────── -->
+            <!-- Identity hero -->
             <div class="hero-banner">
                 <div class="hero-left">
                     <div class="hero-avatar-wrap">
-                        <img id="heroAvatar" class="hero-avatar" src="/static/images/aria-favicon.svg" alt="Bot avatar" onerror="this.src='/static/images/aria-favicon.svg'">
+                        <img id="heroAvatar" class="hero-avatar" src="/static/images/aria-favicon.png" alt="" onerror="this.src='/static/images/aria-favicon.png'">
                         <span class="hero-status-dot" id="heroStatusDot"></span>
                     </div>
                     <div class="hero-info">
-                        <div class="hero-title">Aria Dashboard</div>
+                        <div class="hero-name-row">
+                            <div class="hero-title" id="heroDashboardTitle">—</div>
+                            <span class="hero-badge-pill prefix mono" id="heroBadgePrefix">.</span>
+                        </div>
+                        <div class="hero-id-line mono" id="heroUserId">—</div>
                         <div class="hero-badges">
-                            <span class="hero-badge-pill connected" id="heroBadgeConn">● Connected</span>
-                            <span class="hero-badge-pill client" id="heroBadgeClient">mobile</span>
-                            <span class="hero-badge-pill prefix" id="heroBadgePrefix">prefix: .</span>
+                            <span class="hero-badge-pill connected" id="heroBadgeConn">—</span>
+                            <span class="hero-badge-pill client" id="heroBadgeClient">—</span>
+                            <span class="hero-badge-pill version" id="heroVersion">—</span>
                         </div>
                         <div class="hero-motd" id="heroMotd"></div>
+                        <div class="hero-actions">
+                            <button class="btn btn-primary hero-btn" onclick="navigateTo('commands')">Browse Commands</button>
+                            <button class="btn btn-ghost hero-btn" onclick="navigateTo('rpc')">Set Presence</button>
+                            <button class="btn btn-ghost hero-btn" onclick="navigateTo('logs')">Runtime Logs</button>
+                        </div>
                     </div>
                 </div>
-                <div class="hero-env-grid">
-                    <div class="hero-env-item"><span class="hero-env-k">Version</span><span class="hero-env-v" id="heroVersion">—</span></div>
-                    <div class="hero-env-item"><span class="hero-env-k">Python</span><span class="hero-env-v" id="heroPython">—</span></div>
-                    <div class="hero-env-item"><span class="hero-env-k">Platform</span><span class="hero-env-v" id="heroPlatform">—</span></div>
-                    <div class="hero-env-item"><span class="hero-env-k">Git</span><span class="hero-env-v" id="heroGit">—</span></div>
+                <div class="hero-right-col">
+                    <div class="hero-env-grid">
+                        <div class="hero-env-item">
+                            <span class="hero-env-k">state</span>
+                            <span class="hero-env-v" id="heroRuntimeState">—</span>
+                        </div>
+                        <div class="hero-env-item">
+                            <span class="hero-env-k">actions</span>
+                            <span class="hero-env-v" id="heroCommandEcho">0</span>
+                        </div>
+                    </div>
+                    <!-- Mini live clock -->
+                    <div class="hero-clock-block">
+                        <div class="hero-clock-time mono" id="liveClock">--:--:--</div>
+                        <div class="pulse-row"><span class="pulse-dot" id="livePulse"></span><span id="livePulseLabel">waiting</span></div>
+                    </div>
                 </div>
             </div>
 
-            <!-- ─── Quick Stat Cards ─────────────────────────────── -->
-            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(155px,1fr))">
+            <!-- Primary stat cards -->
+            <div class="cards-grid cards-grid-overview">
                 <div class="card uptime-card">
-                    <div class="card-icon">⏱️</div>
                     <div class="card-label">Uptime</div>
                     <div class="uptime-ring-wrap">
                         <svg id="uptimeRing" width="54" height="54" viewBox="0 0 54 54">
@@ -123,56 +189,74 @@
                     </div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">🔢</div>
-                    <div class="card-label">Commands Run</div>
+                    <div class="card-label">Actions Run</div>
                     <div class="card-value" id="commandCount">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">📦</div>
-                    <div class="card-label">Registered</div>
+                    <div class="card-label">Commands</div>
                     <div class="card-value" id="commandsRegistered">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">⌨️</div>
-                    <div class="card-label">Prefix</div>
-                    <div class="card-value mono" id="prefix">—</div>
-                </div>
-                <div class="card">
-                    <div class="card-icon">📡</div>
-                    <div class="card-label">Connection</div>
+                    <div class="card-label">Gateway</div>
                     <div class="card-value plain" id="connectionStatus">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">🔴</div>
-                    <div class="card-label">Status</div>
+                    <div class="card-label">Presence</div>
                     <div class="card-value plain" id="botStatus">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">💻</div>
-                    <div class="card-label">Client</div>
+                    <div class="card-label">Client Mask</div>
                     <div class="card-value plain" id="clientType">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Prefix</div>
+                    <div class="card-value mono" id="prefix">—</div>
                 </div>
             </div>
 
-            <!-- ─── Throughput + Activity ─────────────────────────── -->
-            <div class="live-metrics-row">
-                <div class="live-metric-block">
-                    <div class="metric-title">Command Throughput</div>
-                    <canvas id="sparkline" width="140" height="36" style="width:140px;height:36px;"></canvas>
+            <!-- Live session row: sparkline + metrics + feed -->
+            <div class="overview-live-row">
+                <!-- Sparkline block -->
+                <div class="overview-live-card overview-sparkline-block">
+                    <div class="overview-live-header">
+                        <span class="overview-live-title">Command Rate</span>
+                        <span class="table-badge">live</span>
+                    </div>
+                    <canvas id="sparkline" class="sparkline-canvas" width="220" height="52"></canvas>
+                    <div class="sparkline-metrics">
+                        <div class="sparkline-metric">
+                            <div class="sm-label">Cmd / Min</div>
+                            <div class="sm-value" id="liveCmdRate">0.0</div>
+                            <div class="live-meter"><div id="liveCmdRateBar" class="live-meter-fill"></div></div>
+                        </div>
+                        <div class="sparkline-metric">
+                            <div class="sm-label">Delta</div>
+                            <div class="sm-value" id="liveCmdDelta">0</div>
+                            <div class="live-meter"><div id="liveCmdDeltaBar" class="live-meter-fill alt"></div></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="live-metric-block">
-                    <div class="metric-title">Activity Feed</div>
+
+                <!-- Session feed block -->
+                <div class="overview-live-card overview-feed-block">
+                    <div class="overview-live-header">
+                        <span class="overview-live-title">Session Feed</span>
+                        <span class="table-badge">recent activity</span>
+                    </div>
                     <div id="toastFeed" class="toast-feed"></div>
                 </div>
             </div>
 
-            <!-- ─── Client Switcher ───────────────────────────────── -->
-            <div class="settings-panel" style="margin-top:8px">
-                <div class="settings-panel-header"><span class="settings-title">Client Switcher</span></div>
+            <!-- Client mask quick-switch -->
+            <div class="settings-panel settings-panel-mb-md">
+                <div class="settings-panel-header">
+                    <span class="settings-title">Client Mask</span>
+                    <span class="settings-panel-sub">Gateway identify profile</span>
+                </div>
                 <div class="setting-row">
                     <div>
-                        <div class="setting-label">Discord Client Profile</div>
-                        <div class="setting-sub">Switch between web, desktop, mobile, and vr identify profiles</div>
+                        <div class="setting-label">Active Profile</div>
+                        <div class="setting-sub">web / desktop / mobile / vr</div>
                     </div>
                     <div class="setting-controls">
                         <select id="clientTypeSelect" class="setting-input small"></select>
@@ -182,27 +266,39 @@
                 <div class="settings-msg-wrap"><div id="clientMsg" class="settings-msg"></div></div>
             </div>
 
-            <!-- ─── Live Metrics ──────────────────────────────────── -->
-            <div class="table-card" style="margin-top:14px">
+            <!-- Fleet / admin snapshot (admin only) -->
+            <div class="table-card table-card-mt-md admin-only" data-admin-only="true">
                 <div class="table-header">
-                    <span class="table-title">Live Metrics</span>
-                    <span class="table-badge">animated</span>
+                    <span class="table-title">Fleet Snapshot</span>
+                    <span class="table-badge-row">
+                        <span class="table-badge">admin</span>
+                        <span class="table-badge-time" id="fleetSnapshotTime">just now</span>
+                    </span>
                 </div>
-                <div class="live-metrics-grid">
-                    <div class="live-metric-card">
-                        <div class="live-metric-k">Commands / Min</div>
-                        <div class="live-metric-v" id="liveCmdRate">0.0</div>
-                        <div class="live-meter"><div id="liveCmdRateBar" class="live-meter-fill"></div></div>
+                <div class="cards-grid cards-grid-snapshot" style="padding:14px 18px 18px">
+                    <div class="card">
+                        <div class="card-label">Instances</div>
+                        <div class="card-value" id="ariaHostedTotal">0</div>
                     </div>
-                    <div class="live-metric-card">
-                        <div class="live-metric-k">Command Delta</div>
-                        <div class="live-metric-v" id="liveCmdDelta">0</div>
-                        <div class="live-meter"><div id="liveCmdDeltaBar" class="live-meter-fill alt"></div></div>
+                    <div class="card">
+                        <div class="card-label">Connected</div>
+                        <div class="card-value" id="ariaHostedActive">0</div>
                     </div>
-                    <div class="live-metric-card">
-                        <div class="live-metric-k">Live Clock</div>
-                        <div class="live-metric-v mono" id="liveClock">--:--:--</div>
-                        <div class="pulse-row"><span class="pulse-dot" id="livePulse"></span><span id="livePulseLabel">waiting</span></div>
+                    <div class="card">
+                        <div class="card-label">Accounts</div>
+                        <div class="card-value" id="ariaRegisteredUsers">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">Total Commands</div>
+                        <div class="card-value" id="ariaCommands">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">Success Rate</div>
+                        <div class="card-value" id="ariaSuccessRate">0%</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">Avg Latency</div>
+                        <div class="card-value" id="ariaLatency">0ms</div>
                     </div>
                 </div>
             </div>
@@ -215,18 +311,18 @@
         <section class="section" id="section-commands">
             <div class="section-header">
                 <div>
-                    <div class="section-title">Commands</div>
-                    <div class="section-sub">All loaded commands for this instance</div>
+                    <div class="section-title">Command Arsenal</div>
+                    <div class="section-sub">All commands loaded into the current runtime</div>
                 </div>
             </div>
             <div class="search-row">
-                <input type="text" id="cmdSearch" class="search-input" placeholder="Search commands… (press / to focus)">
+                <input type="text" id="cmdSearch" class="search-input" placeholder="Search commands…">
                 <span class="search-hint" id="cmdCountLabel"></span>
                 <span class="kbd">/</span>
             </div>
             <div class="table-card">
                 <div class="table-header">
-                    <span class="table-title">Registered Commands</span>
+                    <span class="table-title">Loaded Commands</span>
                     <span class="table-badge" id="cmdBadge">—</span>
                 </div>
                 <table class="data-table">
@@ -244,54 +340,50 @@
         <section class="section" id="section-analytics" data-admin-only="true">
             <div class="section-header">
                 <div>
-                    <div class="section-title">Analytics</div>
-                    <div class="section-sub">Usage stats since bot start</div>
+                    <div class="section-title">Telemetry</div>
+                    <div class="section-sub">Execution quality since runtime start</div>
                 </div>
             </div>
-            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(185px,1fr));margin-bottom:24px">
+            <div class="cards-grid cards-grid-analytics">
                 <div class="card">
-                    <div class="card-icon">📈</div>
                     <div class="card-label">Total Executed</div>
                     <div class="card-value" id="totalCommands">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">✅</div>
                     <div class="card-label">Success Rate</div>
                     <div class="card-value" id="successRate">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">⚡</div>
                     <div class="card-label">Avg Response</div>
                     <div class="card-value" id="avgResponseMs">—</div>
                 </div>
             </div>
-
             <div class="table-card">
                 <div class="table-header">
                     <span class="table-title">Top Commands</span>
                     <span class="table-badge">by usage</span>
                 </div>
                 <div id="topCommandsBody">
-                    <div class="empty-row" style="padding:32px 20px">No data yet</div>
+                    <div class="empty-row empty-row-pad">No data</div>
                 </div>
             </div>
         </section>
 
         <!-- ══════════════════════════════════════════════
-             HISTORY
+             HISTORY / FEED
         ══════════════════════════════════════════════ -->
         <section class="section" id="section-history">
             <div class="section-header">
                 <div>
-                    <div class="section-title">Command History</div>
-                    <div class="section-sub">Recent commands executed this session</div>
+                    <div class="section-title">Command Feed</div>
+                    <div class="section-sub">Recent activity in this session</div>
                 </div>
                 <span class="table-badge" id="historyBadge">—</span>
             </div>
-
             <div class="table-card">
                 <div class="table-header">
-                    <span class="table-title">Recent (last 20)</span>
+                    <span class="table-title">Recent</span>
+                    <span class="table-badge">last 20</span>
                 </div>
                 <div class="history-feed" id="historyFeed">
                     <div class="log-loading">Loading…</div>
@@ -300,142 +392,321 @@
         </section>
 
         <!-- ══════════════════════════════════════════════
-             BOOST
+             BOOST / NITRO
         ══════════════════════════════════════════════ -->
         <section class="section" id="section-boost" data-admin-only="true">
             <div class="section-header">
                 <div>
-                    <div class="section-title">Boost State</div>
-                    <div class="section-sub">Current nitro / boost session data</div>
+                    <div class="section-title">Nitro &amp; Boosts</div>
+                    <div class="section-sub">Live slot state, boost distribution, and subscription data</div>
                 </div>
-                <button class="btn btn-ghost" onclick="loadBoost()">↺ Refresh</button>
+                <button class="btn btn-ghost" onclick="loadBoost()">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M13.5 8A5.5 5.5 0 112.5 8m0 0V5m0 3H5.5"/></svg>
+                    Refresh
+                </button>
             </div>
-            <div id="boostCards" class="boost-grid">
-                <div class="log-loading" style="grid-column:1/-1">Loading…</div>
+
+            <!-- Slot summary cards -->
+            <div class="cards-grid cards-grid-boost">
+                <div class="card">
+                    <div class="card-label">Total Slots</div>
+                    <div class="card-value" id="boostTotalSlots">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Available</div>
+                    <div class="card-value boost-available" id="boostSlotsAvail">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Used</div>
+                    <div class="card-value boost-used" id="boostSlotsUsed">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Cooldown</div>
+                    <div class="card-value boost-cooldown" id="boostSlotsCd">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Tracked Servers</div>
+                    <div class="card-value" id="boostTracked">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Boosted Servers</div>
+                    <div class="card-value boost-used" id="boostBoostedServers">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Total Boosts Out</div>
+                    <div class="card-value" id="boostTotalOut">—</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Status</div>
+                    <div class="card-value plain" id="boostStatusText">—</div>
+                </div>
+            </div>
+
+            <!-- Slot usage bar -->
+            <div class="boost-slot-bar-panel">
+                <div class="boost-slot-bar-header">
+                    <span class="boost-slot-bar-label">Slot Utilisation</span>
+                    <span class="boost-slot-bar-pct" id="boostSlotPct">0%</span>
+                </div>
+                <div class="boost-slot-track">
+                    <div class="boost-slot-fill" id="boostSlotFill" style="width:0%"></div>
+                    <div class="boost-slot-cd-fill" id="boostSlotCdFill" style="width:0%;left:0%"></div>
+                </div>
+                <div class="boost-slot-legend">
+                    <span class="boost-legend-dot boost-legend-used"></span><span>Used</span>
+                    <span class="boost-legend-dot boost-legend-cd"></span><span>Cooldown</span>
+                    <span class="boost-legend-dot boost-legend-free"></span><span>Free</span>
+                </div>
+            </div>
+
+            <!-- Per-server boost table -->
+            <div class="table-card table-card-mb-md">
+                <div class="table-header">
+                    <span class="table-title">Server Distribution</span>
+                    <span class="table-badge" id="boostServerCount">0 servers</span>
+                </div>
+                <table class="data-table">
+                    <thead><tr><th>Server ID</th><th>Boosts Applied</th><th>Bar</th></tr></thead>
+                    <tbody id="boostServerBody">
+                        <tr><td colspan="3" class="empty-row">Loading…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Raw extra data -->
+            <div class="table-card">
+                <div class="table-header">
+                    <span class="table-title">Extra Fields</span>
+                    <span class="table-badge">all data</span>
+                </div>
+                <div id="boostExtraCards" class="boost-extra-grid">
+                    <div class="log-loading">Loading…</div>
+                </div>
             </div>
         </section>
 
         <!-- ══════════════════════════════════════════════
-             RPC
+             RPC / PRESENCE STUDIO
         ══════════════════════════════════════════════ -->
         <section class="section" id="section-rpc" data-admin-only="true">
             <div class="section-header">
                 <div>
-                    <div class="section-title">Rich Presence</div>
-                    <div class="section-sub">Control what Discord shows as your activity</div>
+                    <div class="section-title">Presence Studio</div>
+                    <div class="section-sub">Craft the activity payload your account broadcasts — with a real-time Discord preview</div>
                 </div>
-            </div>
-
-            <div class="rpc-preview rpc-preview-large" id="rpcPreview">
-                <div class="rpc-icon" id="rpcPreviewIcon">🎮</div>
-                <div class="rpc-body">
-                    <div class="rpc-title" id="rpcPreviewName">No RPC set</div>
-                    <div class="rpc-detail" id="rpcPreviewDetails">—</div>
-                    <div class="rpc-detail" id="rpcPreviewState">—</div>
-                    <div class="rpc-type" id="rpcPreviewType">inactive</div>
-                    <div class="rpc-extra-grid">
-                        <div><span>Mode</span><strong id="rpcPreviewMode">none</strong></div>
-                        <div><span>Type ID</span><strong id="rpcPreviewTypeId">—</strong></div>
-                        <div><span>App ID</span><strong id="rpcPreviewAppId">—</strong></div>
-                        <div><span>Buttons</span><strong id="rpcPreviewButtons">0</strong></div>
-                    </div>
-                </div>
-                <div style="margin-left:auto;display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+                <div style="display:flex;gap:8px;align-items:center">
                     <span class="badge badge-off" id="rpcActiveBadge">Inactive</span>
-                    <span class="badge badge-ok" id="rpcVersionBadge">Preview v2</span>
+                    <button class="btn btn-danger-soft" onclick="clearRpc()">Stop RPC</button>
                 </div>
             </div>
 
-            <div class="table-card" style="margin-bottom:16px">
-                <div class="table-header">
-                    <span class="table-title">RPC Presets</span>
-                    <span class="table-badge">quick apply</span>
-                </div>
-                <div class="rpc-preset-row" id="rpcPresetRow">
-                    <button class="btn btn-ghost" onclick="applyRpcPreset('spotify')">Spotify</button>
-                    <button class="btn btn-ghost" onclick="applyRpcPreset('twitch')">Twitch</button>
-                    <button class="btn btn-ghost" onclick="applyRpcPreset('netflix')">Netflix</button>
-                    <button class="btn btn-ghost" onclick="applyRpcPreset('youtube')">YouTube</button>
-                    <button class="btn btn-ghost" onclick="applyRpcPreset('valorant')">Valorant</button>
-                    <button class="btn btn-ghost" onclick="applyRpcPreset('custom')">Custom</button>
-                </div>
-            </div>
+            <!-- ── Two-column layout: Preview left, Builder right ── -->
+            <div class="rpc-studio-layout">
 
-            <div class="settings-panel">
-                <div class="settings-panel-header"><span class="settings-title">Set Rich Presence</span></div>
-                <div class="setting-row">
-                    <div><div class="setting-label">Activity Type</div></div>
-                    <div class="setting-controls">
-                        <select id="rpcType" class="setting-input small">
-                            <option value="0">Playing</option>
-                            <option value="1">Streaming</option>
-                            <option value="2">Listening to</option>
-                            <option value="3">Watching</option>
-                            <option value="5">Competing in</option>
-                        </select>
+                <!-- LEFT: Discord-style live preview card -->
+                <div class="rpc-discord-preview-wrap">
+                    <div class="rpc-discord-header">
+                        <span class="rpc-discord-header-label">Live Preview</span>
+                        <span class="rpc-discord-header-sub">as it appears in Discord</span>
+                    </div>
+                    <!-- Simulated Discord presence card -->
+                    <div class="discord-card" id="rpcPreview">
+                        <div class="discord-card-head">
+                            <div class="discord-user-avatar-wrap">
+                                <img id="rpcDiscordAvatar" class="discord-user-avatar" src="/static/images/aria-favicon.png" alt="">
+                                <span class="discord-user-dot" id="rpcDiscordStatusDot"></span>
+                            </div>
+                            <div class="discord-user-name-wrap">
+                                <div class="discord-username" id="rpcDiscordUsername">Username</div>
+                                <div class="discord-customstatus" id="rpcDiscordCustomStatus"></div>
+                            </div>
+                        </div>
+                        <div class="discord-card-divider"></div>
+                        <div class="discord-activity" id="rpcDiscordActivity">
+                            <div class="discord-activity-header">Playing a game</div>
+                            <div class="discord-activity-body">
+                                <div class="discord-activity-art-wrap">
+                                    <div class="discord-activity-art" id="rpcDiscordArt">
+                                        <svg viewBox="0 0 40 40" fill="none" style="width:40px;height:40px;opacity:0.3"><rect width="40" height="40" rx="8" fill="currentColor"/></svg>
+                                    </div>
+                                    <div class="discord-activity-small-art" id="rpcDiscordSmallArt"></div>
+                                </div>
+                                <div class="discord-activity-text">
+                                    <div class="discord-activity-name" id="rpcPreviewName">No activity set</div>
+                                    <div class="discord-activity-detail" id="rpcPreviewDetails"></div>
+                                    <div class="discord-activity-state" id="rpcPreviewState"></div>
+                                    <div class="discord-activity-time" id="rpcDiscordTime"></div>
+                                </div>
+                            </div>
+                            <!-- Progress bar (for music) -->
+                            <div class="discord-progress-wrap" id="rpcDiscordProgressWrap" style="display:none">
+                                <div class="discord-progress-track">
+                                    <div class="discord-progress-bar" id="rpcPreviewProgress" style="width:0%"></div>
+                                </div>
+                                <div class="discord-progress-labels">
+                                    <span id="rpcDiscordProgressStart">0:00</span>
+                                    <span id="rpcDiscordProgressEnd">0:00</span>
+                                </div>
+                            </div>
+                            <!-- Buttons -->
+                            <div class="discord-buttons" id="rpcDiscordButtons"></div>
+                        </div>
+                        <div class="discord-card-no-activity" id="rpcNoActivity">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:22px;height:22px;color:var(--subtle)"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            <span>No presence set</span>
+                        </div>
+                    </div>
+
+                    <!-- Current live state summary -->
+                    <div class="rpc-live-meta">
+                        <div class="rpc-live-meta-row">
+                            <span class="rpc-live-meta-k">Mode</span><strong id="rpcPreviewMode" class="rpc-live-meta-v">none</strong>
+                        </div>
+                        <div class="rpc-live-meta-row">
+                            <span class="rpc-live-meta-k">Type</span><strong id="rpcPreviewTypeId" class="rpc-live-meta-v">—</strong>
+                        </div>
+                        <div class="rpc-live-meta-row">
+                            <span class="rpc-live-meta-k">App ID</span><strong id="rpcPreviewAppId" class="rpc-live-meta-v mono">—</strong>
+                        </div>
+                        <div class="rpc-live-meta-row">
+                            <span class="rpc-live-meta-k">Buttons</span><strong id="rpcPreviewButtons" class="rpc-live-meta-v">0</strong>
+                        </div>
                     </div>
                 </div>
-                <div class="setting-row">
-                    <div><div class="setting-label">Name</div><div class="setting-sub">e.g. Spotify, Valorant</div></div>
-                    <div class="setting-controls">
-                        <input type="text" id="rpcNameInput" class="setting-input" placeholder="Activity name">
+
+                <!-- RIGHT: Builder -->
+                <div class="rpc-builder-col">
+                    <!-- Builder fields -->
+                    <div class="settings-panel rpc-builder-panel">
+                        <div class="settings-panel-header"><span class="settings-title">Activity Builder</span></div>
+
+                        <div class="setting-row setting-row-compact">
+                            <div><div class="setting-label">Activity Type</div></div>
+                            <div class="setting-controls">
+                                <select id="rpcType" class="setting-input small" onchange="updateRpcPreview()">
+                                    <option value="0">Playing</option>
+                                    <option value="1">Streaming</option>
+                                    <option value="2">Listening to</option>
+                                    <option value="3">Watching</option>
+                                    <option value="5">Competing in</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="setting-row setting-row-compact">
+                            <div><div class="setting-label">Name</div><div class="setting-sub">Activity / app name</div></div>
+                            <div class="setting-controls">
+                                <input type="text" id="rpcNameInput" class="setting-input" placeholder="e.g. Spotify, Valorant" oninput="updateRpcPreview()">
+                            </div>
+                        </div>
+
+                        <div class="setting-row setting-row-compact">
+                            <div><div class="setting-label">App ID Mode</div><div class="setting-sub">Auto-detect from activity name, or set custom</div></div>
+                            <div class="setting-controls">
+                                <select id="rpcAppIdMode" class="setting-input small" onchange="updateRpcPreview()">
+                                    <option value="auto">Auto</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="setting-row setting-row-compact" id="rpcCustomAppIdRow" style="display:none">
+                            <div><div class="setting-label">Custom App ID</div><div class="setting-sub">Overrides auto-detected app id</div></div>
+                            <div class="setting-controls">
+                                <input type="text" id="rpcCustomAppIdInput" class="setting-input mono" placeholder="1494507808329171096" oninput="updateRpcPreview()">
+                            </div>
+                        </div>
+
+                        <div class="setting-row setting-row-compact">
+                            <div><div class="setting-label">Details</div><div class="setting-sub">Line 1 — song title, map, etc.</div></div>
+                            <div class="setting-controls">
+                                <input type="text" id="rpcDetailsInput" class="setting-input" placeholder="e.g. Blinding Lights" oninput="updateRpcPreview()">
+                            </div>
+                        </div>
+
+                        <div class="setting-row setting-row-compact">
+                            <div><div class="setting-label">State</div><div class="setting-sub">Line 2 — artist, server, rank</div></div>
+                            <div class="setting-controls">
+                                <input type="text" id="rpcStateInput" class="setting-input" placeholder="e.g. by The Weeknd" oninput="updateRpcPreview()">
+                            </div>
+                        </div>
+
+                        <div class="setting-row setting-row-compact">
+                            <div><div class="setting-label">Large Image Key</div><div class="setting-sub">Asset key or external URL</div></div>
+                            <div class="setting-controls">
+                                <input type="text" id="rpcLargeImageInput" class="setting-input" placeholder="large_image" oninput="updateRpcPreview()">
+                            </div>
+                        </div>
+
+                        <div class="setting-row setting-row-compact">
+                            <div><div class="setting-label">Small Image Key</div><div class="setting-sub">Overlay badge image</div></div>
+                            <div class="setting-controls">
+                                <input type="text" id="rpcSmallImageInput" class="setting-input" placeholder="small_image" oninput="updateRpcPreview()">
+                            </div>
+                        </div>
+
+                        <div class="rpc-builder-divider">Buttons (max 2)</div>
+
+                        <div class="setting-row setting-row-compact">
+                            <div><div class="setting-label">Button 1</div></div>
+                            <div class="setting-controls setting-controls-grid-2">
+                                <input type="text" id="rpcButton1Label" class="setting-input" placeholder="Label" oninput="updateRpcPreview()">
+                                <input type="url" id="rpcButton1Url" class="setting-input" placeholder="https://..." oninput="updateRpcPreview()">
+                            </div>
+                        </div>
+
+                        <div class="setting-row setting-row-compact">
+                            <div><div class="setting-label">Button 2</div></div>
+                            <div class="setting-controls setting-controls-grid-2">
+                                <input type="text" id="rpcButton2Label" class="setting-input" placeholder="Label" oninput="updateRpcPreview()">
+                                <input type="url" id="rpcButton2Url" class="setting-input" placeholder="https://..." oninput="updateRpcPreview()">
+                            </div>
+                        </div>
+
+                        <div class="setting-row setting-row-compact" style="border-top:1px solid var(--border);padding-top:14px">
+                            <div></div>
+                            <div class="setting-controls">
+                                <button class="btn btn-primary" onclick="applyRpc()">Set Presence</button>
+                                <button class="btn btn-ghost" onclick="updateRpcPreview()">Preview</button>
+                            </div>
+                        </div>
+                        <div class="settings-msg-wrap"><div id="rpcMsg" class="settings-msg"></div></div>
                     </div>
                 </div>
-                <div class="setting-row">
-                    <div><div class="setting-label">Details</div><div class="setting-sub">Line 1 under activity name</div></div>
-                    <div class="setting-controls">
-                        <input type="text" id="rpcDetailsInput" class="setting-input" placeholder="e.g. Song title">
-                    </div>
-                </div>
-                <div class="setting-row">
-                    <div><div class="setting-label">State</div><div class="setting-sub">Line 2 under activity name</div></div>
-                    <div class="setting-controls">
-                        <input type="text" id="rpcStateInput" class="setting-input" placeholder="e.g. by Artist">
-                    </div>
-                </div>
-                <div class="setting-row">
-                    <div></div>
-                    <div class="setting-controls">
-                        <button class="btn btn-primary" onclick="applyRpc()">Set RPC</button>
-                        <button class="btn btn-danger-soft" onclick="clearRpc()">Stop RPC</button>
-                    </div>
-                </div>
-                <div class="settings-msg-wrap"><div id="rpcMsg" class="settings-msg"></div></div>
-            </div>
+            </div><!-- /rpc-studio-layout -->
         </section>
 
         <!-- ══════════════════════════════════════════════
-             PRESENCE
+             STATUS / PRESENCE
         ══════════════════════════════════════════════ -->
         <section class="section" id="section-presence" data-admin-only="true">
             <div class="section-header">
                 <div>
-                    <div class="section-title">Presence & AFK</div>
-                    <div class="section-sub">Set your Discord status and AFK state</div>
+                    <div class="section-title">Status &amp; AFK</div>
+                    <div class="section-sub">Visible account state and AFK behavior</div>
                 </div>
-                <span class="badge badge-ok" id="presenceBadge" style="margin-left:auto">—</span>
+                <span class="badge badge-ok badge-push-right" id="presenceBadge">—</span>
             </div>
-
             <div class="settings-panel">
                 <div class="settings-panel-header"><span class="settings-title">Online Status</span></div>
                 <div class="presence-bar">
-                    <button class="btn btn-online" onclick="setPresence('online')">🟢 Online</button>
-                    <button class="btn btn-idle" onclick="setPresence('idle')">🟡 Idle</button>
-                    <button class="btn btn-dnd" onclick="setPresence('dnd')">🔴 Do Not Disturb</button>
-                    <button class="btn btn-invisible" onclick="setPresence('invisible')">⚫ Invisible</button>
+                    <button class="btn btn-online" onclick="setPresence('online')">Online</button>
+                    <button class="btn btn-idle" onclick="setPresence('idle')">Idle</button>
+                    <button class="btn btn-dnd" onclick="setPresence('dnd')">Do Not Disturb</button>
+                    <button class="btn btn-invisible" onclick="setPresence('invisible')">Invisible</button>
                 </div>
                 <div class="settings-msg-wrap"><div id="presenceMsg" class="settings-msg"></div></div>
             </div>
 
-            <div class="settings-panel" style="margin-top:16px">
+            <div class="settings-panel settings-panel-mt-md">
                 <div class="settings-panel-header">
                     <span class="settings-title">AFK Mode</span>
-                    <span class="badge badge-off" id="afkBadge" style="margin-left:auto">Off</span>
+                    <span class="badge badge-off badge-push-right" id="afkBadge">Off</span>
                 </div>
                 <div class="setting-row">
                     <div>
                         <div class="setting-label">AFK Message</div>
-                        <div class="setting-sub">Sent when someone pings you while AFK</div>
+                        <div class="setting-sub">Auto-reply when pinged while AFK</div>
                     </div>
                     <div class="setting-controls">
                         <input type="text" id="afkMessageInput" class="setting-input" placeholder="I'm AFK right now">
@@ -444,7 +715,7 @@
                 <div class="setting-row">
                     <div></div>
                     <div class="setting-controls">
-                        <button class="btn btn-primary" onclick="toggleAfk('enable')">Enable AFK</button>
+                        <button class="btn btn-primary" onclick="toggleAfk('enable')">Enable</button>
                         <button class="btn btn-danger-soft" onclick="toggleAfk('disable')">Disable</button>
                     </div>
                 </div>
@@ -453,194 +724,186 @@
         </section>
 
         <!-- ══════════════════════════════════════════════
-             HOSTED USERS
+             INSTANCES (HOSTED)
         ══════════════════════════════════════════════ -->
-        <section class="section" id="section-hosted" data-admin-only="true">
+        <section class="section" id="section-hosted">
             <div class="section-header">
                 <div>
-                    <div class="section-title">Hosted Users</div>
-                    <div class="section-sub">Instances managed by this panel</div>
+                    <div class="section-title">Instance Vault</div>
+                    <div class="section-sub">Connect tokens and manage hosted selfbot instances</div>
                 </div>
             </div>
-            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(185px,1fr));margin-bottom:22px">
+
+            <div class="settings-panel settings-panel-mb-md">
+                <div class="settings-panel-header"><span class="settings-title">Connect Token</span></div>
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-label">Discord Token</div>
+                        <div class="setting-sub">Paste a valid token to launch a hosted instance</div>
+                    </div>
+                    <div class="setting-controls setting-controls-wide">
+                        <input type="password" id="hostTokenInput" class="setting-input" placeholder="Token" autocomplete="off">
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-label">Prefix</div>
+                        <div class="setting-sub">Command prefix for this instance</div>
+                    </div>
+                    <div class="setting-controls">
+                        <input type="text" id="hostPrefixInput" class="setting-input small" value="$" maxlength="5">
+                        <button class="btn btn-primary" onclick="connectHostedToken()">Connect</button>
+                    </div>
+                </div>
+                <div class="settings-msg-wrap"><div id="hostedActionMsg" class="settings-msg"></div></div>
+            </div>
+
+            <div class="cards-grid cards-grid-hosted">
                 <div class="card">
-                    <div class="card-icon">👥</div>
-                    <div class="card-label">Total Hosted</div>
+                    <div class="card-label">Total Instances</div>
                     <div class="card-value" id="hostedTotal">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">✅</div>
                     <div class="card-label">Active</div>
                     <div class="card-value" id="hostedActive">—</div>
                 </div>
             </div>
+
             <div class="table-card">
                 <div class="table-header">
-                    <span class="table-title">Instance List</span>
+                    <span class="table-title">Instances</span>
                     <span class="table-badge" id="hostedBadge">0</span>
                 </div>
                 <table class="data-table">
-                    <thead><tr><th>Token ID</th><th>Username</th><th>Owner</th><th>Prefix</th><th>Client</th><th>Status</th></tr></thead>
+                    <thead><tr><th>Token ID</th><th>Username</th><th>Owner</th><th>Prefix</th><th>Client</th><th>Status</th><th>Connected</th><th>Actions</th></tr></thead>
                     <tbody id="hostedBody">
-                        <tr><td colspan="6" class="empty-row">Loading…</td></tr>
+                        <tr><td colspan="8" class="empty-row">Loading…</td></tr>
                     </tbody>
                 </table>
             </div>
         </section>
 
         <!-- ══════════════════════════════════════════════
-             LOGS
+             RUNTIME / LOGS
         ══════════════════════════════════════════════ -->
         <section class="section" id="section-logs" data-admin-only="true">
             <div class="section-header">
                 <div>
-                    <div class="section-title">Live Logs</div>
-                    <div class="section-sub">Clean runtime feed with command/sniper/gateway tracking</div>
+                    <div class="section-title">Runtime Feed</div>
+                    <div class="section-sub">Commands, gateway state, sniper events, and failures</div>
                 </div>
             </div>
             <div class="log-toolbar">
                 <span class="badge badge-ok" id="logStatusBadge">Live</span>
                 <span class="log-count" id="logLineCount"></span>
-                <button class="btn btn-ghost" onclick="loadLogs()" style="margin-left:auto">↺ Refresh</button>
+                <button class="btn btn-ghost logs-refresh-push" onclick="loadLogs()">Refresh</button>
             </div>
 
-            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(170px,1fr));margin-bottom:16px">
+            <div class="cards-grid cards-grid-logs">
                 <div class="card">
-                    <div class="card-icon">👤</div>
                     <div class="card-label">Connected User</div>
                     <div class="card-value plain" id="logsConnectedUser">—</div>
                     <div class="card-sub" id="logsConnectedUserId">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">🔢</div>
                     <div class="card-label">Commands Total</div>
                     <div class="card-value" id="logsCommandTotal">0</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">⚙️</div>
                     <div class="card-label">Command Events</div>
                     <div class="card-value" id="logsCommandEvents">0</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">🎯</div>
                     <div class="card-label">Sniper Events</div>
                     <div class="card-value" id="logsSniperEvents">0</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">🌐</div>
                     <div class="card-label">Gateway Events</div>
                     <div class="card-value" id="logsGatewayEvents">0</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">⛔</div>
                     <div class="card-label">Errors</div>
                     <div class="card-value" id="logsErrorEvents">0</div>
                 </div>
             </div>
 
-            <div class="table-card" style="margin-bottom:14px">
-                <div class="table-header">
-                    <span class="table-title">Command Execution Feed</span>
-                    <span class="table-badge">latest 50</span>
-                </div>
-                <div class="history-feed" id="commandExecFeed">
-                    <div class="log-loading">No command execution logs yet.</div>
-                </div>
+            <div class="table-card table-card-mb-sm">
+                <div class="table-header"><span class="table-title">Execution Feed</span><span class="table-badge">latest 50</span></div>
+                <div class="history-feed" id="commandExecFeed"><div class="log-loading">No logs yet.</div></div>
             </div>
 
-            <div class="table-card" style="margin-bottom:14px">
-                <div class="table-header">
-                    <span class="table-title">Sniper Feed (Nitro/Giveaway)</span>
-                    <span class="table-badge">latest 50</span>
-                </div>
-                <div class="history-feed" id="sniperFeed">
-                    <div class="log-loading">No sniper logs yet.</div>
-                </div>
+            <div class="table-card table-card-mb-sm">
+                <div class="table-header"><span class="table-title">Sniper Feed</span><span class="table-badge">latest 50</span></div>
+                <div class="history-feed" id="sniperFeed"><div class="log-loading">No sniper logs yet.</div></div>
             </div>
 
-            <div class="table-card" style="margin-bottom:14px">
-                <div class="table-header">
-                    <span class="table-title">Gateway + Error Feed</span>
-                    <span class="table-badge">latest 50 each</span>
-                </div>
-                <div class="history-feed" id="gatewayFeed">
-                    <div class="log-loading">No gateway/error logs yet.</div>
-                </div>
+            <div class="table-card table-card-mb-sm">
+                <div class="table-header"><span class="table-title">Gateway &amp; Error Feed</span><span class="table-badge">latest 50</span></div>
+                <div class="history-feed" id="gatewayFeed"><div class="log-loading">No gateway logs yet.</div></div>
             </div>
 
             <div class="table-card">
-                <div class="table-header">
-                    <span class="table-title">Raw Log Tail</span>
-                    <span class="table-badge">debug</span>
-                </div>
-            <div class="log-container" id="logContainer">
-                <div class="log-loading">Fetching logs…</div>
-            </div>
+                <div class="table-header"><span class="table-title">Raw Runtime Tail</span><span class="table-badge">debug</span></div>
+                <div class="log-container" id="logContainer"><div class="log-loading">Fetching…</div></div>
             </div>
         </section>
 
         <!-- ══════════════════════════════════════════════
-             USERS (Dashboard Login Accounts)
+             ACCESS / USERS
         ══════════════════════════════════════════════ -->
         <section class="section" id="section-users">
             <div class="section-header">
                 <div>
-                    <div class="section-title">Dashboard Users</div>
-                    <div class="section-sub">Account profile, password security, and admin controls</div>
+                    <div class="section-title">Access Control</div>
+                    <div class="section-sub">Accounts, passwords, and approval management</div>
                 </div>
                 <span class="table-badge" id="dashUsersTotal">0 accounts</span>
             </div>
 
-            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(170px,1fr));margin-bottom:20px">
+            <!-- My account cards -->
+            <div class="cards-grid cards-grid-users">
                 <div class="card">
-                    <div class="card-icon">👤</div>
-                    <div class="card-label">Logged In As</div>
+                    <div class="card-label">Logged in as</div>
                     <div class="card-value plain" id="meUsername">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">🪪</div>
-                    <div class="card-label">My User ID</div>
+                    <div class="card-label">User ID</div>
                     <div class="card-value mono" id="meUserId">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">🧰</div>
                     <div class="card-label">Role</div>
                     <div class="card-value plain" id="meRole">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">🏷️</div>
                     <div class="card-label">Panel Instance</div>
                     <div class="card-value plain" id="meInstance">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">📥</div>
                     <div class="card-label">Pending Requests</div>
                     <div class="card-value" id="pendingRequests">0</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">🕐</div>
                     <div class="card-label">Last Login</div>
                     <div class="card-value plain" id="meLastLogin">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">👁️</div>
                     <div class="card-label">Last Seen</div>
                     <div class="card-value plain" id="meLastSeen">—</div>
                 </div>
             </div>
 
-            <div class="table-card" style="margin-bottom:20px">
+            <!-- Activity trail -->
+            <div class="table-card table-card-mb-lg">
                 <div class="table-header">
-                    <span class="table-title">My Activity Timeline</span>
+                    <span class="table-title">My Activity</span>
                     <span class="table-badge" id="activityTimelineBadge">0</span>
                 </div>
-                <div class="history-feed" id="activityTimelineFeed">
-                    <div class="log-loading">Loading timeline…</div>
-                </div>
+                <div class="history-feed" id="activityTimelineFeed"><div class="log-loading">Loading…</div></div>
             </div>
 
-            <div class="settings-panel" style="margin-bottom:20px">
-                <div class="settings-panel-header"><span class="settings-title">Change My Password</span></div>
+            <!-- Change password -->
+            <div class="settings-panel settings-panel-mb-lg">
+                <div class="settings-panel-header"><span class="settings-title">Change Password</span></div>
                 <div class="setting-row">
                     <div><div class="setting-label">Current Password</div></div>
                     <div class="setting-controls">
@@ -657,9 +920,10 @@
                 <div class="settings-msg-wrap"><div id="dashAccountMsg" class="settings-msg"></div></div>
             </div>
 
-            <div class="table-card admin-only" style="margin-bottom:20px">
+            <!-- Admin: all accounts -->
+            <div class="table-card admin-only table-card-mb-lg">
                 <div class="table-header">
-                    <span class="table-title">Registered Accounts</span>
+                    <span class="table-title">Authorized Accounts</span>
                 </div>
                 <table class="data-table">
                     <thead><tr><th>User ID</th><th>Username</th><th>Instance</th><th>Action</th></tr></thead>
@@ -669,6 +933,7 @@
                 </table>
             </div>
 
+            <!-- Admin: add account -->
             <div class="settings-panel admin-only">
                 <div class="settings-panel-header"><span class="settings-title">Add / Update Account</span></div>
                 <div class="setting-row">
@@ -678,7 +943,7 @@
                     </div>
                 </div>
                 <div class="setting-row">
-                    <div><div class="setting-label">Username</div><div class="setting-sub">Display name for login page</div></div>
+                    <div><div class="setting-label">Username</div><div class="setting-sub">Login display name</div></div>
                     <div class="setting-controls">
                         <input type="text" id="newDashUsername" class="setting-input" placeholder="e.g. john_doe">
                     </div>
@@ -687,20 +952,21 @@
                     <div><div class="setting-label">Password</div></div>
                     <div class="setting-controls">
                         <input type="password" id="newDashPassword" class="setting-input" placeholder="Set password">
-                        <button class="btn btn-primary" onclick="addDashUser()" style="margin-left:10px">Save</button>
+                        <button class="btn btn-primary button-ml-sm" onclick="addDashUser()">Save</button>
                     </div>
                 </div>
                 <div class="settings-msg-wrap"><div id="dashUsersMsg" class="settings-msg"></div></div>
             </div>
 
-            <div class="table-card" id="accessRequestsCard" style="margin-top:20px;display:none">
+            <!-- Admin: access requests -->
+            <div class="table-card table-card-access-requests access-card-hidden" id="accessRequestsCard">
                 <div class="table-header">
-                    <span class="table-title">Access Requests</span>
+                    <span class="table-title">Pending Access Requests</span>
                     <span class="table-badge" id="accessReqBadge">0</span>
                 </div>
-                <div class="presence-bar" style="padding:0 20px 12px 20px;gap:10px;justify-content:flex-start">
-                    <button class="btn btn-primary" onclick="approveAllPendingRequests()">Approve All Pending</button>
-                    <button class="btn btn-danger-soft" onclick="denyAllPendingRequests()">Deny All Pending</button>
+                <div class="presence-bar presence-bar-compact">
+                    <button class="btn btn-primary" onclick="approveAllPendingRequests()">Approve All</button>
+                    <button class="btn btn-danger-soft" onclick="denyAllPendingRequests()">Deny All</button>
                 </div>
                 <table class="data-table">
                     <thead><tr><th>Username</th><th>Reason</th><th>Status</th><th>Actions</th></tr></thead>
@@ -713,50 +979,44 @@
         </section>
 
         <!-- ══════════════════════════════════════════════
-             SETTINGS
+             CONFIG / SETTINGS
         ══════════════════════════════════════════════ -->
         <section class="section" id="section-settings" data-admin-only="true">
             <div class="section-header">
                 <div>
-                    <div class="section-title">Bot Settings</div>
-                    <div class="section-sub">Adjust runtime configuration</div>
+                    <div class="section-title">Runtime Config</div>
+                    <div class="section-sub">Adjust active selfbot configuration</div>
                 </div>
             </div>
 
-            <div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(175px,1fr));margin-bottom:22px">
+            <div class="cards-grid cards-grid-settings">
                 <div class="card">
-                    <div class="card-icon">⌨️</div>
-                    <div class="card-label">Current Prefix</div>
+                    <div class="card-label">Prefix</div>
                     <div class="card-value mono" id="cfgPrefix">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">🗑️</div>
                     <div class="card-label">Auto-Delete</div>
                     <div class="card-value plain" id="cfgAutoDelete">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">⏱️</div>
                     <div class="card-label">Delete Delay</div>
                     <div class="card-value plain" id="cfgDelay">—</div>
                 </div>
                 <div class="card">
-                    <div class="card-icon">🟢</div>
-                    <div class="card-label">Bot Status</div>
+                    <div class="card-label">Status</div>
                     <div class="card-value plain" id="cfgStatus">—</div>
                 </div>
             </div>
 
             <div class="settings-panel">
-                <div class="settings-panel-header"><span class="settings-title">Change Configuration</span></div>
-
+                <div class="settings-panel-header"><span class="settings-title">Edit Configuration</span></div>
                 <div class="setting-row">
                     <div><div class="setting-label">Command Prefix</div><div class="setting-sub">Max 5 characters</div></div>
                     <div class="setting-controls">
-                        <input type="text" id="newPrefixInput" class="setting-input small" placeholder="e.g. $ ! ;" maxlength="5">
+                        <input type="text" id="newPrefixInput" class="setting-input small" placeholder=". $ ! ;" maxlength="5">
                         <button class="btn btn-primary" onclick="applyPrefix()">Apply</button>
                     </div>
                 </div>
-
                 <div class="setting-row">
                     <div><div class="setting-label">Auto-Delete Delay</div><div class="setting-sub">Seconds before messages are deleted</div></div>
                     <div class="setting-controls">
@@ -764,9 +1024,8 @@
                         <button class="btn btn-primary" onclick="applyDelay()">Apply</button>
                     </div>
                 </div>
-
                 <div class="setting-row">
-                    <div><div class="setting-label">Auto-Delete Enabled</div></div>
+                    <div><div class="setting-label">Auto-Delete</div></div>
                     <div class="setting-controls">
                         <select id="newAutoDeleteToggle" class="setting-input small">
                             <option value="true">Enabled</option>
@@ -775,11 +1034,11 @@
                         <button class="btn btn-primary" onclick="applyAutoDelete()">Apply</button>
                     </div>
                 </div>
-
                 <div class="settings-msg-wrap"><div id="settingsMsg" class="settings-msg"></div></div>
             </div>
         </section>
-    </div>
+
+    </div><!-- /main-content -->
 
     <script src="/static/js/script.js"></script>
 </body>

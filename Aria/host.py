@@ -195,6 +195,7 @@ class HostManager:
                 "prefix": prefix,
                 "owner": owner_id,
                 "config": config_file,
+                "connected_at": int(time.time()),
             }
             self.active_tokens[token_id] = entry
             self.processes[token_id] = process
@@ -583,6 +584,94 @@ subprocess.run([sys.executable, os.path.join(TEMP_DIR, "main.py")], cwd=TEMP_DIR
 
         return removed
 
+    def restart_hosts(self, requester_id=None, selectors=None, all_hosts=False):
+        """Restart hosted entries by index, uid, token_id, or user_id without deleting saved entries."""
+        scoped_entries = self.list_hosted_entries(None if all_hosts else requester_id)
+        if not scoped_entries:
+            return 0
+
+        selector_values = [str(sel).strip() for sel in (selectors or []) if str(sel).strip()]
+        selected_ids = []
+
+        if selector_values:
+            for selector in selector_values:
+                matched = False
+                if selector.isdigit():
+                    index = int(selector) - 1
+                    if 0 <= index < len(scoped_entries):
+                        selected_ids.append(scoped_entries[index][0])
+                        matched = True
+                if matched:
+                    continue
+
+                for token_id, entry in scoped_entries:
+                    if selector in {
+                        str(token_id),
+                        str(entry.get("uid") or ""),
+                        str(entry.get("user_id") or ""),
+                    }:
+                        selected_ids.append(token_id)
+                        matched = True
+                if matched:
+                    continue
+        else:
+            selected_ids = [token_id for token_id, _ in scoped_entries]
+
+        restarted = 0
+        for token_id in list(dict.fromkeys(selected_ids)):
+            with self.lock:
+                saved = (self.saved_users.get(token_id) or {}).copy()
+                proc = self.processes.get(token_id)
+                stop_event = self._stop_events.pop(token_id, None)
+
+            if not saved:
+                continue
+            token = saved.get("token")
+            if not self._is_token_valid(token):
+                continue
+
+            if stop_event:
+                stop_event.set()
+            if proc:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+
+            prefix = saved.get("prefix", ";")
+            config_file = f"hosted_{token_id}.json"
+            new_process = self._run_their_bot(
+                config_file,
+                token,
+                prefix=prefix,
+                hosted_uid=saved.get("uid") or token_id,
+                owner_id=saved.get("owner"),
+                user_id=saved.get("user_id"),
+                username=saved.get("username"),
+            )
+            if not new_process:
+                continue
+
+            entry = {
+                "uid": saved.get("uid") or token_id,
+                "user_id": saved.get("user_id", ""),
+                "username": saved.get("username", ""),
+                "token": token,
+                "prefix": prefix,
+                "owner": saved.get("owner", ""),
+                "config": config_file,
+                "connected_at": int(time.time()),
+            }
+
+            with self.lock:
+                self.active_tokens[token_id] = entry
+                self.processes[token_id] = new_process
+
+            self._start_keepalive(token_id)
+            restarted += 1
+
+        return restarted
+
     def validate_hosted_tokens(self, requester_id=None, session=None):
         scoped_entries = self.list_hosted_entries(requester_id)
         if not scoped_entries:
@@ -678,6 +767,8 @@ subprocess.run([sys.executable, os.path.join(TEMP_DIR, "main.py")], cwd=TEMP_DIR
                     "prefix": prefix,
                     "owner": data.get("owner", ""),
                     "config": config_file,
+                    "connected_at": int(time.time()),
+                    "connected_at": int(time.time()),
                 }
 
                 with self.lock:

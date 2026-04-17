@@ -21,3 +21,10 @@ logs/
 # Secrets/local configuration
 config.json
 Aria/config.json
+Aria/.aria_key
+
+# Generated hosted runtime snapshots
+hosted_bot_*/
+hosted_*.json
+hosted_users.json
+runner_*.py

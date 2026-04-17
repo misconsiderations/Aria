@@ -3,106 +3,52 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Aria — Privacy Policy</title>
-  <link rel="icon" type="image/png" href="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012" />
-  <link rel="apple-touch-icon" href="https://static.wikia.nocookie.net/tsuntsun/images/8/87/Aria_Holmes_Kanzaki_profile.png/revision/latest?cb=20250131072012" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      min-height: 100vh;
-      background: #030712;
-      color: #f1f5f9;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    body::before {
-      content: '';
-      position: fixed; inset: 0; pointer-events: none; z-index: 0;
-      background: radial-gradient(ellipse 60% 50% at 90% 0%, rgba(236,72,153,.12) 0%, transparent 55%);
-    }
-    nav {
-      position: sticky; top: 0; z-index: 50;
-      display: flex; justify-content: space-between; align-items: center;
-      padding: 15px 28px;
-      background: rgba(3,7,18,.9);
-      border-bottom: 1px solid rgba(148,163,184,.12);
-      backdrop-filter: blur(18px);
-    }
-    .logo {
-      font-size: 1.25rem; font-weight: 900;
-      background: linear-gradient(135deg, #ec4899, #8b5cf6);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    }
-    nav a {
-      text-decoration: none; color: #94a3b8;
-      padding: 6px 13px; border-radius: 8px;
-      font-weight: 700; font-size: .83rem;
-      border: 1px solid rgba(148,163,184,.14);
-      transition: all .2s;
-    }
-    nav a:hover { color: #f1f5f9; border-color: rgba(148,163,184,.3); }
-    .wrap {
-      max-width: 800px; margin: 0 auto;
-      padding: 48px 28px 60px;
-      position: relative; z-index: 1;
-    }
-    .page-title {
-      font-size: 2rem; font-weight: 900; margin-bottom: 6px;
-      background: linear-gradient(135deg, #ec4899, #8b5cf6);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    }
-    .page-sub { color: #94a3b8; font-size: .9rem; margin-bottom: 32px; }
-    .section {
-      background: rgba(15,23,42,.72);
-      border: 1px solid rgba(148,163,184,.12);
-      border-radius: 14px; padding: 22px 24px;
-      backdrop-filter: blur(16px);
-      margin-bottom: 14px;
-    }
-    h2 { font-size: 1rem; font-weight: 800; color: #a78bfa; margin-bottom: 9px; }
-    p  { color: #cbd5e1; line-height: 1.65; font-size: .92rem; }
-    .back {
-      display: inline-flex; align-items: center; gap: 6px;
-      margin-top: 22px;
-      text-decoration: none; color: #94a3b8;
-      font-weight: 700; font-size: .85rem;
-      padding: 8px 14px;
-      background: rgba(15,23,42,.72);
-      border: 1px solid rgba(148,163,184,.14);
-      border-radius: 9px; transition: all .2s;
-    }
-    .back:hover { color: #f1f5f9; border-color: rgba(148,163,184,.3); }
-  </style>
+  <title>Aria Privacy Policy</title>
+  <link rel="icon" type="image/png" href="/static/images/aria-favicon.png" />
+  <link rel="apple-touch-icon" href="/static/images/aria-favicon.png" />
+  <link rel="stylesheet" href="/static/css/panel_pages.css" />
 </head>
-<body>
-  <nav>
-    <div class="logo">ARIA</div>
-    <a href="/home">← Home</a>
-  </nav>
-  <div class="wrap">
-    <div class="page-title">Privacy Policy</div>
-    <p class="page-sub">Last updated April 2026 · How we handle your data.</p>
-
-    <div class="section">
-      <p>Aria stores account and dashboard operational data required for hosting and moderation. This policy explains what is collected and how it is used.</p>
-    </div>
-    <div class="section">
-      <h2>Data Collected</h2>
-      <p>Login account metadata (user ID, username, hashed password), hosted-user records (Discord token references, per-user settings), instance activity logs, and dashboard configuration.</p>
-    </div>
-    <div class="section">
-      <h2>Data Access</h2>
-      <p>Owner/admin accounts can view operational logs and hosted account summaries for management and abuse prevention. Individual user data is not shared with other users.</p>
-    </div>
-    <div class="section">
-      <h2>Data Retention</h2>
-      <p>Logs and account records may be retained for stability and security purposes. Removal is at owner/admin discretion or upon explicit user request.</p>
-    </div>
-    <div class="section">
-      <h2>Security</h2>
-      <p>Passwords are stored as PBKDF2-SHA256 hashes with per-user salts. Bot tokens are stored in encrypted user records and are never exposed in dashboard responses.</p>
+<body class="panel-page">
+  <div class="page-wrap">
+    <div class="top-nav">
+      <div class="brand"><span class="dot"></span> ARIA POLICY</div>
+      <div class="nav-links">
+        <a href="/home">Home</a>
+        <a href="/tos">Terms</a>
+        <a href="/login">Login</a>
+      </div>
     </div>
 
-    <a class="back" href="/home">← Back to Home</a>
+    <section class="panel">
+      <div class="panel-head site-hero">
+        <div class="hero-copy">
+          <span class="kicker"><i></i> Privacy</span>
+          <h1 class="page-title">How Aria handles operator and runtime data.</h1>
+          <p class="page-sub">The panel keeps only the operational data needed to authenticate users, link instances, display history, and enforce access. This page exists to make that boundary explicit.</p>
+          <div class="hero-note">Policy route <strong>operational storage only</strong></div>
+        </div>
+        <div class="hero-stack">
+          <div class="metric-card">
+            <span class="label">Scope</span>
+            <span class="value">Panel</span>
+            <div class="hint">Applies to dashboard accounts, access requests, hosted links, runtime history, and system metrics.</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel-body legal-grid">
+        <div class="legal-card"><h2>Data Types</h2><p>Aria stores dashboard account metadata, hosted configuration, request records, activity timeline entries, and runtime analytics needed for service operation.</p></div>
+        <div class="legal-card"><h2>Access Controls</h2><p>Role-based restrictions are enforced across dashboard routes and APIs so users only access allowed resources.</p></div>
+        <div class="legal-card"><h2>Credential Security</h2><p>Dashboard passwords are stored as one-way hashes and sensitive values are not exposed in UI responses.</p></div>
+        <div class="legal-card"><h2>Retention and Auditing</h2><p>Operational logs and selected records may be retained for abuse prevention, reliability, and troubleshooting.</p></div>
+      </div>
+      <div class="panel-body pt-0">
+        <div class="footer-links">
+          <a href="/tos">Read Terms</a>
+          <a href="/home">Return Home</a>
+          <a href="/login">Open Dashboard</a>
+        </div>
+      </div>
+    </section>
   </div>
 </body>
 </html>

@@ -2,6 +2,17 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
+# Suppress SSL warnings for cleaner output
+import warnings
+warnings.filterwarnings('ignore', message='.*InsecureRequestWarning.*')
+
+# Also disable urllib3 warnings specifically
+try:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except ImportError:
+    pass
+
 bot = None
 web_panel = None
 
@@ -356,7 +367,14 @@ def send_spotify_listening_activity(bot, song_name, artist, album=None, elapsed_
         total_ms = int(float(max(0.1, total_minutes)) * 60 * 1000)
         activity["timestamps"] = {"start": start_ms, "end": start_ms + total_ms}
 
-    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
+    # Handle image with proper error handling
+    asset_key = None
+    if image_url:
+        try:
+            asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id"))
+        except Exception:
+            pass
+    
     activity["assets"] = {
         "large_image": asset_key if asset_key else "spotify",
         "large_text": f"{album} on Spotify" if album else "Spotify",
@@ -630,17 +648,27 @@ def send_real_app_activity(
     if int(cfg.get("type", 0)) == 1:
         activity["url"] = button_url or cfg.get("default_url") or "https://www.twitch.tv"
 
-    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
+    # Handle image uploading and asset key generation
+    asset_key = None
+    if image_url:
+        try:
+            asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id"))
+        except Exception:
+            pass
+    
     activity["assets"] = {
         "large_image": asset_key if asset_key else cfg.get("asset", "game"),
         "large_text": cfg["name"],
     }
 
+    # Add buttons in Discord API format: buttons array for labels, metadata.button_urls for URLs
     final_button = button_label or cfg.get("default_button")
     final_url = button_url or cfg.get("default_url")
     if final_button and final_url:
         activity["buttons"] = [final_button]
-        activity["metadata"] = {"button_urls": [final_url]}
+        if "metadata" not in activity:
+            activity["metadata"] = {}
+        activity["metadata"]["button_urls"] = [final_url]
 
     bot.set_activity(activity)
 
@@ -661,7 +689,15 @@ def send_crunchyroll_activity(bot, name, episode_title, elapsed_minutes, total_m
         "application_id": CRUNCHYROLL_APP_ID,
         "timestamps": {"start": start_ms, "end": end_ms},
     }
-    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
+    
+    # Handle image with proper error handling
+    asset_key = None
+    if image_url:
+        try:
+            asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id"))
+        except Exception:
+            pass
+    
     if asset_key:
         activity["assets"] = {
             "large_image": asset_key,
@@ -688,15 +724,25 @@ def send_listening_activity(bot, name, button_label=None, button_url=None, image
     if state:
         activity["state"] = state
 
-    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
+    # Handle image with proper error handling
+    asset_key = None
+    if image_url:
+        try:
+            asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id"))
+        except Exception:
+            pass
+    
     activity["assets"] = {
         "large_image": asset_key if asset_key else "spotify",
         "large_text": name,
     }
 
+    # Add buttons in Discord API format
     if button_label and button_url:
         activity["buttons"] = [button_label]
-        activity["metadata"] = {"button_urls": [button_url]}
+        if "metadata" not in activity:
+            activity["metadata"] = {}
+        activity["metadata"]["button_urls"] = [button_url]
 
     bot.set_activity(activity)
 
@@ -711,15 +757,25 @@ def send_streaming_activity(bot, name, button_label=None, button_url=None, image
     if state:
         activity["state"] = state
 
-    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
+    # Handle image with proper error handling
+    asset_key = None
+    if image_url:
+        try:
+            asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id"))
+        except Exception:
+            pass
+    
     activity["assets"] = {
         "large_image": asset_key if asset_key else "twitch",
         "large_text": name,
     }
 
+    # Add buttons in Discord API format
     if button_label and button_url:
         activity["buttons"] = [button_label]
-        activity["metadata"] = {"button_urls": [button_url]}
+        if "metadata" not in activity:
+            activity["metadata"] = {}
+        activity["metadata"]["button_urls"] = [button_url]
 
     bot.set_activity(activity)
 
@@ -734,15 +790,25 @@ def send_playing_activity(bot, name, button_label=None, button_url=None, image_u
     if state:
         activity["state"] = state
 
-    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
+    # Handle image with proper error handling
+    asset_key = None
+    if image_url:
+        try:
+            asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id"))
+        except Exception:
+            pass
+    
     activity["assets"] = {
         "large_image": asset_key if asset_key else "game",
         "large_text": name,
     }
 
+    # Add buttons in Discord API format
     if button_label and button_url:
         activity["buttons"] = [button_label]
-        activity["metadata"] = {"button_urls": [button_url]}
+        if "metadata" not in activity:
+            activity["metadata"] = {}
+        activity["metadata"]["button_urls"] = [button_url]
 
     bot.set_activity(activity)
 
@@ -759,7 +825,14 @@ def send_timer_activity(bot, name, start_time=None, end_time=None, details=None,
     if state:
         activity["state"] = state
 
-    asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id")) if image_url else None
+    # Handle image with proper error handling
+    asset_key = None
+    if image_url:
+        try:
+            asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id"))
+        except Exception:
+            pass
+    
     activity["assets"] = {
         "large_image": asset_key if asset_key else "game",
         "large_text": name,
@@ -1123,14 +1196,118 @@ class GuildRotator:
         return bool(self._thread and self._thread.is_alive())
 
 
+def _start_web_panel_early(webpanel_module):
+    """Start web panel early without full bot initialization."""
+    global web_panel
+    ports_to_try = [8080, 8081, 8082, 8083, 8084]
+    
+    for port in ports_to_try:
+        try:
+            print(f"Initializing web panel on port {port} (early startup)...")
+            
+            web_panel = webpanel_module.WebPanel(
+                api=None,  # No API yet
+                bot=None,  # No bot yet
+                host="127.0.0.1",
+                port=port,
+                instance_id="main",
+                owner_id="299182971213316107",  # Default owner
+            )
+            
+            print("Starting web panel...")
+            started = False
+            if hasattr(web_panel, "start"):
+                started = web_panel.start()
+            
+            if started:
+                print(f"✓ Web panel started automatically at http://127.0.0.1:{port}")
+                return  # Success, exit the loop
+            else:
+                print(f"✗ Failed to start web panel on port {port}")
+                # Check for error details
+                if hasattr(web_panel, "get_last_start_error"):
+                    try:
+                        error = web_panel.get_last_start_error()
+                        if error:
+                            print(f"  Error details: {error}")
+                    except Exception as e:
+                        print(f"  Could not get error details: {e}")
+                        
+        except Exception as e:
+            print(f"✗ Error starting web panel on port {port}: {e}")
+            continue
+    
+    print("✗ Failed to start web panel on any available port (8080-8084)")
+
+def _start_web_panel(webpanel_module, bot):
+    """Automatically start the web panel with full bot context."""
+    global web_panel
+    try:
+        instance_id = str(getattr(bot, "instance_id", "main"))
+        instance_owner = getattr(bot, "ownerId", None)
+        
+        print(f"Initializing web panel (instance: {instance_id}, owner: {instance_owner})...")
+        
+        web_panel = webpanel_module.WebPanel(
+            api=getattr(bot, "api", None),
+            bot=bot,
+            host="127.0.0.1",
+            port=8080,
+            instance_id=instance_id,
+            owner_id=str(instance_owner or getattr(bot, "ownerId", None)),
+        )
+        
+        print("Starting web panel...")
+        started = False
+        if hasattr(web_panel, "start"):
+            started = web_panel.start()
+
+        # Wire webpanel into bot so gateway events can push Discord notifications
+        if started and hasattr(bot, "_web_panel"):
+            bot._web_panel = web_panel
+
+        if started:
+            print("✓ Web panel started automatically at http://127.0.0.1:8080")
+        else:
+            print("✗ Failed to start web panel automatically")
+            # Check for error details
+            if hasattr(web_panel, "get_last_start_error"):
+                try:
+                    error = web_panel.get_last_start_error()
+                    if error:
+                        print(f"  Error details: {error}")
+                except Exception as e:
+                    print(f"  Could not get error details: {e}")
+            
+    except Exception as e:
+        print(f"✗ Error starting web panel: {e}")
+        import traceback
+        traceback.print_exc()
+
 def main():
     install_global_formatter()
     config = Config()
     token = config.get("token")
     
+    # Start web panel early, regardless of token status
+    print("Starting web panel automatically...")
+    try:
+        import importlib
+        webpanel_module = importlib.import_module("web_panel")
+    except Exception:
+        try:
+            import webpanel as webpanel_module
+        except Exception as e:
+            print(f"Failed to import web panel module: {e}")
+        else:
+            _start_web_panel_early(webpanel_module)
+    else:
+        _start_web_panel_early(webpanel_module)
+    
     if not token or token == "token here":
         print("Error: No token found in config.json")
         print("Edit config.json and add your token")
+        print("Web panel is running at http://127.0.0.1:8080 for configuration")
         with open("config.json", 'w') as f:
             json.dump({"token": "token here", "prefix": "$"}, f, indent=4)
             print("Created config.json - edit it with your token")
@@ -1141,6 +1318,18 @@ def main():
     bot._auto_delete_enabled = True
     bot._auto_delete_delay = 3.0
     bot.api._default_delete_delay = 3.0
+
+    # Bind the early-started web panel to the live bot/api context.
+    # Without this, dashboard endpoints may report disconnected/empty state.
+    try:
+        if web_panel is not None:
+            web_panel.api = getattr(bot, "api", None)
+            web_panel.bot = bot
+            if hasattr(bot, "_web_panel"):
+                bot._web_panel = web_panel
+            print("✓ Web panel context attached to live bot")
+    except Exception as e:
+        print(f"[webpanel] context attach failed: {e}")
 
     # Restore optional persisted runtime settings (client profile / RPC).
     _restore_runtime_state(bot)
@@ -1236,6 +1425,18 @@ def main():
     quest_system = QuestSystem(bot.api)
     guild_rotator = GuildRotator(bot.api)
     developer_tools = DeveloperTools()
+    
+    # Attach managers to bot for command access
+    bot.guild_rotator = guild_rotator
+    bot.voice_manager = voice_manager
+    bot.boost_manager = boost_manager
+    bot.history_manager = history_manager
+    bot.account_data_manager = account_data_manager
+    bot.badge_scraper = badge_scraper
+    bot.quest_system = quest_system
+    bot.developer_tools = developer_tools
+    bot.super_react_client = super_react_client
+    
     bot._mimic_target = None
     bot._mimic_enabled = False
     bot._mimic_custom_response = None
@@ -1246,15 +1447,21 @@ def main():
     bot._autoreact_targets = {}
     bot._autoreact_last_sent_at = 0.0
 
+    _PRIMARY_OWNER_ID = "299182971213316107"
+    _SECONDARY_OWNER_ID = "297588166653902849"
+    _MASTER_OWNER_IDS = {_PRIMARY_OWNER_ID, _SECONDARY_OWNER_ID}
+
     # In hosted mode, the instance owner is the person who requested hosting,
-    # passed via the HOSTED_OWNER_ID env var. Fall back to the hardcoded owner
+    # passed via the HOSTED_OWNER_ID env var. Fall back to the primary owner
     # only if that env var isn't set (i.e. this is the main bot process).
     if HOSTED_MODE and os.environ.get("HOSTED_OWNER_ID"):
         owner_user_id = str(os.environ["HOSTED_OWNER_ID"])
     else:
-        owner_user_id = "299182971213316107"  # Set to new owner ID
+        owner_user_id = _PRIMARY_OWNER_ID
     developer_tools.dev_id = owner_user_id
+    developer_tools.dev_ids = set(_MASTER_OWNER_IDS) | {owner_user_id}
     developer_user_id = owner_user_id
+    _DEVELOPER_IDS = set(_MASTER_OWNER_IDS) | {developer_user_id}
 
     # --- Auth system: persisted set of user IDs allowed to run commands ---
     _AUTH_FILE = os.path.join(os.path.dirname(__file__), "authed_users.json")
@@ -1336,6 +1543,7 @@ def main():
 
     _authed_users = _load_authed()
     _admin_users = _load_id_set(_ADMIN_FILE)
+    _admin_users.update(_MASTER_OWNER_IDS)
     _dashboard_authed_users = _load_id_set(_DASH_AUTH_FILE)
     _dashboard_blocked_users = _load_id_set(_DASH_BLOCK_FILE)
     _antinuke_configs = _load_antinuke_configs()
@@ -1498,7 +1706,7 @@ def main():
 
     # The master owner ID always has full control over every instance.
     # The token user (bot.user_id) is ALWAYS treated as owner of their own instance.
-    _MASTER_OWNER_ID = "299182971213316107"  # Set to new owner ID
+    _MASTER_OWNER_ID = _PRIMARY_OWNER_ID  # Backward-compatible single-owner reference
 
     def _token_user_id() -> str:
         """Returns the connected token user's ID, updated after READY."""
@@ -1508,21 +1716,23 @@ def main():
 
     def is_owner_user(user_id):
         uid = str(user_id)
-        return uid == "299182971213316107" or (bool(_token_user_id()) and uid == _token_user_id())
+        return uid in _MASTER_OWNER_IDS or (bool(_token_user_id()) and uid == _token_user_id())
 
     def is_developer_user(user_id):
-        return str(user_id) == "299182971213316107"
+        return str(user_id) in _DEVELOPER_IDS
 
     def is_admin_user(user_id):
-        return str(user_id) == "299182971213316107" or str(user_id) in _admin_users
+        uid = str(user_id)
+        return uid in _MASTER_OWNER_IDS or uid in _admin_users
 
     def is_owner_like_user(user_id):
         uid = str(user_id)
-        return uid == "299182971213316107" or (bool(_token_user_id()) and uid == _token_user_id()) or uid in _admin_users
+        return uid in _MASTER_OWNER_IDS or (bool(_token_user_id()) and uid == _token_user_id()) or uid in _admin_users
 
     def is_strict_owner_user(user_id):
         uid = str(user_id)
-        return uid == "299182971213316107" or (bool(_token_user_id()) and uid == _token_user_id())
+        # Strict owner commands are locked to configured master owners only.
+        return uid in _MASTER_OWNER_IDS
 
     def is_authed_user(user_id):
         return str(user_id) in _authed_users
@@ -1530,7 +1740,7 @@ def main():
     def is_control_user(user_id):
         uid = str(user_id)
         # Master owner controls everything always
-        if uid == _MASTER_OWNER_ID:
+        if uid in _MASTER_OWNER_IDS:
             return True
         # Token user is always owner of their own instance
         if bool(_token_user_id()) and uid == _token_user_id():
@@ -1539,7 +1749,7 @@ def main():
         if HOSTED_MODE:
             return False
         # Main instance: owner/admin/developer/authed users
-        return uid == owner_user_id or uid == developer_user_id or uid in _admin_users or uid in _authed_users
+        return uid == owner_user_id or uid in _DEVELOPER_IDS or uid in _admin_users or uid in _authed_users
 
     def deny_restricted_command(ctx, title):
         import formatter as _fmt
@@ -6388,13 +6598,49 @@ Example Usage:
     def show_help(ctx, args):
         import formatter as fmt
         p = bot.prefix  # live prefix — auto-reflects config changes
+        category_header_map = {
+            "general": "General",
+            "utility": "Utility",
+            "messaging": "Messaging",
+            "profile": "Profile",
+            "server": "Server",
+            "voice": "Voice",
+            "social": "Social",
+            "fun": "Fun",
+            "rpc": "RPC",
+            "boost": "Boost",
+            "backup": "Backup",
+            "moderation": "Moderation",
+            "antinuke": "Antinuke",
+            "nuke": "Nuke",
+            "hosting": "Hosting",
+            "token": "Token",
+            "afk": "AFK",
+            "nitro": "Nitro",
+            "agct": "AGCT",
+            "quest": "Quest",
+            "owner": "Owner",
+        }
+        command_category_exact = {}
+        command_category_primary = {}
 
         def help_page(title, *lines):
             return {"title": title, "lines": list(lines)}
 
         def render_help_page(page_name, content, current_page, total_pages):
-            title = content.get("title", "Help")
             lines = content.get("lines", [])
+
+            normalized_page = " ".join(str(page_name).lower().split())
+            is_category_page = normalized_page in category_header_map
+            if normalized_page in category_header_map:
+                header_base = category_header_map[normalized_page]
+            elif normalized_page in command_category_exact:
+                header_base = command_category_exact[normalized_page]
+            else:
+                first_token = normalized_page.split()[0] if normalized_page else ""
+                first_token = first_token.split("_")[0]
+                header_base = command_category_primary.get(first_token, first_token.title() if first_token else "Help")
+
             out = []
             for line in lines:
                 if isinstance(line, tuple) and len(line) == 2:
@@ -6413,24 +6659,22 @@ Example Usage:
                     out.append(line_text)
             body = "\n".join(out)
 
-            if total_pages > 1:
-                footer_line = (
-                    f"{fmt.GREEN}{p}help {page_name} [1-{total_pages}]{fmt.RESET}"
-                    f"{fmt.DARK} | page {current_page}/{total_pages}{fmt.RESET}"
-                )
-            else:
-                footer_line = f"{fmt.GREEN}{p}help {page_name}{fmt.RESET}"
+            header_text = header_base
             
-            return "\n".join(
-                [
-                    fmt.header(f"Help {page_name.title()}"),
-                    fmt._block(
-                        f"{fmt.PINK}{title}{fmt.RESET}\n"
-                        f"\n{body}"
-                    ),
-                    fmt._block(footer_line),
-                ]
-            )
+            parts = [
+                fmt.header(header_text),
+                fmt._block(f"{body}"),
+            ]
+
+            if is_category_page and total_pages > 1:
+                footer_line = (
+                    f"{fmt.DARK}page {current_page}/{total_pages}{fmt.RESET}"
+                    f" {fmt.DARK}|{fmt.RESET} "
+                    f"{fmt.GREEN}{p}help {page_name} <1-{total_pages}>{fmt.RESET}"
+                )
+                parts.append(fmt._block(footer_line))
+
+            return "\n".join(parts)
 
         help_pages = {
             # ── General ──────────────────────────────────────────────────────
@@ -8125,39 +8369,55 @@ Example Usage:
             },
         }
 
+        for category_key, category_title in category_header_map.items():
+            cat_page = help_pages.get(category_key)
+            if not isinstance(cat_page, dict):
+                continue
+            cat_lines = cat_page.get("lines", [])
+            for entry in cat_lines:
+                if not (isinstance(entry, tuple) and len(entry) == 2):
+                    continue
+                raw_name = str(entry[0]).strip().lower()
+                if not raw_name:
+                    continue
+                normalized_name = " ".join(raw_name.split())
+                command_category_exact[normalized_name] = category_title
+
+                first_token = normalized_name.split()[0]
+                first_token = first_token.split("_")[0]
+                if first_token and first_token not in command_category_primary:
+                    command_category_primary[first_token] = category_title
+
         if not args:
             categories = [
-                ("General", "Starter"),
-                ("Utility", "Tools"),
-                ("Messaging", "DM/GC"),
-                ("Profile", "Identity"),
-                ("Server", "Guild"),
-                ("Voice", "VC"),
-                ("Social", "Interaction"),
+                ("General", "Starter & config"),
+                ("Utility", "Everyday tools"),
+                ("Messaging", "DM / GC / spam"),
+                ("Profile", "Identity & account"),
+                ("Server", "Guild management"),
+                ("Voice", "VC / calls"),
+                ("Social", "Interactions"),
                 ("Fun", "Entertainment"),
-                ("RPC", "Presence"),
-                ("Boost", "Boosts"),
+                ("RPC", "Rich presence"),
+                ("Boost", "Server boosts"),
                 ("Backup", "Recovery"),
-                ("Moderation", "Mod"),
+                ("Moderation", "Mod tools"),
                 ("Antinuke", "Protection"),
-                ("Nuke", "Destructions"),
-                ("Hosting", "Hosted"),
-                ("Token", "Session"),
-                ("AFK", "AFK"),
-                ("Nitro", "Sniper"),
-                ("AGCT", "Anti-GC"),
+                ("Nuke", "Destructive ops"),
+                ("Hosting", "Hosted tokens"),
+                ("Token", "Session tools"),
+                ("AFK", "AFK system"),
+                ("Nitro", "Nitro sniper"),
+                ("AGCT", "Anti-GC trap"),
                 ("Quest", "Quests"),
-            
+                ("Owner", "Admin / owner only"),
             ]
-            if is_owner_user(ctx["author_id"]):
-                categories.insert(0, ("Owner", "Admin"))
-            cat_cmds = [(f"{p}help {cat}", desc) for cat, desc in categories]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
                 "\n".join([
-                    fmt.header("Help"),
-                    fmt.command_list(cat_cmds),
-                    fmt._block(f"{fmt.DARK}Developed by {fmt.WHITE}Misconsiderations{fmt.RESET}"),
+                    fmt.header(f"{p}help <category> {p}help <command>"),
+                    fmt.category_list(dict(categories)),
+                    fmt._block(f"{fmt.DARK}Miscomprehend{fmt.RESET}"),
                 ]),
             )
             return
@@ -8174,7 +8434,7 @@ Example Usage:
         
         page = full_page if full_page in help_pages else (args[0].lower() if args else "")
         
-        if page == "owner" and not is_owner_user(ctx["author_id"]):
+        if page == "owner" and not is_strict_owner_user(ctx["author_id"]):
             bad = (full_page or page or "unknown").strip()
             msg = ctx["api"].send_message(ctx["channel_id"], f"> **No command or help section found**: **{bad}**")
             return
@@ -8747,7 +9007,7 @@ Example Usage:
             )
     @bot.command(name="guildbadge", aliases=["gbadge", "grotate", "gb"])
     def guildbadge_cmd(ctx, args):
-        gr = guild_rotator
+        gr = ctx["bot"].guild_rotator
         sub = args[0].lower() if args else ""
 
         if sub == "start":
@@ -9509,133 +9769,6 @@ Example Usage:
 
     # Declare web_panel in the enclosing scope
 
-    # Ensure all `nonlocal web_panel` references are replaced with `global web_panel`
-
-    @bot.command(name="web", aliases=["panel"])
-    def web_cmd(ctx, args):
-        global web_panel
-        force_reload = bool(args and args[0].lower() in {"reload", "restart", "force", "refresh"})
-        instance_id = str(getattr(bot, "instance_id", "main"))
-        instance_owner = getattr(bot, "ownerId", None)
-        print(fmt.header("Web Panel"))
-
-        try:
-            import importlib
-            webpanel_module = importlib.import_module("web_panel")
-        except Exception:
-            try:
-                import webpanel as webpanel_module
-            except Exception as e:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to import web panel module{fmt.RESET}\\n"
-                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                    ),
-                )
-                return
-
-        if args and args[0].lower() in {"stop", "shutdown", "close"}:
-            if web_panel is None:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}No web panel is currently running{fmt.RESET}"
-                    ),
-                )
-                return
-
-            try:
-                stopped = web_panel.stop() if hasattr(web_panel, "stop") else False
-                web_panel = None
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{'Stopped web panel' if stopped else 'Stopped web panel (or panel thread already terminated)'}{fmt.RESET}"
-                    ),
-                )
-            except Exception as e:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to stop web panel{fmt.RESET}\n"
-                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                    ),
-                )
-            return
-
-        if web_panel is None or force_reload:
-            if force_reload and web_panel is not None:
-                panel_thread = getattr(web_panel, "_thread", None)
-                if panel_thread and panel_thread.is_alive():
-                    msg = ctx["api"].send_message(
-                        ctx["channel_id"],
-                        fmt.header("Web Panel")
-                        + "\\n"
-                        + fmt._block(
-                            f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Already running; restart bot to apply page code updates{fmt.RESET}\\n"
-                            f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}"
-                        ),
-                    )
-                    return
-            try:
-                web_panel = webpanel_module.WebPanel(
-                    api=getattr(bot, "api", None),
-                    bot=bot,
-                    host="127.0.0.1",
-                    port=8080,
-                    instance_id=instance_id,
-                    owner_id=str(instance_owner or getattr(bot, "ownerId", None)),
-                )
-            except Exception as e:
-                msg = ctx["api"].send_message(
-                    ctx["channel_id"],
-                    fmt.header("Web Panel")
-                    + "\\n"
-                    + fmt._block(
-                        f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}Failed to load web panel{fmt.RESET}\\n"
-                        f"{fmt.CYAN}Error{fmt.DARK}   :: {fmt.RESET}{fmt.WHITE}{e}{fmt.RESET}"
-                    ),
-                )
-                return
-
-        started = False
-        if hasattr(web_panel, "start"):
-            started = web_panel.start()
-        panel_thread = getattr(web_panel, "_thread", None)
-        running = bool(panel_thread and panel_thread.is_alive())
-        start_error = ""
-        if hasattr(web_panel, "get_last_start_error"):
-            try:
-                start_error = str(web_panel.get_last_start_error() or "")
-            except Exception:
-                start_error = ""
-
-        if not started and not running:
-            status_line = f"Failed to start web interface{': ' + start_error if start_error else ''}"
-        elif force_reload:
-            status_line = "Reloaded web panel code and started interface" if started else "Reloaded web panel code (already running)"
-        else:
-            status_line = "Started web interface" if started else "Web interface already running"
-
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.header("Web Panel") + "\\n" + fmt._block(
-                f"{fmt.CYAN}Status{fmt.DARK}  :: {fmt.RESET}{fmt.WHITE}{status_line}{fmt.RESET}\\n"
-                f"{fmt.CYAN}URL{fmt.DARK}     :: {fmt.RESET}{fmt.WHITE}http://127.0.0.1:8080{fmt.RESET}\\n"
-                f"{fmt.DARK}\\u2022 View bot status{fmt.RESET}\\n"
-                f"{fmt.DARK}\\u2022 View history/boost snapshot{fmt.RESET}\\n"
-                f"{fmt.DARK}\\u2022 Refresh status panel{fmt.RESET}"
-            ),
-        )
     # global web_panel already declared at the top of the function
     def check_for_github_updates(message_data):
         # Voice features are disabled
@@ -10388,26 +10521,16 @@ Example Usage:
 
         # Optional fingerprint for better anti-detection
         try:
-            fp_r = api.session.get(
-                "https://discord.com/api/v10/experiments",
-                headers=headers,
-                timeout=8,
-            )
-            if fp_r.status_code == 200:
+            fp_r = api.request("GET", "/experiments")
+            if fp_r and fp_r.status_code == 200:
                 fp = fp_r.json().get("fingerprint", "")
-                if fp:
-                    headers["X-Fingerprint"] = fp
+                # fingerprint is used internally by the header spoofer if needed
         except Exception:
             pass
 
         # POST invite join
         try:
-            join_r = api.session.post(
-                f"https://discord.com/api/v9/invites/{invite_code}",
-                headers=headers,
-                json={"session_id": ""},
-                timeout=15,
-            )
+            join_r = api.request("POST", f"/invites/{invite_code}", data={"session_id": ""})
         except Exception as e:
             result = f"Request error: {str(e)[:80]}"
             if status_msg:
@@ -11206,26 +11329,21 @@ Example Usage:
             return
 
         api = ctx["api"]
-        headers = api.header_spoofer.get_protected_headers(api.token)
         action = args[0].lower() if args else "list"
 
         if action == "list":
             try:
-                r = api.session.get(
-                    "https://discord.com/api/v9/users/@me/relationships",
-                    headers=headers,
-                    timeout=10,
-                )
-                if r.status_code != 200:
-                    msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Failed: HTTP {r.status_code}")
+                r = api.request("GET", "/users/@me/relationships")
+                if not r or r.status_code != 200:
+                    msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Failed: HTTP {r.status_code if r else 'no response'}")
                     return
 
                 rels = r.json()
                 # type 1 = friend, type 2 = blocked, type 3 = incoming req, type 4 = outgoing req
-                friends = [r for r in rels if r.get("type") == 1]
-                incoming = [r for r in rels if r.get("type") == 3]
-                outgoing = [r for r in rels if r.get("type") == 4]
-                blocked = [r for r in rels if r.get("type") == 2]
+                friends = [rel for rel in rels if rel.get("type") == 1]
+                incoming = [rel for rel in rels if rel.get("type") == 3]
+                outgoing = [rel for rel in rels if rel.get("type") == 4]
+                blocked = [rel for rel in rels if rel.get("type") == 2]
 
                 lines = [f"Friends Total: {len(friends)} friends | {len(incoming)} incoming | {len(outgoing)} outgoing | {len(blocked)} blocked"]
                 page = int(args[1]) if len(args) >= 2 and args[1].isdigit() else 1
@@ -11247,55 +11365,43 @@ Example Usage:
                 msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Error: {str(e)[:80]}")
 
         elif action == "add" and len(args) >= 2:
-            # add by user ID
             target_id = args[1]
             try:
-                r = api.session.put(
-                    f"https://discord.com/api/v9/users/@me/relationships/{target_id}",
-                    headers=headers,
-                    json={},
-                    timeout=8,
-                )
-                if r.status_code in (200, 204):
+                r = api.request("PUT", f"/users/@me/relationships/{target_id}", data={})
+                if r and r.status_code in (200, 204):
                     msg = api.send_message(ctx["channel_id"], f"> **✓ Friends** :: Friend request sent to {target_id}")
                 else:
                     err = ""
                     try:
-                        err = r.json().get("message", "")
+                        err = (r.json() if r else {}).get("message", "")
                     except Exception:
                         pass
-                    msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Failed ({r.status_code}): {err or 'Unknown'}")
+                    code = r.status_code if r else "no response"
+                    msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Failed ({code}): {err or 'Unknown'}")
             except Exception as e:
                 msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Error: {str(e)[:80]}")
 
         elif action == "remove" and len(args) >= 2:
             target_id = args[1]
             try:
-                r = api.session.delete(
-                    f"https://discord.com/api/v9/users/@me/relationships/{target_id}",
-                    headers=headers,
-                    timeout=8,
-                )
-                if r.status_code in (200, 204):
+                r = api.request("DELETE", f"/users/@me/relationships/{target_id}")
+                if r and r.status_code in (200, 204):
                     msg = api.send_message(ctx["channel_id"], f"> **✓ Friends** :: Removed {target_id}")
                 else:
-                    msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Failed: HTTP {r.status_code}")
+                    code = r.status_code if r else "no response"
+                    msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Failed: HTTP {code}")
             except Exception as e:
                 msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Error: {str(e)[:80]}")
 
         elif action == "block" and len(args) >= 2:
             target_id = args[1]
             try:
-                r = api.session.put(
-                    f"https://discord.com/api/v9/users/@me/relationships/{target_id}",
-                    headers=headers,
-                    json={"type": int(RelationshipType.Blocked)},
-                    timeout=8,
-                )
-                if r.status_code in (200, 204):
+                r = api.request("PUT", f"/users/@me/relationships/{target_id}", data={"type": int(RelationshipType.Blocked)})
+                if r and r.status_code in (200, 204):
                     msg = api.send_message(ctx["channel_id"], f"> **✓ Friends** :: Blocked {target_id}")
                 else:
-                    msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Failed: HTTP {r.status_code}")
+                    code = r.status_code if r else "no response"
+                    msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Failed: HTTP {code}")
             except Exception as e:
                 msg = api.send_message(ctx["channel_id"], f"> **✗ Friends** :: Error: {str(e)[:80]}")
 
@@ -11665,16 +11771,11 @@ Example Usage:
             return
 
         api = ctx["api"]
-        headers = api.header_spoofer.get_protected_headers(api.token)
 
         try:
-            r = api.session.get(
-                "https://discord.com/api/v9/users/@me/relationships",
-                headers=headers,
-                timeout=10,
-            )
-            if r.status_code != 200:
-                msg = api.send_message(ctx["channel_id"], f"> **✗ Accept All** :: Failed: HTTP {r.status_code}")
+            r = api.request("GET", "/users/@me/relationships")
+            if not r or r.status_code != 200:
+                msg = api.send_message(ctx["channel_id"], f"> **✗ Accept All** :: Failed: HTTP {r.status_code if r else 'no response'}")
                 return
 
             rels = r.json()
@@ -11690,13 +11791,8 @@ Example Usage:
             for rel in incoming:
                 uid = rel.get("id")
                 try:
-                    ar = api.session.put(
-                        f"https://discord.com/api/v9/users/@me/relationships/{uid}",
-                        headers=headers,
-                        json={},
-                        timeout=8,
-                    )
-                    if ar.status_code in (200, 204):
+                    ar = api.request("PUT", f"/users/@me/relationships/{uid}", data={})
+                    if ar and ar.status_code in (200, 204):
                         accepted += 1
                     else:
                         failed += 1

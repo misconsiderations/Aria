@@ -173,17 +173,23 @@ def setup_extended_commands(bot, delete_after_delay_func):
             return
         
         user_id = args[0].strip("<>@!")
-        response = ctx["api"].request("GET", f"/users/{user_id}")
+        # Try profile endpoint first (more data for user tokens), fall back to base user
+        response = ctx["api"].request("GET", f"/users/{user_id}/profile?with_mutual_guilds=false&with_mutual_friends_count=false")
+        if not response or response.status_code != 200:
+            response = ctx["api"].request("GET", f"/users/{user_id}")
         if response and response.status_code == 200:
-            user = response.json()
+            data = response.json()
+            user = data.get("user") or data  # profile endpoint nests under "user"
+            flags = user.get('public_flags') or user.get('flags', 0)
+            nitro = "Yes" if data.get("premium_type") or data.get("premium_since") else "No"
             info = f"""| User Info |
 ID: {user.get('id')}
 Username: {user.get('username')}
 Global Name: {user.get('global_name', 'N/A')}
 Discriminator: {user.get('discriminator', '0000')}
-Email: {user.get('email', 'Hidden')}
-Verified: {user.get('verified', False)}
-Flags: {user.get('flags', 0)}"""
+Nitro: {nitro}
+Flags: {flags}
+Bot: {user.get('bot', False)}"""
             msg = ctx["api"].send_message(ctx["channel_id"], f"```{info}```")
             if msg:
                 delete_after_delay_func(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -348,16 +354,21 @@ Flags: {user.get('flags', 0)}"""
                 delete_after_delay_func(ctx["api"], ctx["channel_id"], msg.get("id"))
             return
         
-        response = ctx["api"].request("GET", f"/guilds/{guild_id}")
+        response = ctx["api"].request("GET", f"/guilds/{guild_id}", params={"with_counts": "true"})
         if response and response.status_code == 200:
             guild = response.json()
+            member_count = guild.get('approximate_member_count') or guild.get('member_count', 'N/A')
+            presence_count = guild.get('approximate_presence_count', 'N/A')
             info = f"""| Guild Info |
 Name: {guild.get('name')}
 ID: {guild.get('id')}
 Owner: {guild.get('owner_id', 'N/A')}
-Members: {guild.get('member_count', 'N/A')}
+Members: {member_count}
+Online: {presence_count}
 Level: {guild.get('verification_level', 'N/A')}
-Created: {guild.get('created_at', 'N/A')}"""
+Boosts: {guild.get('premium_subscription_count', 0)}
+Boost Tier: {guild.get('premium_tier', 0)}
+Features: {', '.join(guild.get('features', [])) or 'None'}"""
             msg = ctx["api"].send_message(ctx["channel_id"], f"```{info}```")
             if msg:
                 delete_after_delay_func(ctx["api"], ctx["channel_id"], msg.get("id"))
@@ -374,11 +385,12 @@ Created: {guild.get('created_at', 'N/A')}"""
         else:
             guild_id = args[0].strip("<>")
         
-        response = ctx["api"].request("GET", f"/guilds/{guild_id}")
+        response = ctx["api"].request("GET", f"/guilds/{guild_id}", params={"with_counts": "true"})
         if response and response.status_code == 200:
             guild = response.json()
-            count = guild.get("member_count", "Unknown")
-            msg = ctx["api"].send_message(ctx["channel_id"], f"```Members: {count}```")
+            count = guild.get("approximate_member_count") or guild.get("member_count", "Unknown")
+            online = guild.get("approximate_presence_count", "?")
+            msg = ctx["api"].send_message(ctx["channel_id"], f"```Members: {count} ({online} online)```")
             if msg:
                 delete_after_delay_func(ctx["api"], ctx["channel_id"], msg.get("id"))
     

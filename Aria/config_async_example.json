@@ -1,0 +1,7 @@
+{
+  "token": "your_discord_token_here",
+  "prefix": "$",
+  "use_async_gateway": true,
+  "gateway_compress": true,
+  "gateway_client_type": "web"
+}
