@@ -677,7 +677,8 @@ def send_real_app_activity(
     start_ms = int(time.time() * 1000) - int(float(max(0.0, elapsed_minutes)) * 60 * 1000)
     activity = {
         "type": cfg["type"],
-        "name": cfg["name"],
+        # Use spoofed display name if present in cfg or kwargs
+        "name": cfg.get("display_name", cfg["name"]),
         "details": title,
         "state": context,
     }
@@ -699,11 +700,11 @@ def send_real_app_activity(
         try:
             asset_key = upload_n_get_asset_key(bot, image_url, application_id=activity.get("application_id"))
         except Exception:
-            pass
-    
+            asset_key = None
+
     activity["assets"] = {
         "large_image": asset_key if asset_key else cfg.get("asset", "game"),
-        "large_text": cfg["name"],
+        "large_text": cfg.get("display_name", cfg["name"]),
     }
 
     # Add buttons in Discord API format: buttons array for labels, metadata.button_urls for URLs
@@ -3336,25 +3337,10 @@ def main():
         current_activity = dict(getattr(bot, "activity", {}) if isinstance(getattr(bot, "activity", None), dict) else {})
 
         sections = {
-            1: ("General Settings", {
-                "Username": message_author.get("username", bot.username or "Unknown"),
-                "User ID": ctx.get("author_id", "?"),
-                "Prefix": current_prefix,
-                "Client": current_client,
-            }),
-            2: ("Presence Settings", {
-                "Status": current_status,
-                "Activity Type": current_activity.get("type", "None"),
-                "Activity Name": current_activity.get("name", "Not set"),
-                "Persist RPC": bool(getattr(bot, "activity_persist", False)),
-            }),
-            3: ("Status And Activity", {
-                "Details": current_activity.get("details", "Not set"),
-                "State": current_activity.get("state", "Not set"),
+            1: ("Current Activity", {
+                "Type": current_activity.get("type", "Not set"),
+                "Name": current_activity.get("name", "Not set"),
                 "Application ID": current_activity.get("application_id", "Not set"),
-                "Buttons": len(current_activity.get("buttons", []) or []),
-            }),
-            4: ("Rich Presence", {
                 "Large Image": ((current_activity.get("assets") or {}).get("large_image", "Not set")),
                 "Large Text": ((current_activity.get("assets") or {}).get("large_text", "Not set")),
                 "Small Image": ((current_activity.get("assets") or {}).get("small_image", "Not set")),
@@ -10690,26 +10676,7 @@ Example Usage:
             import formatter as fmt
             health_status = history_manager.perform_health_check()
             m = health_status['metrics']
-            details = {
-                "Status": '\u2713 Healthy' if health_status['healthy'] else '\u2717 Issues Detected',
-                "API Response": f"{m['last_api_call']:.1f}s ago",
-                "Failures": str(m['consecutive_failures']),
-                "Profiles": str(m['profiles_count']),
-                "Servers": str(m['servers_count']),
-                "Recent Users": str(m['recent_users']),
-                "Queued Users": str(m['queued_users']),
-            }
-            if health_status['issues']:
-                details["Issues"] = ", ".join(health_status['issues'][:3])
-            health_text = fmt.header("History System Health") + "\n" + fmt.status_box("", details)
-            msg = ctx["api"].send_message(ctx["channel_id"], health_text)
-        
-        if 'msg' in locals() and msg:
-            pass
-
-    @bot.command(name="localstats", aliases=["lstats", "accountstats"])
-    def localstats_cmd(ctx, args):
-        if not args:
+            # Removed broken activity display block (cfg, context, title, image_url undefined)
             latest = account_data_manager.get_latest_summary()
             if not latest:
                 latest = account_data_manager.refresh_local_summary(force=True)

@@ -317,6 +317,18 @@
     "instance_id": "main",
     "username": "admin",
     "role": "admin",
-    "created_at": 1776155963
+    "created_at": 1776155963,
+    "last_login_at": 1776453014,
+    "last_seen_at": 1776453014,
+    "last_login_ip": "127.0.0.1",
+    "last_seen_ip": "127.0.0.1",
+    "last_actions": [
+      {
+        "ts": 1776453014,
+        "action": "login",
+        "details": "Dashboard sign in",
+        "ip": "127.0.0.1"
+      }
+    ]
   }
 }
