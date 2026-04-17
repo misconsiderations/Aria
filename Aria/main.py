@@ -5952,27 +5952,29 @@ Example Usage:
     def snipe_cmd_runtime(ctx, args):
         cid = ctx["channel_id"]
         entry = bot._snipe_cache.get(cid)
+        import formatter as fmt
         if not entry:
-            msg = ctx["api"].send_message(cid, "> **Snipe** :: Nothing to snipe in this channel")
+            msg = ctx["api"].send_message(cid, fmt._block("Snipe :: Nothing to snipe in this channel"))
             return
         m = entry.get("message") or {}
         author = (m.get("author") or {}).get("username", "Unknown")
         content = m.get("content") or "[no content]"
-        msg = ctx["api"].send_message(cid, f"> **Snipe** :: **{author}**: {content[:1800]}")
+        msg = ctx["api"].send_message(cid, fmt._block(f"Snipe :: {author}: {content[:1800]}"))
 
     @bot.command(name="editsnipe", aliases=["esnipe", "es"])
     def editsnipe_cmd(ctx, args):
         cid = ctx["channel_id"]
         entry = bot._esnipe_cache.get(cid)
+        import formatter as fmt
         if not entry:
-            msg = ctx["api"].send_message(cid, "> **EditSnipe** :: Nothing to edit-snipe in this channel")
+            msg = ctx["api"].send_message(cid, fmt._block("EditSnipe :: Nothing to edit-snipe in this channel"))
             return
         before_data = entry.get("before") or {}
         after_data = entry.get("after") or {}
         author = (before_data.get("author") or {}).get("username", "Unknown")
         before = before_data.get("content") or "[empty]"
         after = after_data.get("content") or "[empty]"
-        msg = ctx["api"].send_message(cid, f"> **EditSnipe** :: **{author}** edited:\n> Before: {before[:800]}\n> After: {after[:800]}")
+        msg = ctx["api"].send_message(cid, fmt._block(f"EditSnipe :: {author} edited:\nBefore: {before[:800]}\nAfter: {after[:800]}"))
 
     # ─── REMINDER COMMAND ────────────────────────────────────────────────────
 

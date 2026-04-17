@@ -251,27 +251,28 @@ class CommandEngine:
         
         for cat_name in sorted(self.categories.keys()):
             cat = self.categories[cat_name]
-            cat_header = f"\n{fmt.PURPLE}{fmt.BOLD}{cat.name.upper()}{fmt.RESET}"
+            cat_header = f"{fmt.PURPLE}{fmt.BOLD}{cat.name.upper()}{fmt.RESET}"
             current_block.append(cat_header)
-            lines_count += 1
-            
+            current_block.append("")  # Add blank line after header for separation
+            lines_count += 2
+
             for cmd_name, cmd_obj in sorted(cat.commands.items()):
                 line = f"{fmt.CYAN}{cmd_name:<15}{fmt.DARK}:: {fmt.RESET}{fmt.WHITE}{cmd_obj.description}{fmt.RESET}"
                 current_block.append(line)
                 lines_count += 1
-                
+
                 # Split into chunks
                 if lines_count >= split_by:
                     msg = fmt._block("\n".join(current_block))
                     messages.append(msg)
                     current_block = []
                     lines_count = 0
-        
+
         # Add remaining
         if current_block:
             msg = fmt._block("\n".join(current_block))
             messages.append(msg)
-        
+
         return messages
     
     def send_help_wall(self, ctx: Dict[str, Any], api_client) -> None:
