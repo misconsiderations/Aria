@@ -873,6 +873,66 @@ async function loadBoost() {
     }
 }
 
+// ── Help / Token Guide ───────────────────────────────────────────────────────
+function loadHelp() {
+    // Just make sure the content is visible
+    const section = document.getElementById('section-help');
+    if (section) {
+        // Reset tabs to show desktop by default
+        const tabs = section.querySelectorAll('.help-tab-content');
+        tabs.forEach(tab => tab.classList.remove('active'));
+        const desktopTab = document.getElementById('help-tab-desktop');
+        if (desktopTab) desktopTab.classList.add('active');
+        
+        const tabBtns = section.querySelectorAll('.help-tab-btn');
+        tabBtns.forEach(btn => btn.classList.remove('active'));
+        if (tabBtns[0]) tabBtns[0].classList.add('active');
+    }
+    trackDashboardAction('view_help', 'Opened help guide');
+}
+
+function switchHelpTab(tabName, btn) {
+    // Hide all tabs
+    const tabContents = document.querySelectorAll('.help-tab-content');
+    tabContents.forEach(tab => tab.classList.remove('active'));
+    
+    // Deactivate all buttons
+    const tabBtns = document.querySelectorAll('.help-tab-btn');
+    tabBtns.forEach(b => b.classList.remove('active'));
+    
+    // Show selected tab
+    const selectedTab = document.getElementById(`help-tab-${tabName}`);
+    if (selectedTab) selectedTab.classList.add('active');
+    
+    // Activate button
+    if (btn) btn.classList.add('active');
+    
+    trackDashboardAction('help_tab_switch', `Switched help tab to ${tabName}`);
+}
+
+function copyToClipboard(elementId) {
+    const codeElement = document.getElementById(elementId);
+    if (!codeElement) return;
+    
+    const code = codeElement.textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        showToast('Copied', 'Code copied to clipboard!', 'ok');
+    }).catch(() => {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = code;
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy');
+            showToast('Copied', 'Code copied to clipboard!', 'ok');
+        } catch (err) {
+            showToast('Copy Failed', 'Could not copy to clipboard', 'err');
+        }
+        document.body.removeChild(textarea);
+    });
+}
+
 // ── Settings ─────────────────────────────────────────────────────────────────
 async function loadSettings() {
     const res = await fetchJSON('/api/config');
@@ -950,6 +1010,7 @@ function loadSection(name) {
     if (name === 'hosted')    loadHosted();
     if (name === 'logs')      loadLogs();
     if (name === 'users')     loadDashUsers();
+    if (name === 'help')      loadHelp();
     if (name === 'settings')  loadSettings();
     if (name === 'system')    loadSystemStats();
     if (name === 'cmdbreakdown') loadCommandBreakdown();
