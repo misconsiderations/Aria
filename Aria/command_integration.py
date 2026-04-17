@@ -26,17 +26,30 @@ class CommandIntegration:
     def setup_help_commands(self):
         """Register help commands with the bot"""
         
-        @self.bot.command(name="help", aliases=["h", "commands"])
-        def cmd_help(ctx, args):
-            # Overridden by main.py's help — this is a fallback only
-            unique = self._unique_commands()
-            lines = [(name, "") for name, _ in unique]
-            msg_text = fmt.command_page(
-                "Commands",
-                lines,
-                f"{len(unique)} commands available",
-            )
-            self.api_client.send_message(ctx["channel_id"], msg_text)
+        if "help" not in self.bot.commands:
+            @self.bot.command(name="help", aliases=["h", "commands"])
+            def cmd_help(ctx, args):
+                # Fallback only when main.py help is unavailable.
+                unique = self._unique_commands()
+                lines = [(name, "") for name, _ in unique]
+                msg_text = fmt.command_page(
+                    "Commands",
+                    lines,
+                    f"{len(unique)} commands available",
+                )
+                self.api_client.send_message(ctx["channel_id"], msg_text)
+        else:
+            @self.bot.command(name="helpfallback")
+            def cmd_helpfallback(ctx, args):
+                # Keep manual-access fallback without overriding primary help handler.
+                unique = self._unique_commands()
+                lines = [(name, "") for name, _ in unique]
+                msg_text = fmt.command_page(
+                    "Commands",
+                    lines,
+                    f"{len(unique)} commands available",
+                )
+                self.api_client.send_message(ctx["channel_id"], msg_text)
         
         @self.bot.command(name="helpwall", aliases=["wallcmds"])
         def cmd_helpwall(ctx, args):
