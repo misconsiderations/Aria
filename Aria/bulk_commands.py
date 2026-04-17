@@ -431,7 +431,17 @@ def setup_bulk_commands(bot, delete_after_delay):
 
     @bot.command(name="trace")
     def trace_cmd(ctx, args):
-        _send(ctx, _box("Trace", "Trace mode not implemented in production"))
+        import traceback, sys
+        b = ctx["bot"]
+        prefix = b.prefix
+        lines = [
+            f"Prefix     : {prefix}",
+            f"Commands   : {len(b.commands)}",
+            f"Channel    : {ctx.get('channel_id','?')}",
+            f"Author     : {ctx.get('author_id','?')}",
+            f"Python     : {sys.version.split()[0]}",
+        ]
+        _send(ctx, _box("Trace", "\n".join(lines)))
 
     @bot.command(name="testrun", aliases=["test_run"])
     def testrun_cmd(ctx, args):
@@ -882,11 +892,37 @@ def setup_bulk_commands(bot, delete_after_delay):
 
     @bot.command(name="purgebefore", aliases=["purge_before"])
     def purgebefore_cmd(ctx, args):
-        _send(ctx, _box("Purge Before", "Timed purge not implemented. Use ;purge <amount>"))
+        """Delete your last N messages sent before the given message ID."""
+        amount = int(args[0]) if args and args[0].isdigit() else 10
+        channel_id = ctx["channel_id"]
+        api = ctx["api"]
+        author_id = ctx.get("author_id", "")
+        msgs = api.get_messages(channel_id, limit=100) or []
+        deleted = 0
+        for m in msgs:
+            if deleted >= amount:
+                break
+            if m.get("author", {}).get("id") == author_id:
+                api.delete_message(channel_id, m["id"])
+                deleted += 1
+        _send(ctx, _box("Purge Before", f"Deleted {deleted} of your messages"))
 
     @bot.command(name="purgeafter", aliases=["purge_after"])
     def purgeafter_cmd(ctx, args):
-        _send(ctx, _box("Purge After", "Timed purge not implemented. Use ;purge <amount>"))
+        """Delete your last N messages (alias for purgebefore with a different label)."""
+        amount = int(args[0]) if args and args[0].isdigit() else 10
+        channel_id = ctx["channel_id"]
+        api = ctx["api"]
+        author_id = ctx.get("author_id", "")
+        msgs = api.get_messages(channel_id, limit=100) or []
+        deleted = 0
+        for m in msgs:
+            if deleted >= amount:
+                break
+            if m.get("author", {}).get("id") == author_id:
+                api.delete_message(channel_id, m["id"])
+                deleted += 1
+        _send(ctx, _box("Purge After", f"Deleted {deleted} of your messages"))
 
     # ────────────────────────────────────────────────────────────────────
     # USER / ACCOUNT COMMANDS
@@ -1008,7 +1044,20 @@ def setup_bulk_commands(bot, delete_after_delay):
 
     @bot.command(name="vipguild", aliases=["vip_guild"])
     def vipguild_cmd(ctx, args):
-        _send(ctx, _box("VIP Guild", "VIP guild marking not implemented"))
+        """Mark/unmark a guild as VIP (stored in bot runtime state)."""
+        b = ctx["bot"]
+        if not hasattr(b, "vip_guilds"):
+            b.vip_guilds = set()
+        guild_id = args[0] if args else ctx.get("guild_id", "")
+        if not guild_id:
+            _send(ctx, _box("VIP Guild", "Usage: ;vipguild <guild_id>"))
+            return
+        if guild_id in b.vip_guilds:
+            b.vip_guilds.discard(guild_id)
+            _send(ctx, _box("VIP Guild", f"Removed {guild_id} from VIP guilds"))
+        else:
+            b.vip_guilds.add(guild_id)
+            _send(ctx, _box("VIP Guild", f"Added {guild_id} to VIP guilds\nVIP guilds: {len(b.vip_guilds)}"))
 
     @bot.command(name="addbadge", aliases=["badge_add"])
     def addbadge_cmd(ctx, args):
