@@ -86,6 +86,13 @@ def status_box(title: str, details: dict) -> str:
         lines.append(f"{CYAN}{key:<15}{DARK}| {RESET}{WHITE}{str(value)}{RESET}")
     return _block("\n".join(lines))
 
+def info_block(title: str, body: str) -> str:
+    """Format a titled informational ANSI block."""
+    lines = [f"{BOLD}{title}{RESET}"]
+    if body:
+        lines.append(str(body))
+    return _block("\n".join(lines))
+
 def command_page(title: str, lines: list, footer: str = "") -> str:
     """Format a command page with title, command list, and optional footer."""
     result_lines = [header(title)]
