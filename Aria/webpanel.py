@@ -118,6 +118,7 @@ class WebPanel:
         self._store = get_mongo_store()
 
         self.app = Flask(__name__, static_folder=self._webui_static, static_url_path="/static")
+        self.app.config['DEBUG'] = True
         _secret_seed = f"aria-{instance_id}-{self.owner_id}"
         self.app.secret_key = os.getenv("ARIA_WEBPANEL_SECRET", hashlib.sha256(_secret_seed.encode()).hexdigest())
 
