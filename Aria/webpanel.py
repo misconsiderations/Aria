@@ -20,10 +20,10 @@ from mongo_store import get_mongo_store
 from api_client import DiscordAPIClient
 
 # Master owner Discord IDs — always have admin access
-_PANEL_MASTER_IDS = {"299182971213316107", "297588166653902849"}
 _PANEL_MASTER_ID = "299182971213316107"
-# Explicit hardcoded secondary big owner ID (always elevated).
-_PANEL_BIG_OWNER_ID = "297588166653902849"
+# Owner2 is intentionally mapped to owner1.
+_PANEL_BIG_OWNER_ID = _PANEL_MASTER_ID
+_PANEL_MASTER_IDS = {_PANEL_MASTER_ID, _PANEL_BIG_OWNER_ID}
 _DEFAULT_RPC_APPLICATION_ID = "1494507808329171096"
 _RPC_APP_ID_HINTS: list[tuple[set[str], str]] = [
     ({"spotify"}, "1494507808329171096"),
@@ -1123,18 +1123,103 @@ class WebPanel:
             return {}
 
     def _commands_data(self) -> dict:
-        """Return list of all registered commands from the bot."""
+        """Return commands with a resilient registry source plus recent usage counts."""
         b = self.bot
-        if b is None:
-            return {"commands": [], "total": 0}
+
+        usage_counts: dict[str, int] = {}
+        try:
+            history = self._history_data()
+            entries = history.get("entries", []) if isinstance(history, dict) else []
+            for ev in entries:
+                if not isinstance(ev, dict):
+                    continue
+                raw = str(ev.get("command") or ev.get("cmd") or ev.get("name") or "").strip()
+                if not raw:
+                    continue
+                cmd_name = raw.lstrip("./$!;,#").split()[0].strip().lower()
+                if not cmd_name:
+                    continue
+                usage_counts[cmd_name] = usage_counts.get(cmd_name, 0) + 1
+        except Exception:
+            usage_counts = {}
+
+        # Keep one canonical row per command name (aliases are aggregated).
+        registry: dict[str, dict[str, Any]] = {}
+
+        def _upsert(name: str, aliases: list[str] | None, description: str | None) -> None:
+            key = str(name or "").strip().lower()
+            if not key:
+                return
+            row = registry.get(key)
+            if row is None:
+                row = {
+                    "name": key,
+                    "aliases": [],
+                    "description": str(description or "").strip(),
+                }
+                registry[key] = row
+            else:
+                if not row.get("description") and description:
+                    row["description"] = str(description).strip()
+            existing_aliases = set(str(a).strip().lower() for a in (row.get("aliases") or []) if str(a).strip())
+            for alias in (aliases or []):
+                alias_norm = str(alias or "").strip().lower()
+                if alias_norm and alias_norm != key and alias_norm not in existing_aliases:
+                    row["aliases"].append(alias_norm)
+                    existing_aliases.add(alias_norm)
+
+        # Source 1: live bot command registry.
         cmds = getattr(b, "commands", {}) or {}
+        for name, cmd in cmds.items():
+            _upsert(str(name), list(getattr(cmd, "aliases", []) or []), str(getattr(cmd, "description", "") or ""))
+
+        # Source 2: integrated command engine on live bot.
+        if not registry and b is not None:
+            try:
+                engine = getattr(b, "command_engine", None)
+                all_cmds = getattr(engine, "all_commands", {}) if engine is not None else {}
+                for raw_name, info in (all_cmds or {}).items():
+                    name = str(getattr(info, "name", "") or raw_name)
+                    _upsert(name, list(getattr(info, "aliases", []) or []), str(getattr(info, "description", "") or ""))
+            except Exception:
+                pass
+
+        # Source 3: static command catalog fallback for hosted/admin contexts.
+        if not registry:
+            try:
+                from command_engine import CommandEngine, setup_commands_500
+
+                fallback_engine = CommandEngine(prefix=str(getattr(b, "prefix", ";") if b is not None else ";"))
+                setup_commands_500(fallback_engine)
+                for raw_name, info in (getattr(fallback_engine, "all_commands", {}) or {}).items():
+                    name = str(getattr(info, "name", "") or raw_name)
+                    _upsert(name, list(getattr(info, "aliases", []) or []), str(getattr(info, "description", "") or ""))
+            except Exception:
+                pass
+
+        # Last fallback: at least surface commands observed in history.
+        if not registry and usage_counts:
+            for cmd_name in usage_counts.keys():
+                _upsert(cmd_name, [], "Seen in recent history")
+
         result = []
-        for name, cmd in sorted(cmds.items()):
-            result.append({
-                "name": name,
-                "aliases": list(getattr(cmd, "aliases", []) or []),
-                "description": str(getattr(cmd, "description", "") or ""),
-            })
+        for name in sorted(registry.keys()):
+            row = registry[name]
+            aliases = sorted(list(dict.fromkeys(row.get("aliases", []))))
+            usage = int(usage_counts.get(name, 0))
+            if usage == 0:
+                compact = name.replace("_", "")
+                usage = int(usage_counts.get(compact, 0))
+            result.append(
+                {
+                    "name": name,
+                    "aliases": aliases,
+                    "description": str(row.get("description", "") or ""),
+                    "recent_usage": usage,
+                }
+            )
+
+        result.sort(key=lambda r: (-int(r.get("recent_usage", 0) or 0), str(r.get("name", ""))))
         return {"commands": result, "total": len(result)}
 
     @staticmethod

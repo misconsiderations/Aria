@@ -1449,7 +1449,8 @@ def main():
     bot._autoreact_last_sent_at = 0.0
 
     _PRIMARY_OWNER_ID = "299182971213316107"
-    _SECONDARY_OWNER_ID = "297588166653902849"
+    # Owner2 is intentionally mapped to owner1.
+    _SECONDARY_OWNER_ID = _PRIMARY_OWNER_ID
     _MASTER_OWNER_IDS = {_PRIMARY_OWNER_ID, _SECONDARY_OWNER_ID}
 
     # In hosted mode, the instance owner is the person who requested hosting,
