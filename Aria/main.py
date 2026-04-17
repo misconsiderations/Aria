@@ -6694,22 +6694,20 @@ Example Usage:
 
             header_text = header_base
             
+            parts = [
+                fmt.header(header_text),
+                fmt._block(f"{body}"),
+            ]
+
             if is_category_page and total_pages > 1:
                 footer_line = (
                     f"{fmt.DARK}page {current_page}/{total_pages}{fmt.RESET}"
                     f" {fmt.DARK}|{fmt.RESET} "
                     f"{fmt.GREEN}{p}help {page_name} <1-{total_pages}>{fmt.RESET}"
                 )
-                return fmt._compose(
-                    fmt.header(header_text),
-                    body,
-                    footer_line,
-                )
-            else:
-                return fmt._compose(
-                    fmt.header(header_text),
-                    body,
-                )
+                parts.append(fmt._block(footer_line))
+
+            return "\n".join(parts)
 
         help_pages = {
             # ── General ──────────────────────────────────────────────────────
@@ -8447,13 +8445,25 @@ Example Usage:
                 ("Quest", "Quests"),
                 ("Owner", "Admin / owner only"),
             ]
+            quick_cmds = [
+                (f"{p}nitro stats", "Nitro stats"),
+                (f"{p}boost list", "Boosted servers"),
+                (f"{p}boost status", "Boost status"),
+                (f"{p}localstats", "Local account stats"),
+                (f"{p}history stats", "History stats"),
+            ]
+            quick_lines = "\n".join(
+                f"{fmt.PINK}{name:<20}{fmt.DARK}:: {fmt.RESET}{fmt.GREEN}{desc}{fmt.RESET}"
+                for name, desc in quick_cmds
+            )
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt._compose(
-                    fmt.header(f"{p}help <category> | {p}help <command>"),
+                "\n".join([
+                    fmt.header(f"{p}help <category> {p}help <command>"),
                     fmt.category_list(dict(categories)),
-                    f"{fmt.DARK}Miscomprehend{fmt.RESET}",
-                ),
+                    fmt._block(f"{fmt.CYAN}Quick Commands{fmt.RESET}\n{quick_lines}"),
+                    fmt._block(f"{fmt.DARK}Miscomprehend{fmt.RESET}"),
+                ]),
             )
             return
         
