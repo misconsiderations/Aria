@@ -355,6 +355,45 @@ class WebPanel:
                     self._notif_seen_ids = set(list(self._notif_seen_ids)[-1000:])
             self._discord_notif_queue.appendleft(notif)
 
+    def _push_private_panel_notification(
+        self,
+        target_user_id: str,
+        title: str,
+        body: str = "",
+        kind: str = "system",
+        icon: str = "🔐",
+    ) -> None:
+        """Push a panel notification visible only to the target user."""
+        target_uid = str(target_user_id or "").strip()
+        if not target_uid:
+            return
+        notif = {
+            "id": secrets.token_hex(8),
+            "kind": str(kind)[:32],
+            "title": str(title)[:120],
+            "body": str(body)[:240],
+            "author": "Aria Panel",
+            "author_id": "panel",
+            "channel_id": "",
+            "guild_id": "",
+            "icon": str(icon)[:8],
+            "ts": int(time.time()),
+            "read": False,
+            "audience_uid": target_uid,
+        }
+        with self._notif_lock:
+            self._discord_notif_queue.appendleft(notif)
+
+    @staticmethod
+    def _notif_visible_to_user(event: dict[str, Any], uid: str) -> bool:
+        """Whether a queued notification is visible to a specific user."""
+        if not isinstance(event, dict):
+            return False
+        target = str(event.get("audience_uid") or "").strip()
+        if not target:
+            return True
+        return str(uid or "").strip() == target
+
     def _record_user_activity(self, user_id: str, action: str, details: str = "", remote_addr: str = "") -> None:
         """Persist a lightweight per-user activity timeline."""
         uid = str(user_id or "").strip()
@@ -1409,9 +1448,9 @@ class WebPanel:
             user_id = ""
             avatar_url = ""
 
-            # For authenticated non-admin sessions, prefer hosted context identity
-            # so each owner sees their own account profile/avatars.
-            if self._require_session() and not self._require_admin():
+            # For authenticated sessions, prefer hosted context identity
+            # so each user sees their own account profile/avatar when available.
+            if self._require_session():
                 hosted_ctx = self._session_hosted_live_context()
                 profile = self._hosted_user_profile(hosted_ctx)
                 username = str(profile.get("username") or "").strip()
@@ -1565,12 +1604,21 @@ class WebPanel:
         @self.app.get("/api/max/notifications")
         def api_max_notifications():
             """Return recent dashboard activity events (logins, RPC, status, errors, etc)."""
+            if not (session.get("authenticated") or self._require_session()):
+                return jsonify({"ok": False, "error": "unauthenticated"}), 401
+
             users = self._load_dashboard_users()
+            uid = str(session.get("user_id") or "")
             events = []
-            for uid, entry in users.items():
-                acts = entry.get("last_actions", [])
-                for act in acts[-10:]:
-                    events.append({"user": entry.get("username", uid), **act})
+
+            # Privacy by default: only return current user's activity timeline.
+            entry = users.get(uid, {}) if isinstance(users, dict) else {}
+            acts = entry.get("last_actions", []) if isinstance(entry, dict) else []
+            if isinstance(acts, list):
+                for act in acts[-30:]:
+                    if isinstance(act, dict):
+                        events.append({"user": entry.get("username", uid), **act})
+
             events.sort(key=lambda x: x.get("ts", 0), reverse=True)
             return jsonify({"ok": True, "events": events[:30]})
 
@@ -1657,13 +1705,17 @@ class WebPanel:
 
             since = since_ts or int(request.args.get("since", 0))
             mark_read = request.args.get("mark_read") == "1"
+            uid = str(session.get("user_id") or "")
             with self._notif_lock:
-                events = list(self._discord_notif_queue)
+                events = [e for e in self._discord_notif_queue if self._notif_visible_to_user(e, uid)]
             if since:
                 events = [e for e in events if e["ts"] > since]
             if mark_read:
-                for e in events:
-                    e["read"] = True
+                with self._notif_lock:
+                    visible_ids = set(str(e.get("id") or "") for e in events)
+                    for e in self._discord_notif_queue:
+                        if str(e.get("id") or "") in visible_ids:
+                            e["read"] = True
             return jsonify({"ok": True, "notifications": events, "total": len(events)})
 
         @self.app.post("/api/discord/notifications/mark_read")
@@ -1673,8 +1725,11 @@ class WebPanel:
                 return jsonify({"ok": False, "error": "unauthenticated"}), 401
             data = request.get_json(silent=True) or {}
             nid = data.get("id")  # if provided, mark only that one
+            uid = str(session.get("user_id") or "")
             with self._notif_lock:
                 for e in self._discord_notif_queue:
+                    if not self._notif_visible_to_user(e, uid):
+                        continue
                     if nid is None or e["id"] == nid:
                         e["read"] = True
             return jsonify({"ok": True})
@@ -1684,9 +1739,18 @@ class WebPanel:
             """Clear all notifications."""
             if not (session.get("authenticated") or self._require_session()):
                 return jsonify({"ok": False, "error": "unauthenticated"}), 401
+            uid = str(session.get("user_id") or "")
             with self._notif_lock:
-                self._discord_notif_queue.clear()
-                self._notif_seen_ids.clear()
+                self._discord_notif_queue = collections.deque(
+                    [e for e in self._discord_notif_queue if not self._notif_visible_to_user(e, uid)],
+                    maxlen=500,
+                )
+                # Keep seen IDs for remaining queue items only.
+                self._notif_seen_ids = set(
+                    str(e.get("id") or "")
+                    for e in self._discord_notif_queue
+                    if str(e.get("id") or "")
+                )
             return jsonify({"ok": True})
 
         @self.app.get("/api/max/advanced-analytics")
@@ -1836,15 +1900,21 @@ class WebPanel:
                 return redirect(f"/login?error=User+ID+and+password+required&next={next_url}")
             # Always require real credentials — no localhost bypass
             users = self._load_dashboard_users()
-            canonical_user_id = _PANEL_MASTER_ID if user_id == _PANEL_LEGACY_BIG_OWNER_ID else user_id
+            canonical_lookup_id = _PANEL_MASTER_ID if user_id == _PANEL_LEGACY_BIG_OWNER_ID else user_id
+            entry_user_id = user_id
             entry = users.get(user_id)
             # Backward compatibility: allow owner2 login using owner1 record/password.
-            if entry is None and canonical_user_id != user_id:
-                entry = users.get(canonical_user_id)
+            if entry is None and canonical_lookup_id != user_id:
+                entry = users.get(canonical_lookup_id)
+                entry_user_id = canonical_lookup_id
             if not entry or entry.get("password_hash") != self._hash_pw(password):
                 return redirect(f"/login?error=Invalid+user+ID+or+password&next={next_url}")
-            effective_user_id = canonical_user_id if canonical_user_id != user_id else user_id
-            is_master = effective_user_id in self._configured_admin_ids() or user_id in self._configured_admin_ids()
+            # Keep the signed-in ID as entered so user-specific profile/avatar/instance lookups stay correct.
+            effective_user_id = user_id
+            is_master = (
+                effective_user_id in self._configured_admin_ids()
+                or canonical_lookup_id in self._configured_admin_ids()
+            )
             # Admin can log in from any instance; regular users must match this instance
             role = "admin" if is_master else str(entry.get("role", "user") or "user")
             inst = entry.get("instance_id", "")
@@ -1861,7 +1931,7 @@ class WebPanel:
                     entry["instance_id"] = "main"
                     changed = True
                 if changed:
-                    users[effective_user_id] = entry
+                    users[entry_user_id] = entry
                     self._save_dashboard_users(users)
 
             session.permanent = remember
@@ -2682,6 +2752,14 @@ class WebPanel:
                 req["resolved_type"] = "password_reset"
                 self._save_access_requests(reqs)
                 self._record_user_activity(session.get("user_id", ""), "request_approve", f"Approved password reset for {target_uid}", request.remote_addr or "")
+                admin_uid = str(session.get("user_id") or "").strip()
+                self._push_private_panel_notification(
+                    admin_uid,
+                    "Password Reset Approved",
+                    f"User ID: {target_uid} | New Password: {new_pw}",
+                    kind="system",
+                    icon="🔐",
+                )
                 return jsonify({"ok": True, "user_id": str(target_uid), "password": new_pw})
 
             # Generate a random user_id and password for the new visitor account
@@ -2703,6 +2781,14 @@ class WebPanel:
             req["approved_uid"] = str(new_uid)
             self._save_access_requests(reqs)
             self._record_user_activity(session.get("user_id", ""), "request_approve", f"Approved {req_id} as {new_uid}", request.remote_addr or "")
+            admin_uid = str(session.get("user_id") or "").strip()
+            self._push_private_panel_notification(
+                admin_uid,
+                "Access Request Approved",
+                f"User ID: {new_uid} | Password: {new_pw}",
+                kind="system",
+                icon="✅",
+            )
             return jsonify({"ok": True, "user_id": str(new_uid), "password": new_pw})
 
         @self.app.post("/api/dash/requests/<req_id>/deny")
@@ -2772,6 +2858,19 @@ class WebPanel:
             self._save_dashboard_users(users)
             self._save_access_requests(reqs)
             self._record_user_activity(session.get("user_id", ""), "request_bulk_approve", f"Bulk approved {len(approved)} requests", request.remote_addr or "")
+            admin_uid = str(session.get("user_id") or "").strip()
+            if admin_uid and approved:
+                lines = [f"{item.get('user_id', '?')}: {item.get('password', '')}" for item in approved[:8]]
+                overflow = max(0, len(approved) - 8)
+                if overflow:
+                    lines.append(f"...and {overflow} more")
+                self._push_private_panel_notification(
+                    admin_uid,
+                    f"Bulk Approval Complete ({len(approved)})",
+                    " | ".join(lines),
+                    kind="system",
+                    icon="📨",
+                )
             return jsonify({"ok": True, "approved": approved, "approved_count": len(approved)})
 
         @self.app.post("/api/dash/requests/deny-all-pending")
