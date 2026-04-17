@@ -171,6 +171,14 @@ function navigateTo(sectionId) {
     if (item) item.click();
 }
 
+function togglePasswordField(inputId, btn) {
+    const el = document.getElementById(inputId);
+    if (!el) return;
+    const next = el.type === 'password' ? 'text' : 'password';
+    el.type = next;
+    if (btn) btn.textContent = next === 'password' ? 'Show' : 'Hide';
+}
+
 // ── User Profile Loader (topbar sync only) ──
 async function loadUserProfile() {
     fetchJSON('/api/max/user-profile').then(data => {
@@ -1709,21 +1717,17 @@ async function loadHosted() {
         return;
     }
 
-    const isAdmin = !!res.is_admin;
     tbody.innerHTML = res.hosted.map(u =>
         `<tr>
             <td class="cmd-name" style="font-size:11px">${esc(u.token_id || '—')}</td>
             <td>${esc(u.username || '—')}</td>
-            <td class="cmd-aliases">${esc(u.owner || '—')}</td>
+            <td class="cmd-aliases">${esc(u.user_id || '—')}</td>
             <td class="cmd-aliases">${esc(u.prefix || '—')}</td>
             <td class="cmd-aliases">${esc(u.client_type || 'unknown')}</td>
             <td><span class="badge ${u.active ? 'badge-ok' : 'badge-off'}">${u.active ? '● Active' : '○ Inactive'}</span></td>
             <td class="cmd-aliases">${esc(fmtTs(u.connected_at) || '—')}</td>
             <td>
-                ${isAdmin ? `
-                <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="restartHostedInstance('${encodeURIComponent(u.token_ref || '')}')">Restart</button>
-                <button class="btn btn-danger-soft" style="padding:4px 10px;font-size:11px;margin-left:6px" onclick="disconnectHostedInstance('${encodeURIComponent(u.token_ref || '')}')">Disconnect</button>
-                ` : '<span class="cmd-aliases">admin only</span>'}
+                <button class="btn btn-danger-soft" style="padding:4px 10px;font-size:11px" onclick="disconnectHostedInstance('${encodeURIComponent(u.token_ref || '')}')">Remove</button>
             </td>
         </tr>`
     ).join('');
@@ -1763,19 +1767,6 @@ async function disconnectHostedInstance(encodedTokenId) {
         return;
     }
     showPresenceMsg('hostedActionMsg', (res && res.error) || 'Failed to disconnect instance.', false);
-}
-
-async function restartHostedInstance(encodedTokenId) {
-    const token_id = decodeURIComponent(encodedTokenId || '');
-    if (!token_id) return;
-    const res = await postJSON('/api/hosted/restart', { token_id });
-    if (res && res.ok) {
-        showPresenceMsg('hostedActionMsg', 'Hosted instance restarted.', true);
-        trackDashboardAction('host_restart', `Restarted ${token_id.slice(0, 8)}...`);
-        await loadHosted();
-        return;
-    }
-    showPresenceMsg('hostedActionMsg', (res && res.error) || 'Failed to restart instance.', false);
 }
 
 // ── Dashboard Users (login management) ───────────────────────────────────────
@@ -1941,37 +1932,47 @@ async function loadAccessRequests() {
 
     const res = await fetchJSON('/api/dash/requests');
     if (!res || !res.ok) {
-        body.innerHTML = '<tr><td colspan="4" class="empty-row">Admin only</td></tr>';
+        body.innerHTML = '<tr><td colspan="5" class="empty-row">Admin only</td></tr>';
         return;
     }
 
     const reqs = res.requests || [];
     badge.textContent = String(reqs.length);
     if (!reqs.length) {
-        body.innerHTML = '<tr><td colspan="4" class="empty-row">No access requests</td></tr>';
+        body.innerHTML = '<tr><td colspan="5" class="empty-row">No account requests</td></tr>';
         return;
     }
 
     body.innerHTML = reqs.slice().reverse().map(r => {
         const id = esc(r.id || '');
+        const reqType = String(r.type || 'access').toLowerCase();
+        const reqLabel = reqType === 'password_reset' ? 'Password Reset' : 'Access';
+        const targetUser = reqType === 'password_reset'
+            ? (r.user_id || r.approved_uid || '—')
+            : (r.username || r.user_id || '—');
+        const details = reqType === 'password_reset'
+            ? (r.reason || 'Password reset requested')
+            : (r.reason || '—');
         const status = String(r.status || 'pending').toLowerCase();
         const statusClass = status === 'approved' ? 'badge-ok' : status === 'denied' ? 'badge-pink' : 'badge-warn';
         const actions = status === 'pending'
-            ? `<button class="btn btn-primary" style="padding:4px 10px;font-size:11px" onclick="approveAccessRequest('${id}')">Approve</button>
+            ? `<button class="btn btn-primary" style="padding:4px 10px;font-size:11px" onclick="approveAccessRequest('${id}', '${esc(reqType)}')">Approve</button>
                <button class="btn btn-danger-soft" style="padding:4px 10px;font-size:11px" onclick="denyAccessRequest('${id}')">Deny</button>`
             : '<span style="color:var(--muted);font-size:12px">Complete</span>';
 
         return `<tr>
-            <td style="font-weight:600">${esc(r.username || '—')}</td>
-            <td style="color:var(--muted)">${esc(r.reason || '—')}</td>
+            <td style="font-weight:600">${esc(reqLabel)}</td>
+            <td>${esc(targetUser)}</td>
+            <td style="color:var(--muted)">${esc(details)}</td>
             <td><span class="badge ${statusClass}">${esc(status)}</span></td>
             <td>${actions}</td>
         </tr>`;
     }).join('');
 }
 
-async function approveAccessRequest(reqId) {
-    const customUserId = prompt('Optional: set custom user_id (leave empty for auto)') || '';
+async function approveAccessRequest(reqId, reqType = 'access') {
+    const isPasswordReset = String(reqType || '').toLowerCase() === 'password_reset';
+    const customUserId = isPasswordReset ? '' : (prompt('Optional: set custom user_id (leave empty for auto)') || '');
     const customPassword = prompt('Optional: set custom password (leave empty for auto)') || '';
     const body = {};
     if (customUserId.trim()) body.user_id = customUserId.trim();
@@ -2119,11 +2120,16 @@ async function loadLogs() {
         } else {
             cmdFeed.innerHTML = commandEvents.slice().reverse().map(e => {
                 const duration = e.duration_ms != null ? `${Math.round(e.duration_ms)}ms` : '—';
+                const status = String(e.status || 'success').toLowerCase();
+                const statusBadge = status === 'failed'
+                    ? '<span class="badge badge-pink">failed</span>'
+                    : '<span class="badge badge-ok">ok</span>';
                 return `<div class="history-item">
                     <div class="history-dot"></div>
                     <div class="history-content">
                         <span class="history-cmd">${esc(e.command || '(unknown)')}</span>
-                        <span class="badge badge-ok">#${esc(String(e.number || '0'))}</span>
+                        <span class="badge badge-warn">#${esc(String(e.number || '0'))}</span>
+                        ${statusBadge}
                         <div class="history-meta">${[
                             e.user ? '👤 ' + esc(e.user) : '',
                             e.guild ? '🏠 ' + esc(e.guild) : '',
@@ -2144,6 +2150,7 @@ async function loadLogs() {
                 <div class="history-item">
                     <div class="history-dot"></div>
                     <div class="history-content">
+                        ${e.time ? `<div class="history-meta">🕐 ${esc(e.time)}</div>` : ''}
                         <div class="history-raw">${esc(e.raw || '')}</div>
                     </div>
                 </div>
@@ -2165,6 +2172,7 @@ async function loadLogs() {
                     <div class="history-dot"></div>
                     <div class="history-content">
                         ${badge}
+                        ${e.time ? `<div class="history-meta">🕐 ${esc(e.time)}</div>` : ''}
                         <div class="history-raw">${esc(e.raw || '')}</div>
                     </div>
                 </div>`;

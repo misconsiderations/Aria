@@ -429,7 +429,10 @@ class WebPanel:
 
         entries = []
         for token_id, info in saved.items():
-            if str(info.get("owner", "")) != uid:
+            owner = str(info.get("owner", "") or info.get("owner_id", "") or "").strip()
+            # Legacy compatibility: some historical saves used Discord user_id as owner.
+            # Accept either direct owner match or account user_id match for this session user.
+            if owner != uid and str(info.get("user_id", "") or "").strip() != uid:
                 continue
             active_info = active.get(token_id, {}) if isinstance(active.get(token_id, {}), dict) else {}
             entries.append((token_id, info, token_id in active, active_info))
@@ -478,8 +481,8 @@ class WebPanel:
             return int(time.time())
 
     def _session_hosted_live_context(self) -> dict[str, Any]:
-        """Return hosted instance context + live API for non-admin users."""
-        if not (self._require_session() and not self._require_admin()):
+        """Return hosted instance context + live API for the logged-in dashboard user."""
+        if not self._require_session():
             return {}
 
         requester_id = str(session.get("user_id") or "")
@@ -500,24 +503,31 @@ class WebPanel:
 
     def _hosted_user_profile(self, hosted_ctx: dict[str, Any]) -> dict[str, Any]:
         """Fetch best-effort live user profile from hosted token API."""
+        saved = hosted_ctx.get("saved") or {}
         api = hosted_ctx.get("api")
-        if not api:
+        user = {}
+        if api:
+            try:
+                user = api.get_user_info(force=False) or {}
+            except Exception:
+                user = {}
+
+        user_id = str(user.get("id") or saved.get("user_id") or "")
+        username = str(user.get("username") or saved.get("username") or "")
+        discrim = str(user.get("discriminator") or "")
+        if username and discrim and discrim != "0":
+            username = f"{username}#{discrim}"
+        avatar_hash = str(user.get("avatar") or saved.get("avatar") or "")
+
+        if not user_id and not username and not avatar_hash:
             return {}
-        try:
-            user = api.get_user_info(force=False) or {}
-            user_id = str(user.get("id") or "")
-            username = str(user.get("username") or "")
-            discrim = str(user.get("discriminator") or "")
-            if username and discrim and discrim != "0":
-                username = f"{username}#{discrim}"
-            return {
-                "user_id": user_id,
-                "username": username,
-                "avatar_url": self._avatar_url_for(user_id, str(user.get("avatar") or "")),
-                "premium_type": int(user.get("premium_type") or 0),
-            }
-        except Exception:
-            return {}
+
+        return {
+            "user_id": user_id,
+            "username": username,
+            "avatar_url": self._avatar_url_for(user_id, avatar_hash),
+            "premium_type": int(user.get("premium_type") or 0),
+        }
 
     def _hosted_boost_data(self, hosted_ctx: dict[str, Any]) -> dict:
         """Build live Nitro/boost stats for a hosted non-admin account."""
@@ -796,9 +806,9 @@ class WebPanel:
         """Collect live data from the bot instance."""
         b = self.bot
 
-        # For regular dashboard users, show their own hosted-instance context.
+        # Prefer the logged-in dashboard user's hosted-instance context when available.
         try:
-            if self._require_session() and not self._require_admin():
+            if self._require_session():
                 hosted_ctx = self._session_hosted_live_context()
                 primary = hosted_ctx.get("primary")
                 if primary:
@@ -912,18 +922,8 @@ class WebPanel:
         """Build command history from runtime logs, with fallback dummy data."""
         log_entries: list[dict[str, Any]] = []
         try:
-            log_dir = os.path.join(self._base_dir, "logs")
-            from datetime import datetime as _dt
-
-            today = _dt.now().strftime("%Y%m%d")
-            log_path = os.path.join(log_dir, f"aria-runtime-{today}.log")
-            if not os.path.exists(log_path):
-                all_logs = sorted([f for f in os.listdir(log_dir) if f.endswith(".log")], reverse=True)
-                log_path = os.path.join(log_dir, all_logs[0]) if all_logs else ""
-
-            if log_path and os.path.exists(log_path):
-                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-                    lines = [self._strip_ansi(l.rstrip("\n")) for l in f.readlines()[-500:]]
+            lines = self._read_log_tail(500)
+            if lines:
                 structured = self._parse_structured_logs(lines)
                 for ev in structured.get("events", {}).get("commands", []):
                     if ev.get("command"):  # Only add entries with actual command names
@@ -934,7 +934,7 @@ class WebPanel:
                                 "guild": ev.get("guild", "—"),
                                 "timestamp": ev.get("time", ""),
                                 "duration_ms": ev.get("duration_ms", 0),
-                                "status": "success",
+                                "status": str(ev.get("status") or "success"),
                                 "source": "runtime_log",
                             }
                         )
@@ -1045,6 +1045,74 @@ class WebPanel:
         """Remove ANSI color/control sequences from runtime logs."""
         return re.sub(r"\x1B\[[0-?]*[ -/]*[@-~]", "", text)
 
+    @staticmethod
+    def _extract_log_time(line: str) -> str:
+        """Extract a readable time token from common log line formats."""
+        s = str(line or "")
+        m = re.search(r"\[(\d{1,2}:\d{2}:\d{2}(?:\s*[AP]M)?)\]", s, re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+        m = re.search(r"\b(\d{2}:\d{2}:\d{2})\b", s)
+        if m:
+            return m.group(1).strip()
+        return ""
+
+    def _hosted_log_path_for_token(self, token_id: str) -> str:
+        tid = str(token_id or "").strip()
+        if not tid:
+            return ""
+        candidates = [
+            os.path.join(self._base_dir, "hosted_logs", f"hosted_{tid}.log"),
+            os.path.join(os.path.dirname(self._base_dir), "hosted_logs", f"hosted_{tid}.log"),
+        ]
+        for p in candidates:
+            if os.path.exists(p):
+                return p
+        return ""
+
+    def _runtime_log_path(self) -> str:
+        log_dir = os.path.join(self._base_dir, "logs")
+        from datetime import datetime as _dt
+
+        today = _dt.now().strftime("%Y%m%d")
+        log_path = os.path.join(log_dir, f"aria-runtime-{today}.log")
+        if os.path.exists(log_path):
+            return log_path
+        try:
+            all_logs = sorted([f for f in os.listdir(log_dir) if f.endswith(".log")], reverse=True)
+            fallback = os.path.join(log_dir, all_logs[0]) if all_logs else ""
+            if fallback and os.path.exists(fallback):
+                return fallback
+        except Exception:
+            pass
+        return ""
+
+    def _current_session_log_path(self) -> str:
+        """Prefer the current session user's hosted log, then fall back to runtime log."""
+        try:
+            if self._require_session():
+                hosted_ctx = self._session_hosted_live_context()
+                primary = hosted_ctx.get("primary") if isinstance(hosted_ctx, dict) else None
+                token_id = str((primary or {}).get("token_id") or "").strip()
+                hosted_path = self._hosted_log_path_for_token(token_id)
+                if hosted_path:
+                    return hosted_path
+        except Exception:
+            pass
+        return self._runtime_log_path()
+
+    def _read_log_tail(self, lines_count: int = 100) -> list[str]:
+        n = max(10, min(2000, int(lines_count or 100)))
+        path = self._current_session_log_path()
+        if not path:
+            return []
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                all_lines = f.readlines()
+            return [self._strip_ansi(l.rstrip("\n")) for l in all_lines[-n:]]
+        except Exception:
+            return []
+
     def _parse_structured_logs(self, log_lines: list[str]) -> dict:
         """Build dashboard-friendly structured logs from raw console lines."""
         command_events: list[dict[str, Any]] = []
@@ -1062,6 +1130,7 @@ class WebPanel:
             if not line:
                 continue
             lo = line.lower()
+            line_time = self._extract_log_time(line)
 
             m = command_re.search(line)
             if m:
@@ -1078,16 +1147,37 @@ class WebPanel:
                 )
                 continue
 
+            # Capture failed command lines even when they don't match the strict [CMD#] pattern.
+            if ("cmd" in lo or "command" in lo) and ("fail" in lo or "error" in lo or "exception" in lo):
+                cmd_name = ""
+                m_cmd = re.search(r"(?:cmd|command)\s*[:#-]?\s*([a-zA-Z0-9_.$-]+)", line, re.IGNORECASE)
+                if m_cmd:
+                    cmd_name = m_cmd.group(1).strip()
+                command_events.append(
+                    {
+                        "number": 0,
+                        "time": line_time,
+                        "command": cmd_name or "(failed command)",
+                        "user": "",
+                        "guild": "",
+                        "duration_ms": 0.0,
+                        "status": "failed",
+                        "raw": line,
+                    }
+                )
+                error_events.append({"time": line_time, "raw": line})
+                continue
+
             if any(tag in lo for tag in ["[nitro", "[giveaway", "[snipe"]):
-                sniper_events.append({"time": "", "type": "sniper", "raw": line})
+                sniper_events.append({"time": line_time, "type": "sniper", "raw": line})
                 continue
 
             if any(tag in lo for tag in ["[gateway]", "[connected]", "[reconnect]", "session resumed"]):
-                gateway_events.append({"time": "", "raw": line})
+                gateway_events.append({"time": line_time, "raw": line})
                 continue
 
             if any(tag in lo for tag in ["[error", "exception", "traceback", "failed"]):
-                error_events.append({"time": "", "raw": line})
+                error_events.append({"time": line_time, "raw": line})
 
         bot_d = self._bot_data()
         connected_user = {
@@ -1276,21 +1366,8 @@ class WebPanel:
         @self.app.get("/api/max/errors")
         def api_max_errors():
             """Return recent error and warning log entries."""
-            logs = self._parse_structured_logs([])
             try:
-                # Try to get errors from logs
-                log_dir = os.path.join(self._base_dir, "logs")
-                from datetime import datetime as _dt
-                today = _dt.now().strftime("%Y%m%d")
-                log_path = os.path.join(log_dir, f"aria-runtime-{today}.log")
-                if not os.path.exists(log_path):
-                    all_logs = sorted([f for f in os.listdir(log_dir) if f.endswith(".log")], reverse=True)
-                    log_path = os.path.join(log_dir, all_logs[0]) if all_logs else None
-                lines = []
-                if log_path and os.path.exists(log_path):
-                    with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-                        all_lines = f.readlines()
-                    lines = [self._strip_ansi(l.rstrip("\n")) for l in all_lines[-500:]]
+                lines = self._read_log_tail(500)
                 errors = [l for l in lines if any(tag in l.lower() for tag in ["error", "exception", "traceback", "failed", "warn"])]
                 return jsonify({"ok": True, "errors": errors[-30:]})
             except Exception as e:
@@ -2064,6 +2141,29 @@ class WebPanel:
                 if not ok:
                     return jsonify({"ok": False, "error": msg or "Failed to connect token"}), 400
 
+                # Persist avatar hash for better profile picture fallback when live API is unavailable.
+                account_avatar = str((account or {}).get("avatar") or "").strip()
+                if account_avatar:
+                    try:
+                        saved_users = getattr(hm, "saved_users", {}) or {}
+                        active_tokens = getattr(hm, "active_tokens", {}) or {}
+                        for token_id, info in saved_users.items():
+                            if str((info or {}).get("owner", "")) != requester_id:
+                                continue
+                            if str((info or {}).get("token", "")) != token:
+                                continue
+                            info["avatar"] = account_avatar
+                            saved_users[token_id] = info
+                            active_info = active_tokens.get(token_id)
+                            if isinstance(active_info, dict):
+                                active_info["avatar"] = account_avatar
+                                active_tokens[token_id] = active_info
+                            break
+                        if hasattr(hm, "_save_users"):
+                            hm._save_users()
+                    except Exception:
+                        pass
+
                 primary = self._get_primary_user_instance(requester_id)
                 if primary:
                     session["host_token_id"] = str(primary.get("token_id") or "")
@@ -2100,28 +2200,7 @@ class WebPanel:
 
         @self.app.post("/api/hosted/restart")
         def api_hosted_restart():
-            data = request.get_json(force=True) or {}
-            token_id = str(data.get("token_id", "")).strip()
-            if not token_id:
-                return jsonify({"ok": False, "error": "token_id required"}), 400
-            try:
-                from host import host_manager as hm
-                requester_id = str(session.get("user_id") or "")
-                is_admin = self._require_admin()
-                if not is_admin:
-                    saved = dict(getattr(hm, "saved_users", {}) or {})
-                    entry = saved.get(token_id) or {}
-                    if str(entry.get("owner", "")) != requester_id:
-                        return jsonify({"ok": False, "error": "Forbidden"}), 403
-                restarted = 0
-                if hasattr(hm, "restart_hosts"):
-                    restarted = hm.restart_hosts(selectors=[token_id], all_hosts=True)
-                if restarted:
-                    self._record_user_activity(session.get("user_id", ""), "host_restart", f"Restarted {token_id[:8]}...", request.remote_addr or "")
-                    return jsonify({"ok": True})
-                return jsonify({"ok": False, "error": "Could not restart hosted user"}), 400
-            except Exception as e:
-                return jsonify({"ok": False, "error": str(e)}), 500
+            return jsonify({"ok": False, "error": "Restart is disabled on the website. Remove and reconnect instead."}), 403
 
         # ── Logs ──────────────────────────────────────────────────────────
         @self.app.get("/api/logs")
@@ -2131,23 +2210,9 @@ class WebPanel:
                 n = max(10, min(500, int(lines_param)))
             except (ValueError, TypeError):
                 n = 100
-            log_dir = os.path.join(self._base_dir, "logs")
-            lines: list = []
+            lines: list[str] = []
             try:
-                from datetime import datetime as _dt
-                today = _dt.now().strftime("%Y%m%d")
-                log_path = os.path.join(log_dir, f"aria-runtime-{today}.log")
-                if not os.path.exists(log_path):
-                    # Fall back to most recent log file
-                    all_logs = sorted(
-                        [f for f in os.listdir(log_dir) if f.endswith(".log")],
-                        reverse=True,
-                    )
-                    log_path = os.path.join(log_dir, all_logs[0]) if all_logs else None
-                if log_path and os.path.exists(log_path):
-                    with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-                        all_lines = f.readlines()
-                    lines = [self._strip_ansi(l.rstrip("\n")) for l in all_lines[-n:]]
+                lines = self._read_log_tail(n)
             except Exception as e:
                 lines = [f"[log read error] {e}"]
             structured = self._parse_structured_logs(lines)

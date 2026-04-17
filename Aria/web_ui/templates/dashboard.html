@@ -743,6 +743,7 @@
                     </div>
                     <div class="setting-controls setting-controls-wide">
                         <input type="password" id="hostTokenInput" class="setting-input" placeholder="Token" autocomplete="off">
+                        <button class="btn btn-ghost button-ml-sm" type="button" onclick="togglePasswordField('hostTokenInput', this)">Show</button>
                     </div>
                 </div>
                 <div class="setting-row">
@@ -775,7 +776,7 @@
                     <span class="table-badge" id="hostedBadge">0</span>
                 </div>
                 <table class="data-table">
-                    <thead><tr><th>Token ID</th><th>Username</th><th>Owner</th><th>Prefix</th><th>Client</th><th>Status</th><th>Connected</th><th>Actions</th></tr></thead>
+                    <thead><tr><th>Token ID</th><th>Hosted Username</th><th>Hosted User ID</th><th>Prefix</th><th>Client</th><th>Status</th><th>Connected</th><th>Actions</th></tr></thead>
                     <tbody id="hostedBody">
                         <tr><td colspan="8" class="empty-row">Loading…</td></tr>
                     </tbody>
@@ -908,12 +909,14 @@
                     <div><div class="setting-label">Current Password</div></div>
                     <div class="setting-controls">
                         <input type="password" id="oldPasswordInput" class="setting-input" placeholder="Current password">
+                        <button class="btn btn-ghost button-ml-sm" type="button" onclick="togglePasswordField('oldPasswordInput', this)">Show</button>
                     </div>
                 </div>
                 <div class="setting-row">
                     <div><div class="setting-label">New Password</div><div class="setting-sub">Minimum 8 characters</div></div>
                     <div class="setting-controls">
                         <input type="password" id="newPasswordInput" class="setting-input" placeholder="New password">
+                        <button class="btn btn-ghost button-ml-sm" type="button" onclick="togglePasswordField('newPasswordInput', this)">Show</button>
                         <button class="btn btn-primary" onclick="changeMyPassword()">Update</button>
                     </div>
                 </div>
@@ -952,6 +955,7 @@
                     <div><div class="setting-label">Password</div></div>
                     <div class="setting-controls">
                         <input type="password" id="newDashPassword" class="setting-input" placeholder="Set password">
+                        <button class="btn btn-ghost button-ml-sm" type="button" onclick="togglePasswordField('newDashPassword', this)">Show</button>
                         <button class="btn btn-primary button-ml-sm" onclick="addDashUser()">Save</button>
                     </div>
                 </div>
@@ -961,7 +965,7 @@
             <!-- Admin: access requests -->
             <div class="table-card table-card-access-requests access-card-hidden" id="accessRequestsCard">
                 <div class="table-header">
-                    <span class="table-title">Pending Access Requests</span>
+                    <span class="table-title">Pending Account Requests</span>
                     <span class="table-badge" id="accessReqBadge">0</span>
                 </div>
                 <div class="presence-bar presence-bar-compact">
@@ -969,9 +973,9 @@
                     <button class="btn btn-danger-soft" onclick="denyAllPendingRequests()">Deny All</button>
                 </div>
                 <table class="data-table">
-                    <thead><tr><th>Username</th><th>Reason</th><th>Status</th><th>Actions</th></tr></thead>
+                    <thead><tr><th>Request</th><th>Target User</th><th>Details</th><th>Status</th><th>Actions</th></tr></thead>
                     <tbody id="accessReqBody">
-                        <tr><td colspan="4" class="empty-row">Loading…</td></tr>
+                        <tr><td colspan="5" class="empty-row">Loading…</td></tr>
                     </tbody>
                 </table>
                 <div class="settings-msg-wrap"><div id="accessReqBulkMsg" class="settings-msg"></div></div>

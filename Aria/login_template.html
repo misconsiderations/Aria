@@ -58,7 +58,10 @@
 
               <div class="field">
                 <label>Password</label>
-                <input type="password" name="password" placeholder="Password" autocomplete="current-password" required />
+                <div class="setting-controls">
+                  <input type="password" id="loginPasswordInput" name="password" class="setting-input" placeholder="Password" autocomplete="current-password" required />
+                  <button type="button" class="btn btn-ghost" style="margin-left:8px" onclick="togglePasswordField('loginPasswordInput', this)">Show</button>
+                </div>
               </div>
 
               <label class="tiny remember-row">
@@ -96,5 +99,14 @@
       </div>
     </section>
   </div>
+  <script>
+    function togglePasswordField(inputId, btn) {
+      var el = document.getElementById(inputId);
+      if (!el) return;
+      var next = el.type === 'password' ? 'text' : 'password';
+      el.type = next;
+      if (btn) btn.textContent = next === 'password' ? 'Show' : 'Hide';
+    }
+  </script>
 </body>
 </html>
