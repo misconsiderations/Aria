@@ -194,20 +194,36 @@ async function loadUserProfile() {
                 ok: true,
                 username: me.profile.username || me.profile.user_id || '—',
                 user_id: me.profile.user_id || '',
-                avatar_url: '',
+                avatar_url: me.profile.avatar_url || '',
             };
         }
     }
     if (!data || !data.ok) return;
 
     // Sync topbar chip
-    const tbAvatar = document.getElementById('topbarAvatar');
     const tbUser = document.getElementById('topbarUsername');
-    if (tbAvatar && data.avatar_url) tbAvatar.src = data.avatar_url;
     if (tbUser) tbUser.textContent = data.username || '—';
+    
+    const tbAvatar = document.getElementById('topbarAvatar');
+    if (tbAvatar) {
+        if (data.avatar_url && data.avatar_url.trim()) {
+            tbAvatar.src = data.avatar_url;
+        } else {
+            tbAvatar.src = '/static/images/aria-favicon.png';
+        }
+        tbAvatar.onerror = () => { tbAvatar.src = '/static/images/aria-favicon.png'; };
+    }
+    
     // Sync hero avatar
     const heroAvatar = document.getElementById('heroAvatar');
-    if (heroAvatar && data.avatar_url) heroAvatar.src = data.avatar_url;
+    if (heroAvatar) {
+        if (data.avatar_url && data.avatar_url.trim()) {
+            heroAvatar.src = data.avatar_url;
+        } else {
+            heroAvatar.src = '/static/images/aria-favicon.png';
+        }
+        heroAvatar.onerror = () => { heroAvatar.src = '/static/images/aria-favicon.png'; };
+    }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -998,6 +1014,66 @@ async function applyAutoDelete() {
     }
 }
 
+// ── Help Modal Functions ──────────────────────────────────────────────────
+function openHelpModal() {
+    const modal = document.getElementById('helpModal');
+    if (modal) {
+        modal.removeAttribute('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function closeHelpModal() {
+    const modal = document.getElementById('helpModal');
+    if (modal) {
+        modal.setAttribute('hidden', '');
+        document.body.style.overflow = '';
+    }
+}
+
+function switchHelpTab(tabName, btn) {
+    const tabContents = document.querySelectorAll('.help-tab-content');
+    tabContents.forEach(tab => tab.classList.remove('active'));
+    const tabBtns = document.querySelectorAll('.help-tab-btn');
+    tabBtns.forEach(b => b.classList.remove('active'));
+    const selectedTab = document.getElementById(`help-tab-${tabName}`);
+    if (selectedTab) selectedTab.classList.add('active');
+    if (btn) btn.classList.add('active');
+}
+
+function copyToClipboard(elementId) {
+    const codeElement = document.getElementById(elementId);
+    if (!codeElement) return;
+    const code = codeElement.textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        showToast('Copied', 'Code copied!', 'ok');
+    }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = code;
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy');
+            showToast('Copied', 'Code copied!', 'ok');
+        } catch (err) {
+            showToast('Error', 'Copy failed', 'err');
+        }
+        document.body.removeChild(textarea);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const menuBtn = document.getElementById('topbarMenuBtn');
+    const menuDropdown = document.getElementById('topbarMenuDropdown');
+    if (menuBtn && menuDropdown) {
+        menuBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menuDropdown.hasAttribute('hidden') ? menuDropdown.removeAttribute('hidden') : menuDropdown.setAttribute('hidden', '');
+        });
+        document.addEventListener('click', () => menuDropdown.setAttribute('hidden', ''));
+    }
+});
+
 // ── Section router ────────────────────────────────────────────────────────────
 function loadSection(name) {
     if (name === 'overview')  loadOverview();
@@ -1010,7 +1086,6 @@ function loadSection(name) {
     if (name === 'hosted')    loadHosted();
     if (name === 'logs')      loadLogs();
     if (name === 'users')     loadDashUsers();
-    if (name === 'help')      loadHelp();
     if (name === 'settings')  loadSettings();
     if (name === 'system')    loadSystemStats();
     if (name === 'cmdbreakdown') loadCommandBreakdown();

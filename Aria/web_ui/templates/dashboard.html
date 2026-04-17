@@ -76,10 +76,6 @@
                 <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2L4 5v5c0 3.5 2.5 6.3 6 7.3 3.5-1 6-3.8 6-7.3V5l-6-3z"/></svg>
                 Access
             </li>
-            <li class="nav-item" data-section="help">
-                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.5"/><path d="M8 8c0-1.1.9-2 2-2s2 .9 2 2c0 1-1 1.5-1.5 2M10 15v.5"/></svg>
-                Help
-            </li>
             <li class="nav-item" data-section="settings" data-admin-only="true">
                 <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.5"/><path d="M10 2v2m0 12v2M2 10h2m12 0h2m-3.17-4.83l-1.42 1.42M4.59 15.41l1.42-1.42M15.41 15.41l-1.42-1.42M5.17 5.17L6.59 6.59"/></svg>
                 Config
@@ -109,6 +105,14 @@
                 <div class="topbar-bell" id="topbarBell" title="Notifications">
                     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><path d="M10 2a6 6 0 016 6v3l1.5 2.5H2.5L4 11V8a6 6 0 016-6zm-1.5 13.5a1.5 1.5 0 003 0"/></svg>
                     <span class="topbar-bell-badge bell-badge-hidden" id="bellBadge">0</span>
+                </div>
+                <button class="topbar-menu-btn" id="topbarMenuBtn" title="More options">
+                    <svg viewBox="0 0 20 20" fill="currentColor" style="width:16px;height:16px"><path d="M10 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/></svg>
+                </button>
+                <div class="topbar-menu-dropdown" id="topbarMenuDropdown" hidden>
+                    <button class="topbar-menu-item" onclick="openHelpModal()">Help & Token Guide</button>
+                    <hr class="topbar-menu-divider">
+                    <button class="topbar-menu-item" onclick="navigateTo('settings')">Settings</button>
                 </div>
                 <div class="status-pill">
                     <div class="status-dot" id="globalStatus"></div>
@@ -1013,247 +1017,6 @@
                 <div class="settings-msg-wrap"><div id="accessReqBulkMsg" class="settings-msg"></div></div>
             </div>
         </section>
-
-        <!-- ══════════════════════════════════════════════
-             HELP / HOW TO GET TOKEN
-        ══════════════════════════════════════════════ -->
-        <section class="section" id="section-help">
-            <div class="section-header">
-                <div>
-                    <div class="section-title">How to Get Your Token</div>
-                    <div class="section-sub">Guide for retrieving your Discord token on different devices</div>
-                </div>
-            </div>
-
-            <div class="help-intro">
-                <p>Your Discord token is a unique identifier that allows you to connect to Aria. Follow the instructions below for your device.</p>
-                <div class="warning-box">
-                    <strong>⚠️ Security Notice:</strong> Keep your token safe and never share it with anyone. Your token is like your password and can give access to your account.
-                </div>
-            </div>
-
-            <!-- Tabs for different devices -->
-            <div class="help-tabs">
-                <button class="help-tab-btn active" onclick="switchHelpTab('desktop', this)">Desktop (Browser)</button>
-                <button class="help-tab-btn" onclick="switchHelpTab('mobile', this)">Mobile</button>
-                <button class="help-tab-btn" onclick="switchHelpTab('alternative', this)">Alternative Methods</button>
-            </div>
-
-            <!-- Desktop Instructions -->
-            <div class="help-tab-content active" id="help-tab-desktop">
-                <div class="help-card">
-                    <div class="help-card-title">Windows / Mac / Linux Desktop</div>
-                    <div class="help-steps">
-                        <div class="step">
-                            <div class="step-number">1</div>
-                            <div class="step-content">
-                                <div class="step-title">Open Discord</div>
-                                <div class="step-desc">Launch Discord or open it in your web browser (discord.com)</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">2</div>
-                            <div class="step-content">
-                                <div class="step-title">Open Developer Tools</div>
-                                <div class="step-desc">Press <strong>Ctrl + Shift + I</strong> (Windows/Linux) or <strong>Cmd + Option + I</strong> (Mac)</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">3</div>
-                            <div class="step-content">
-                                <div class="step-title">Go to Console Tab</div>
-                                <div class="step-desc">Click the "Console" tab in the Developer Tools window</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">4</div>
-                            <div class="step-content">
-                                <div class="step-title">Paste & Run Code</div>
-                                <div class="step-desc">Copy and paste this code into the console:</div>
-                                <div class="code-block">
-                                    <code id="desktop-code">setInterval(() => document.body.appendChild(Object.assign(document.createElement('iframe'), {src:"javascript:window.parent.postMessage({token: (webpackChunkdiscord_app.push([['__CUSTOM__'],(o,e,req)=>{for(const m in o.c)if(o.c.hasOwnProperty(m)){const mod=o.c[m].exports;if(mod && mod.__esModule && mod.default)for(const key in mod.default)if(key === 'getToken')return mod.default[key]()}}]),[['__CUSTOM__']]) || localStorage.getItem('token')}, '*')"})), 100)</code>
-                                </div>
-                                <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('desktop-code')">Copy Code</button>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">5</div>
-                            <div class="step-content">
-                                <div class="step-title">Check for Popup</div>
-                                <div class="step-desc">A popup should appear containing your token. It's a long string of characters.</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">6</div>
-                            <div class="step-content">
-                                <div class="step-title">Copy Your Token</div>
-                                <div class="step-desc">Copy the token value and paste it into Aria's connection form</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Mobile Instructions -->
-            <div class="help-tab-content" id="help-tab-mobile">
-                <div class="help-card">
-                    <div class="help-card-title">iPhone / iPad (Safari)</div>
-                    <div class="help-steps">
-                        <div class="step">
-                            <div class="step-number">1</div>
-                            <div class="step-content">
-                                <div class="step-title">Open Settings on Your Device</div>
-                                <div class="step-desc">Go to Settings → Safari</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">2</div>
-                            <div class="step-content">
-                                <div class="step-title">Enable Web Inspector</div>
-                                <div class="step-desc">Scroll down and toggle "Web Inspector" ON</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">3</div>
-                            <div class="step-content">
-                                <div class="step-title">Open Discord via Safari</div>
-                                <div class="step-desc">Visit discord.com in Safari on your device</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">4</div>
-                            <div class="step-content">
-                                <div class="step-title">Connect Inspector to Mac</div>
-                                <div class="step-desc">On your Mac, open Safari → Develop → [Your Device] → discord.com</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">5</div>
-                            <div class="step-content">
-                                <div class="step-title">Use Console</div>
-                                <div class="step-desc">In the Web Inspector console, paste the desktop code above and run it</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="help-card">
-                    <div class="help-card-title">Android (Chrome)</div>
-                    <div class="help-steps">
-                        <div class="step">
-                            <div class="step-number">1</div>
-                            <div class="step-content">
-                                <div class="step-title">Open Discord in Chrome</div>
-                                <div class="step-desc">Visit discord.com on your Android device</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">2</div>
-                            <div class="step-content">
-                                <div class="step-title">Enable Developer Mode</div>
-                                <div class="step-desc">On your computer, connect your Android via USB. In Chrome: chrome://inspect</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">3</div>
-                            <div class="step-content">
-                                <div class="step-title">Open Remote DevTools</div>
-                                <div class="step-desc">Click "inspect" under your device in Chrome</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">4</div>
-                            <div class="step-content">
-                                <div class="step-title">Use Console</div>
-                                <div class="step-desc">In the console, paste the desktop code and run it</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Alternative Methods -->
-            <div class="help-tab-content" id="help-tab-alternative">
-                <div class="help-card">
-                    <div class="help-card-title">Via Discord-CLI (Desktop)</div>
-                    <div class="help-steps">
-                        <div class="step">
-                            <div class="step-number">1</div>
-                            <div class="step-content">
-                                <div class="step-title">Install Node.js</div>
-                                <div class="step-desc">Download from nodejs.org if you don't have it</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">2</div>
-                            <div class="step-content">
-                                <div class="step-title">Create a Script</div>
-                                <div class="step-desc">Create a file named <code>get-token.js</code> with this content:</div>
-                                <div class="code-block">
-                                    <code id="alt-code">const fetch = require('node-fetch');
-const axios = require('axios');
-
-// You'll need to run Discord login flow separately
-// Then extract token from local storage or API response
-console.log("Token retrieval requires browser integration");</code>
-                                </div>
-                                <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('alt-code')">Copy Code</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="help-card">
-                    <div class="help-card-title">Recent Activity & Storage</div>
-                    <div class="help-steps">
-                        <div class="step">
-                            <div class="step-number">1</div>
-                            <div class="step-content">
-                                <div class="step-title">Alternative: Discord Desktop App</div>
-                                <div class="step-desc">If the browser method doesn't work, try opening Discord Desktop app and use DevTools on it (Ctrl+Shift+I)</div>
-                            </div>
-                        </div>
-
-                        <div class="step">
-                            <div class="step-number">2</div>
-                            <div class="step-content">
-                                <div class="step-title">Application → Local Storage</div>
-                                <div class="step-desc">In DevTools, go to Application tab → Local Storage → Look for a key like "token" or stored auth data</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="help-footer">
-                <div class="info-box">
-                    <strong>💡 Pro Tips:</strong>
-                    <ul>
-                        <li>Your token is private — never paste it in chat or share with others</li>
-                        <li>Tokens can expire or change if you log out/in</li>
-                        <li>If you lose your token, you can generate a new one by logging out and back in</li>
-                        <li>Aria automatically handles all token operations securely</li>
-                    </ul>
-                </div>
-            </div>
-        </section>
-
-        <!-- ══════════════════════════════════════════════
-             CONFIG / SETTINGS
-        ══════════════════════════════════════════════ -->
         <section class="section" id="section-settings" data-admin-only="true">
             <div class="section-header">
                 <div>
@@ -1312,6 +1075,85 @@ console.log("Token retrieval requires browser integration");</code>
         </section>
 
     </div><!-- /main-content -->
+
+    <!-- Help Modal -->
+    <div class="help-modal" id="helpModal" hidden>
+        <div class="help-modal-overlay" onclick="closeHelpModal()"></div>
+        <div class="help-modal-content">
+            <div class="help-modal-header">
+                <h2>How to Get Your Token</h2>
+                <button class="help-modal-close" onclick="closeHelpModal()">×</button>
+            </div>
+            <div class="help-modal-body">
+                <div class="help-intro">
+                    <p>Discord token needed to connect your account. Follow steps for your device.</p>
+                    <div class="warning-box">
+                        ⚠️ <strong>Security:</strong> Keep your token private—never share it.
+                    </div>
+                </div>
+
+                <div class="help-tabs">
+                    <button class="help-tab-btn active" onclick="switchHelpTab('desktop', this)">Desktop</button>
+                    <button class="help-tab-btn" onclick="switchHelpTab('mobile', this)">Mobile</button>
+                    <button class="help-tab-btn" onclick="switchHelpTab('alternative', this)">Alternative</button>
+                </div>
+
+                <div class="help-tab-content active" id="help-tab-desktop">
+                    <div class="step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <div class="step-title">Open Discord or discord.com</div>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <div class="step-title">Press F12 or Ctrl+Shift+I</div>
+                            <div class="step-desc">Open DevTools → Console tab</div>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <div class="step-title">Paste & Run:</div>
+                            <div class="code-block">
+                                <code id="desktop-code">webpackChunkdiscord_app.push([['__CUSTOM__'],(o,e,req)=>{for(const m in o.c)if(o.c.hasOwnProperty(m)){const mod=o.c[m].exports;if(mod && mod.__esModule && mod.default)for(const key in mod.default)if(key === 'getToken')return mod.default[key]()}}]);</code>
+                            </div>
+                            <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('desktop-code')">Copy</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-tab-content" id="help-tab-mobile">
+                    <div class="help-card">
+                        <div class="help-card-title">iPhone/iPad</div>
+                        <div class="step"><div class="step-number">1</div><div class="step-content"><div class="step-desc">Settings → Safari → Enable Web Inspector</div></div></div>
+                        <div class="step"><div class="step-number">2</div><div class="step-content"><div class="step-desc">Visit discord.com</div></div></div>
+                        <div class="step"><div class="step-number">3</div><div class="step-content"><div class="step-desc">On Mac: Safari → Develop → Inspect</div></div></div>
+                    </div>
+                    <div class="help-card">
+                        <div class="help-card-title">Android</div>
+                        <div class="step"><div class="step-number">1</div><div class="step-content"><div class="step-desc">Connect via USB</div></div></div>
+                        <div class="step"><div class="step-number">2</div><div class="step-content"><div class="step-desc\">On computer: chrome://inspect</div></div></div>
+                        <div class="step"><div class="step-number">3</div><div class="step-content"><div class="step-desc">Inspect → Console</div></div></div>
+                    </div>
+                </div>
+
+                <div class="help-tab-content" id="help-tab-alternative">
+                    <div class="help-card">
+                        <div class="help-card-title">Discord Desktop</div>
+                        <div class="step"><div class="step-number">1</div><div class="step-content"><div class="step-desc">Launch Discord Desktop</div></div></div>
+                        <div class="step"><div class="step-number">2</div><div class="step-content"><div class="step-desc">Ctrl+Shift+I → Console</div></div></div>
+                        <div class="step"><div class="step-number">3</div><div class="step-content"><div class="step-desc">Paste desktop code above</div></div></div>
+                    </div>
+                </div>
+
+                <div class="help-footer">
+                    <div class="info-box">💡 Keep your token safe, like your password.</div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="/static/js/script.js"></script>
 </body>

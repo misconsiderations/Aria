@@ -367,6 +367,98 @@ body::before {
   max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
+/* ── Topbar Menu Button ── */
+.topbar-menu-btn {
+  width: 36px; height: 36px;
+  border-radius: var(--radius-sm);
+  background: rgba(9,10,11,0.8);
+  border: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--muted);
+  transition: var(--transition);
+  padding: 0;
+}
+.topbar-menu-btn:hover { border-color: rgba(172,203,238,0.3); color: var(--a2); }
+
+.topbar-menu-dropdown {
+  position: absolute; top: 56px; right: 80px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  z-index: 200;
+  backdrop-filter: var(--backdrop-blur);
+  min-width: 180px;
+  overflow: hidden;
+}
+
+.topbar-menu-item {
+  display: block; width: 100%; padding: 10px 14px;
+  text-align: left; font-size: 12px; font-weight: 500;
+  color: var(--text); background: none; border: none;
+  cursor: pointer; font-family: var(--font);
+  border-bottom: 1px solid var(--border);
+  transition: var(--transition);
+}
+.topbar-menu-item:last-child { border-bottom: none; }
+.topbar-menu-item:hover { background: rgba(172,203,238,0.08); color: var(--a2); }
+
+.topbar-menu-divider {
+  height: 1px; background: var(--border);
+  border: none; margin: 0;
+}
+
+/* ── Help Modal ── */
+.help-modal {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.help-modal-overlay {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.6); backdrop-filter: var(--backdrop-blur);
+  cursor: pointer;
+}
+
+.help-modal-content {
+  position: relative; z-index: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 96px rgba(0,0,0,0.7);
+  width: 90%; max-width: 600px;
+  max-height: 85vh; overflow-y: auto;
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.help-modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 18px 22px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: var(--surface2);
+}
+
+.help-modal-header h2 {
+  font-size: 16px; font-weight: 700; margin: 0;
+}
+
+.help-modal-close {
+  background: none; border: none; font-size: 28px;
+  color: var(--muted); cursor: pointer;
+  padding: 0; width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  transition: var(--transition);
+}
+.help-modal-close:hover { color: var(--text); }
+
+.help-modal-body {
+  padding: 20px;
+}
+
 /* ── Notification Center ── */
 .notification-center {
   position: absolute; top: 56px; right: 16px;
