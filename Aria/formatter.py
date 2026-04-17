@@ -14,6 +14,7 @@ PINK = "\u001b[1;35m"
 
 NAME = "Aria"
 VERSION = "v1.1.0"
+AUTHOR = "Misconsideration"
 
 def quote_block(text: str) -> str:
     """Wrap text in quote blocks for Discord display."""
@@ -37,30 +38,38 @@ def format_message(title: str, content: str = "", status: str = None) -> str:
 
 def _block(content: str) -> str:
     """Wrap content in ANSI code block."""
-    return f"```ansi\n{content}```"
+    lines = content.split("\n")
+    result = ["```ansi"]
+    result.extend(lines)
+    result.append("```")
+    return "\n".join(result)
 
 def header(subtitle: str) -> str:
-    """Create a formatted header line."""
-    return f"{PINK}{BOLD}{NAME}{RESET} {DARK}::{RESET} {GREEN}{VERSION}{RESET} {DARK}::{RESET} {CYAN}{subtitle}{RESET}"
+    """Create formatted header text (raw line, no code block)."""
+    return f"{PINK}{BOLD}{UNDERLINE}{NAME}{RESET}{DARK} :: {RESET}{GREEN}{VERSION}{DARK} :: {RESET}{PINK}{subtitle}{RESET}"
+
+def _raw_header(subtitle: str) -> str:
+    """Header line without block wrapper."""
+    return f"{PINK}{BOLD}{UNDERLINE}{NAME}{RESET}{DARK} :: {RESET}{GREEN}{VERSION}{DARK} :: {RESET}{PINK}{subtitle}{RESET}"
 
 def category_list(categories: dict) -> str:
-    """Format a clean category listing."""
+    """Format category listing as raw ANSI lines."""
     lines = []
     for name, desc in categories.items():
-        lines.append(f"{PURPLE}{name:<16}{DARK}| {RESET}{WHITE}{desc}{RESET}")
+        lines.append(f"{PURPLE}{name:<10}{DARK}:: {RESET}{WHITE}{desc}{RESET}")
     return "\n".join(lines)
 
 def command_list(cmds: list) -> str:
-    """Format a clean command listing."""
+    """Format command listing as raw ANSI lines."""
     lines = []
     for name, desc in cmds:
-        lines.append(f"{CYAN}{name:<20}{DARK}| {RESET}{WHITE}{desc}{RESET}")
+        lines.append(f"{CYAN}{name:<13}{DARK}:: {RESET}{WHITE}{desc}{RESET}")
     return "\n".join(lines)
 
 def status_bar(label: str, value: str, max_width: int = 40) -> str:
     """Format a status bar item."""
     value_str = str(value)[:max_width]
-    return f"{CYAN}{label:<15}{DARK}| {RESET}{WHITE}{value_str}{RESET}"
+    return f"{CYAN}{label:<15}{DARK}:: {RESET}{WHITE}{value_str}{RESET}"
 
 def success(msg: str) -> str:
     """Format a success message."""
@@ -81,28 +90,45 @@ def _compose(*sections) -> str:
 
 def status_box(title: str, details: dict) -> str:
     """Format a status/configuration box."""
-    lines = [f"{BOLD}{title}{RESET}"]
+    lines = [_raw_header(str(title))]
+    lines.append("")
     for key, value in details.items():
-        lines.append(f"{CYAN}{key:<15}{DARK}| {RESET}{WHITE}{str(value)}{RESET}")
+        lines.append(f"{CYAN}{key:<15}{DARK}:: {RESET}{WHITE}{str(value)}{RESET}")
     return _block("\n".join(lines))
 
 def info_block(title: str, body: str) -> str:
     """Format a titled informational ANSI block."""
-    lines = [f"{BOLD}{title}{RESET}"]
-    if body:
-        lines.append(str(body))
-    return _block("\n".join(lines))
+    return _block(f"{_raw_header(str(title))}\n\n{WHITE}{body}{RESET}")
 
 def command_page(title: str, lines: list, footer: str = "") -> str:
     """Format a command page with title, command list, and optional footer."""
-    result_lines = [header(title)]
+    result_lines = [_raw_header(title), ""]
     for name, desc in lines:
-        result_lines.append(f"{CYAN}{name:<20}{DARK}| {RESET}{WHITE}{desc}{RESET}")
+        result_lines.append(f"{CYAN}{name:<13}{DARK}:: {RESET}{WHITE}{desc}{RESET}")
     if footer:
-        result_lines.append(f"\n{DARK}{footer}{RESET}")
+        result_lines.append("")
+        result_lines.append(f"{DARK}{footer}{RESET}")
     return _block("\n".join(result_lines))
 
 def footer_page(prefix: str, category: str, page: int, total_pages: int) -> str:
     """Format pagination footer for command pages."""
-    return f"Page {page}/{total_pages} • Category: {category} • Use {prefix}help for more"
+    if total_pages <= 1:
+        return f"{prefix}help {category.lower()} | page 1/1"
+    return f"{prefix}help {category.lower()} | page {page}/{total_pages}"
+
+def layout(header_text: str, body_text: str, footer_text: str) -> str:
+    """Return legacy 3-block layout."""
+    return "\n".join([
+        _block(_raw_header(header_text)),
+        _block(body_text),
+        _block(f"{DARK}{footer_text}{RESET}"),
+    ])
+
+def paginate(content: list, page: int, per_page: int = 10):
+    """Paginate list content, returning (items_for_page, total_pages)."""
+    total_pages = (len(content) + per_page - 1) // per_page if content else 1
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * per_page
+    end = start + per_page
+    return content[start:end], total_pages
 
