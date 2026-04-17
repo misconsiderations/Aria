@@ -99,7 +99,7 @@ class _QuietWSGIRequestHandler(WSGIRequestHandler):
 
 
 class WebPanel:
-    def __init__(self, api=None, bot=None, host="127.0.0.1", port=8080, instance_id="main", owner_id=None):
+    def __init__(self, api=None, bot=None, host="0.0.0.0", port=8080, instance_id="main", owner_id=None):
         self.api = api
         self.bot = bot
         self.host = host
@@ -3179,8 +3179,12 @@ class WebPanel:
             return jsonify({"ok": True, "messages": [], "resolved": False})
 
     def run(self) -> None:
+        # Always use the threaded WSGI server for robustness
         try:
-            self.app.run(host=self.host, port=self.port, debug=False, use_reloader=False)
+            self._server = make_server(self.host, self.port, self.app, request_handler=_QuietWSGIRequestHandler)
+            self._thread = threading.Thread(target=self._server.serve_forever)
+            self._thread.daemon = True
+            self._thread.start()
         except Exception as e:
             self._last_start_error = str(e)
 
