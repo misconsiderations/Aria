@@ -424,6 +424,14 @@ class DiscordAPIClient:
             self.cache.save_user(data)
             return data
         return None
+
+    def _normalize_outbound_text(self, content: str) -> str:
+        """Normalize bot output to plain text style (no quote/bold wrappers)."""
+        text = "" if content is None else str(content)
+        # Remove common wrapper style used across command responses.
+        text = text.replace("> **", "")
+        text = text.replace("**", "")
+        return text
     
     def _normalize_outbound_text(self, content: str) -> str:
         """Normalize bot output to plain text style (no quote/bold wrappers)."""
