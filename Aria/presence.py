@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 import time
-from utils.general import format_message, quote_block
+from utils.general import is_valid_emoji, format_message, quote_block
 import traceback
 import logging
 import asyncio
@@ -114,9 +114,50 @@ class Presence(commands.Cog):
             logger.error(f"Error registering external asset: {e}", exc_info=True)
         return None
     async def rotate_presence(self):
-        """Stub for rotating presence. Implement your logic here."""
-        logger.info("rotate_presence called (stub)")
-        await asyncio.sleep(60)
+        """
+        Rotates through different presence settings at specified intervals.
+        Use periods (.) to separate values in name/state/details/custom_status.
+        """
+        try:
+            name_index = state_index = details_index = custom_status_index = 0
+
+            config = self.load_config()
+            presence = config.get('presence', {})
+            rotation_settings = presence.get('rotation', {})
+            custom_status = presence.get('custom_status', {})
+            custom_status_text = custom_status.get('text', '')
+            emoji_data = custom_status.get('emoji', {})
+
+            name_parts = presence.get('name', '').split('.') if '.' in presence.get('name', '') else [presence.get('name', '')]
+            state_parts = presence.get('state', '').split('.') if '.' in presence.get('state', '') else [presence.get('state', '')]
+            details_parts = presence.get('details', '').split('.') if '.' in presence.get('details', '') else [presence.get('details', '')]
+            custom_status_parts = custom_status_text.split('.') if '.' in custom_status_text else [custom_status_text]
+            rotation_delay = rotation_settings.get('delay', 60)
+
+            while rotation_settings.get('enabled', False):
+                current_name = name_parts[name_index % len(name_parts)] if len(name_parts) > 1 else name_parts[0]
+                current_state = state_parts[state_index % len(state_parts)] if len(state_parts) > 1 else state_parts[0]
+                current_details = details_parts[details_index % len(details_parts)] if len(details_parts) > 1 else details_parts[0]
+                current_custom = custom_status_parts[custom_status_index % len(custom_status_parts)] if len(custom_status_parts) > 1 else custom_status_parts[0]
+
+                custom_status_data = {'text': current_custom, 'emoji': emoji_data if emoji_data else None}
+                await self.update_presence(name=current_name, state=current_state, details=current_details, custom_status=custom_status_data)
+
+                if len(name_parts) > 1: name_index += 1
+                if len(state_parts) > 1: state_index += 1
+                if len(details_parts) > 1: details_index += 1
+                if len(custom_status_parts) > 1: custom_status_index += 1
+
+                await asyncio.sleep(rotation_delay)
+
+                if (name_index + state_index + details_index) % 10 == 0:
+                    config = self.load_config()
+                    rotation_settings = config.get('presence', {}).get('rotation', {})
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error("Error in rotate_presence: %s", e)
 
     def is_discord_url_expired(self, url: str, offset_hours: int = 3) -> bool:
         """Check if a Discord CDN/media URL is expired based on ex= hex timestamp."""
@@ -632,6 +673,241 @@ class Presence(commands.Cog):
             format_message(msg),
             delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else None
         )
+
+    @commands.command(aliases=['rt'])
+    async def rotation(self, ctx, setting=None, delay: int = None):
+        """Presence rotation settings
+        rotation on/off - Enable or disable rotation
+        rotation delay <seconds> - Set rotation interval (min 5s)
+        rotation - Show current status"""
+        try: await ctx.message.delete()
+        except: pass
+
+        config = self.load_config()
+        if 'presence' not in config:
+            config['presence'] = {}
+        if 'rotation' not in config['presence']:
+            config['presence']['rotation'] = {'enabled': False, 'delay': 60}
+
+        if not config['presence'].get('enabled', False):
+            await ctx.send(format_message("Presence must be enabled first"),
+                delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else None)
+            return
+
+        if setting in ['on', 'off']:
+            config['presence']['rotation']['enabled'] = setting == 'on'
+            await self.save_config(config)
+            if setting == 'on':
+                if self.rotation_task and not self.rotation_task.done():
+                    self.rotation_task.cancel()
+                self.rotation_task = asyncio.create_task(self.rotate_presence())
+            elif setting == 'off' and self.rotation_task and not self.rotation_task.done():
+                self.rotation_task.cancel()
+                self.rotation_task = None
+                await self.update_presence()
+            msg = f"Presence rotation {'enabled' if setting == 'on' else 'disabled'}"
+
+        elif setting == 'delay' and delay is not None:
+            if delay < 5:
+                await ctx.send(format_message("Delay must be at least 5 seconds"),
+                    delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else None)
+                return
+            config['presence']['rotation']['delay'] = delay
+            await self.save_config(config)
+            if config['presence']['rotation']['enabled']:
+                if self.rotation_task and not self.rotation_task.done():
+                    self.rotation_task.cancel()
+                self.rotation_task = asyncio.create_task(self.rotate_presence())
+            msg = f"Rotation delay set to {delay} seconds"
+
+        else:
+            rotation = config['presence'].get('rotation', {})
+            msg = f"Rotation is {'enabled' if rotation.get('enabled') else 'disabled'} with {rotation.get('delay', 60)}s delay"
+
+        await ctx.send(format_message(msg),
+            delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else None)
+
+    @commands.command()
+    async def dnd(self, ctx):
+        """Set status to Do Not Disturb"""
+        try: await ctx.message.delete()
+        except: pass
+        await self.update_presence(status=discord.Status.dnd)
+        await ctx.send(format_message("Status set to Do Not Disturb"),
+            delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else None)
+
+    @commands.command()
+    async def idle(self, ctx):
+        """Set status to Idle"""
+        try: await ctx.message.delete()
+        except: pass
+        await self.update_presence(status=discord.Status.idle)
+        await ctx.send(format_message("Status set to Idle"),
+            delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else None)
+
+    @commands.command()
+    async def online(self, ctx):
+        """Set status to Online"""
+        try: await ctx.message.delete()
+        except: pass
+        await self.update_presence(status=discord.Status.online)
+        await ctx.send(format_message("Status set to Online"),
+            delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else None)
+
+    @commands.command()
+    async def invisible(self, ctx):
+        """Set status to Invisible"""
+        try: await ctx.message.delete()
+        except: pass
+        await self.update_presence(status=discord.Status.invisible)
+        await ctx.send(format_message("Status set to Invisible"),
+            delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else None)
+
+    @commands.command(aliases=['st', 'setstatus'])
+    async def state(self, ctx, status_type: str = None):
+        """Set online state: online / idle / dnd / invisible"""
+        try: await ctx.message.delete()
+        except: pass
+
+        valid_statuses = ['online', 'idle', 'dnd', 'invisible']
+        if not status_type or status_type.lower() not in valid_statuses:
+            await ctx.send(format_message(f"Invalid status. Use: {', '.join(valid_statuses)}"),
+                delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else None)
+            return
+
+        config = self.load_config()
+        if 'presence' not in config:
+            config['presence'] = {}
+        config['presence']['status'] = status_type.lower()
+        await self.save_config(config)
+
+        rotation_settings = config['presence'].get('rotation', {})
+        if rotation_settings.get('enabled', False):
+            if self.rotation_task and not self.rotation_task.done():
+                self.rotation_task.cancel()
+            self.rotation_task = asyncio.create_task(self.rotate_presence())
+        else:
+            await self.update_presence()
+
+        await ctx.send(format_message(f"Status set to: {status_type}"),
+            delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else None)
+
+    @commands.command(aliases=['setbrowser'])
+    async def browser(self, ctx, *, browser_type: str = None):
+        """Change Discord client type
+        browser android / desktop / web / embedded"""
+        try: await ctx.message.delete()
+        except: pass
+
+        if not browser_type:
+            await ctx.send(format_message("Specify a browser type: android, embedded, desktop, web"),
+                delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else 5)
+            return
+
+        browser_map = {
+            'android': 'Discord Android',
+            'embedded': 'Discord Embedded',
+            'desktop': 'Discord Client',
+            'web': 'Discord Web',
+        }
+        browser_type_lower = browser_type.lower()
+        if browser_type_lower not in browser_map:
+            valid_types = ', '.join(f'`{k}`' for k in browser_map)
+            await ctx.send(f"Invalid browser type: `{browser_type}`\nValid types: {valid_types}",
+                delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else 5)
+            return
+
+        browser_value = browser_map[browser_type_lower]
+        if browser_value == getattr(self.bot, 'current_browser', None):
+            await ctx.send(f"Already using browser property: `{browser_value}`",
+                delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else 5)
+            return
+
+        temp_msg = await ctx.send(f"\U0001f504 Changing browser property to: `{browser_value}`...", delete_after=15)
+        self.bot.current_browser = browser_value
+        try:
+            current_status = self.bot.status
+            current_activities = self.bot.activities
+            await temp_msg.edit(content=f"\U0001f50c Disconnecting to apply browser change to `{browser_value}`...")
+            if self.bot.ws and self.bot.ws.open:
+                await self.bot.ws.close(code=1000, reason=f"Browser switch -> {browser_value}")
+            await asyncio.sleep(2)
+            await temp_msg.edit(content=f"\u23f3 Waiting for reconnection with `{browser_value}` browser property...")
+            await asyncio.sleep(3)
+            try:
+                await self.bot.change_presence(status=current_status, activities=current_activities)
+            except Exception:
+                pass
+            await temp_msg.edit(content=f"\u2705 Browser property changed to: `{browser_value}`")
+        except Exception as e:
+            logger.error(f"Error during browser property change: {e}")
+            await temp_msg.edit(content=f"\u26a0\ufe0f Error changing browser property: `{str(e)[:100]}`")
+
+    @commands.command(aliases=['cs', 'customstatus'])
+    async def status(self, ctx, *, content: str = None):
+        """Set custom status
+        status hello world - Set status text
+        status \U0001f4bb Working - With emoji
+        status clear - Remove status"""
+        try: await ctx.message.delete()
+        except: pass
+
+        config = self.load_config()
+        if 'presence' not in config:
+            config['presence'] = {}
+
+        if not content or content.lower() == 'clear':
+            config['presence']['custom_status'] = {}
+            await self.save_config(config)
+            rotation_settings = config['presence'].get('rotation', {})
+            if rotation_settings.get('enabled', False):
+                if self.rotation_task and not self.rotation_task.done():
+                    self.rotation_task.cancel()
+                self.rotation_task = asyncio.create_task(self.rotate_presence())
+            elif config['presence'].get('enabled', False):
+                await self.update_presence()
+            await ctx.send(format_message("Custom status cleared"),
+                delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else None)
+            return
+
+        parts = content.split(maxsplit=1)
+        first_part = parts[0]
+        text = content
+        emoji = None
+
+        if 'custom_status' not in config['presence']:
+            config['presence']['custom_status'] = {}
+
+        if first_part.startswith(('<:', '<a:')):
+            try:
+                emoji_parts = first_part.split(':')
+                emoji = discord.PartialEmoji(name=emoji_parts[1], id=int(emoji_parts[2].strip('>')))
+                text = parts[1] if len(parts) > 1 else ''
+                config['presence']['custom_status'].update({'text': text, 'emoji': {'name': emoji.name, 'id': str(emoji.id)}})
+            except Exception:
+                config['presence']['custom_status'].update({'text': content, 'emoji': None})
+        elif len(first_part) == 1 and not first_part.isalnum() and is_valid_emoji(first_part):
+            emoji = discord.PartialEmoji(name=first_part)
+            text = parts[1] if len(parts) > 1 else ''
+            config['presence']['custom_status'].update({'text': text, 'emoji': {'name': emoji.name, 'id': None}})
+        else:
+            config['presence']['custom_status'].update({'text': content, 'emoji': None})
+
+        await self.save_config(config)
+
+        rotation_settings = config['presence'].get('rotation', {})
+        if rotation_settings.get('enabled', False):
+            if self.rotation_task and not self.rotation_task.done():
+                self.rotation_task.cancel()
+            self.rotation_task = asyncio.create_task(self.rotate_presence())
+        elif config['presence'].get('enabled', False):
+            await self.update_presence()
+
+        status_display = []
+        if emoji: status_display.append(first_part)
+        if text: status_display.append(text)
+        await ctx.send(format_message(f"Custom status set to: {' '.join(status_display)}"),
+            delete_after=self.bot.config_manager.auto_delete.delay if self.bot.config_manager.auto_delete.enabled else None)
 
     async def cog_unload(self):
         """Cleanup when cog is unloaded"""

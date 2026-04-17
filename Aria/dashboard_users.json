@@ -3,7 +3,7 @@
     "password_hash": "4e9036ea221b6acee54c7bf8b9a12f704ce4dad814ea5e998ff2921aaf86bae6",
     "instance_id": "main",
     "username": "Ren",
-    "role": "user",
+    "role": "admin",
     "created_at": 1776388166,
     "last_login_at": 1776388193,
     "last_seen_at": 1776389670,
@@ -314,7 +314,7 @@
   },
   "297588166653902849": {
     "password_hash": "4e9036ea221b6acee54c7bf8b9a12f704ce4dad814ea5e998ff2921aaf86bae6",
-    "instance_id": "default_instance",
+    "instance_id": "main",
     "username": "admin",
     "role": "admin",
     "created_at": 1776155963

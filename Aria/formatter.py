@@ -73,3 +73,29 @@ def error(msg: str) -> str:
 def warning(msg: str) -> str:
     """Format a warning message."""
     return f"{YELLOW}⚠ {msg}{RESET}"
+
+def _compose(*sections) -> str:
+    """Compose multiple sections into a single code block."""
+    combined = "\n".join(str(s) for s in sections if s)
+    return _block(combined)
+
+def status_box(title: str, details: dict) -> str:
+    """Format a status/configuration box."""
+    lines = [f"{BOLD}{title}{RESET}"]
+    for key, value in details.items():
+        lines.append(f"{CYAN}{key:<15}{DARK}| {RESET}{WHITE}{str(value)}{RESET}")
+    return _block("\n".join(lines))
+
+def command_page(title: str, lines: list, footer: str = "") -> str:
+    """Format a command page with title, command list, and optional footer."""
+    result_lines = [header(title)]
+    for name, desc in lines:
+        result_lines.append(f"{CYAN}{name:<20}{DARK}| {RESET}{WHITE}{desc}{RESET}")
+    if footer:
+        result_lines.append(f"\n{DARK}{footer}{RESET}")
+    return _block("\n".join(result_lines))
+
+def footer_page(prefix: str, category: str, page: int, total_pages: int) -> str:
+    """Format pagination footer for command pages."""
+    return f"Page {page}/{total_pages} • Category: {category} • Use {prefix}help for more"
+

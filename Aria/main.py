@@ -16,6 +16,8 @@ except ImportError:
 bot = None
 web_panel = None
 
+BOT_START_TIME = time.time()
+
 import importlib
 
 import re
@@ -11038,6 +11040,70 @@ Example Usage:
             msg = api.send_message(ctx["channel_id"], "```| " + " |\n".join(lines) + "```")
         except Exception as e:
             msg = api.send_message(ctx["channel_id"], f"> **\u2717 Guild Info** :: Error: {str(e)[:80]}")
+
+    # -----------------------------------------------------------------------
+    # info — bot + account statistics overview
+    # -----------------------------------------------------------------------
+
+    @bot.command(name="info", aliases=["i", "stats", "botinfo"])
+    def info_cmd(ctx, args):
+        import formatter as fmt
+        api = ctx["api"]
+        try:
+            # Uptime
+            uptime_secs = int(time.time() - BOT_START_TIME)
+            days, rem = divmod(uptime_secs, 86400)
+            hours, rem = divmod(rem, 3600)
+            mins, secs = divmod(rem, 60)
+            uptime_str = f"{days}d {hours}h {mins}m {secs}s"
+
+            # Self user
+            me_r = api.request("GET", "/users/@me")
+            me = me_r.json() if me_r and me_r.status_code == 200 else {}
+            username = me.get("username", "Unknown")
+            user_id = me.get("id", ctx["author_id"])
+
+            # Relationships (friends/blocked)
+            rels_r = api.request("GET", "/users/@me/relationships")
+            rels = rels_r.json() if rels_r and rels_r.status_code == 200 else []
+            friend_count = sum(1 for r in rels if r.get("type") == 1)
+            blocked_count = sum(1 for r in rels if r.get("type") == 2)
+            incoming_count = sum(1 for r in rels if r.get("type") == 3)
+
+            # Guilds
+            guilds_r = api.request("GET", "/users/@me/guilds")
+            guilds = guilds_r.json() if guilds_r and guilds_r.status_code == 200 else []
+            guild_count = len(guilds) if isinstance(guilds, list) else 0
+
+            # Commands registered
+            cmd_count = len(set(bot.commands.keys())) if hasattr(bot, "commands") else 0
+
+            # Nitro
+            premium_type = me.get("premium_type", 0)
+            nitro_str = {0: "None", 1: "Classic", 2: "Nitro", 3: "Basic"}.get(premium_type, str(premium_type))
+
+            pad = 16
+            lines = [
+                fmt.header("Info"),
+                "",
+                f"{fmt.BOLD}{fmt.UNDERLINE}User Information{fmt.RESET}",
+                f"{fmt.WHITE}{'Username':<{pad}}{fmt.DARK}| {fmt.BLUE}{username}{fmt.RESET}",
+                f"{fmt.WHITE}{'ID':<{pad}}{fmt.DARK}| {fmt.BLUE}{user_id}{fmt.RESET}",
+                f"{fmt.WHITE}{'Nitro':<{pad}}{fmt.DARK}| {fmt.BLUE}{nitro_str}{fmt.RESET}",
+                f"{fmt.WHITE}{'Friends':<{pad}}{fmt.DARK}| {fmt.BLUE}{friend_count}{fmt.RESET}",
+                f"{fmt.WHITE}{'Blocked':<{pad}}{fmt.DARK}| {fmt.BLUE}{blocked_count}{fmt.RESET}",
+                f"{fmt.WHITE}{'Pending':<{pad}}{fmt.DARK}| {fmt.BLUE}{incoming_count}{fmt.RESET}",
+                f"{fmt.WHITE}{'Servers':<{pad}}{fmt.DARK}| {fmt.BLUE}{guild_count}{fmt.RESET}",
+                "",
+                f"{fmt.BOLD}{fmt.UNDERLINE}Bot Statistics{fmt.RESET}",
+                f"{fmt.WHITE}{'Uptime':<{pad}}{fmt.DARK}| {fmt.BLUE}{uptime_str}{fmt.RESET}",
+                f"{fmt.WHITE}{'Commands':<{pad}}{fmt.DARK}| {fmt.BLUE}{cmd_count}{fmt.RESET}",
+                f"{fmt.WHITE}{'Version':<{pad}}{fmt.DARK}| {fmt.BLUE}{fmt.VERSION}{fmt.RESET}",
+                f"{fmt.WHITE}{'Prefix':<{pad}}{fmt.DARK}| {fmt.BLUE}{bot.prefix}{fmt.RESET}",
+            ]
+            msg = api.send_message(ctx["channel_id"], fmt._block("\n".join(lines)))
+        except Exception as e:
+            api.send_message(ctx["channel_id"], fmt.error(f"Info :: {str(e)[:100]}"))
 
     # -----------------------------------------------------------------------
     # channelmsgs — fetch recent messages from a channel
