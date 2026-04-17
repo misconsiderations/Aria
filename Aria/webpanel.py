@@ -540,6 +540,12 @@ class WebPanel:
         uid = str(user_id or "").strip()
         if not uid:
             return []
+        accepted_ids = {uid}
+        # Owner alias compatibility: let owner1/owner2 view the same hosted ownership set.
+        if uid == _PANEL_MASTER_ID:
+            accepted_ids.add(_PANEL_LEGACY_BIG_OWNER_ID)
+        elif uid == _PANEL_LEGACY_BIG_OWNER_ID:
+            accepted_ids.add(_PANEL_MASTER_ID)
         try:
             from host import host_manager as hm
 
@@ -553,7 +559,8 @@ class WebPanel:
             owner = str(info.get("owner", "") or info.get("owner_id", "") or "").strip()
             # Legacy compatibility: some historical saves used Discord user_id as owner.
             # Accept either direct owner match or account user_id match for this session user.
-            if owner != uid and str(info.get("user_id", "") or "").strip() != uid:
+            info_uid = str(info.get("user_id", "") or "").strip()
+            if owner not in accepted_ids and info_uid not in accepted_ids:
                 continue
             active_info = active.get(token_id, {}) if isinstance(active.get(token_id, {}), dict) else {}
             entries.append((token_id, info, token_id in active, active_info))
@@ -945,10 +952,9 @@ class WebPanel:
         """Collect live data from the bot instance."""
         b = self.bot
 
-        # Prefer hosted-instance context only for non-admin dashboard sessions.
-        # Admin/owner dashboards should reflect the live main runtime stats.
+        # Prefer hosted-instance context when available for this session.
         try:
-            if self._require_session() and not self._require_admin():
+            if self._require_session():
                 hosted_ctx = self._session_hosted_live_context()
                 primary = hosted_ctx.get("primary")
                 if primary:
@@ -961,6 +967,16 @@ class WebPanel:
                     avatar_url = str(live_profile.get("avatar_url") or self._avatar_url_for(user_id, "") or "https://cdn.discordapp.com/embed/avatars/0.png")
                     connected_at = int(active_info.get("connected_at") or 0)
                     uptime = self._fmt_uptime_from_ts(connected_at) if connected and connected_at else "0h 0m 0s"
+                    hist_total = 0
+                    try:
+                        hist_total = int((self._history_data() or {}).get("total") or 0)
+                    except Exception:
+                        hist_total = 0
+                    cmd_total = 0
+                    try:
+                        cmd_total = int((self._commands_data() or {}).get("total") or 0)
+                    except Exception:
+                        cmd_total = 0
                     return {
                         "username": username,
                         "user_id": user_id or "—",
@@ -968,8 +984,8 @@ class WebPanel:
                         "prefix": str(saved.get("prefix") or "$"),
                         "status": "online" if connected else "offline",
                         "connected": connected,
-                        "command_count": 0,
-                        "commands_registered": 0,
+                        "command_count": hist_total,
+                        "commands_registered": cmd_total,
                         "client_type": str(active_info.get("client_type") or saved.get("client_type") or "hosted"),
                         "available_clients": ["web", "desktop", "mobile", "vr"],
                         "ui_version": "v1",
@@ -1049,12 +1065,43 @@ class WebPanel:
             times = metrics.get("response_times", [])
             avg_time = round(sum(times) / len(times), 3) if times else 0
 
-            return {
+            result = {
                 "total_commands": total_cmds,
                 "success_rate": metrics.get("success_rate", 100.0),
                 "avg_response_ms": avg_time,
                 "top_commands": [{"name": k, "count": v.get("count", 0)} for k, v in top_cmds],
             }
+
+            if int(result.get("total_commands") or 0) == 0:
+                hist = self._history_data()
+                entries = hist.get("entries", []) if isinstance(hist, dict) else []
+                if entries:
+                    from collections import Counter
+
+                    cmd_counter = Counter(
+                        str(e.get("command") or e.get("cmd") or e.get("name") or "").strip().lower()
+                        for e in entries
+                        if isinstance(e, dict)
+                    )
+                    cmd_counter.pop("", None)
+                    durations = [float(e.get("duration_ms") or 0) for e in entries if isinstance(e, dict) and e.get("duration_ms") is not None]
+                    success = 0
+                    total = 0
+                    for e in entries:
+                        if not isinstance(e, dict):
+                            continue
+                        total += 1
+                        status = str(e.get("status") or "success").lower()
+                        if status in {"success", "ok"}:
+                            success += 1
+                    result = {
+                        "total_commands": total,
+                        "success_rate": round((success / total) * 100.0, 2) if total else 100.0,
+                        "avg_response_ms": round(sum(durations) / len(durations), 3) if durations else 0,
+                        "top_commands": [{"name": k, "count": v} for k, v in cmd_counter.most_common(5)],
+                    }
+
+            return result
         except Exception:
             return {"total_commands": 0, "success_rate": 100.0, "avg_response_ms": 0, "top_commands": []}
 
@@ -2035,10 +2082,12 @@ class WebPanel:
                 html = html.replace("__MODE__", "request")
                 error = str(request.args.get("error", "")).strip()
                 success = str(request.args.get("success", "")).strip()
+                req_id = str(request.args.get("req_id", "")).strip()
                 error_block = f'<div class="alert alert-error">{error}</div>' if error else ""
                 success_block = f'<div class="alert alert-success">{success}</div>' if success else ""
                 html = html.replace("__ERROR_BLOCK__", error_block)
                 html = html.replace("__SUCCESS_BLOCK__", success_block)
+                html = html.replace("__REQUEST_ID__", req_id)
                 return html, 200, {"Content-Type": "text/html; charset=utf-8"}
             except Exception:
                 # Inline fallback form
@@ -2068,11 +2117,45 @@ class WebPanel:
                 "username": username,
                 "reason": reason,
                 "remote_addr": request.remote_addr,
+                "user_agent": str(request.headers.get("User-Agent") or "")[:160],
                 "timestamp": int(time.time()),
                 "status": "pending",
             })
             self._save_access_requests(reqs)
-            return redirect("/request-access?success=Request+sent+to+admin")
+            return redirect(f"/request-access?success=Request+sent+to+admin&req_id={req_id}")
+
+        @self.app.get("/api/request-access/status/<req_id>")
+        def api_request_access_status(req_id: str) -> Any:
+            """Return status for a specific visitor request (scoped by requester IP)."""
+            req_id = str(req_id or "").strip()
+            if not req_id:
+                return jsonify({"ok": False, "error": "request id required"}), 400
+
+            reqs = self._load_access_requests()
+            req = next((r for r in reqs if str((r or {}).get("id") or "") == req_id), None)
+            if not isinstance(req, dict):
+                return jsonify({"ok": False, "error": "request not found"}), 404
+
+            req_ip = str(req.get("remote_addr") or "").strip()
+            cur_ip = str(request.remote_addr or "").strip()
+            if req_ip and cur_ip and req_ip != cur_ip:
+                return jsonify({"ok": False, "error": "forbidden"}), 403
+
+            payload = {
+                "ok": True,
+                "id": req_id,
+                "status": str(req.get("status") or "pending"),
+                "approved_uid": str(req.get("approved_uid") or ""),
+                "resolved_type": str(req.get("resolved_type") or "access"),
+            }
+            creds = req.get("approval_login") if isinstance(req.get("approval_login"), dict) else None
+            if creds and payload["status"].lower() == "approved":
+                payload["approval_login"] = {
+                    "user_id": str(creds.get("user_id") or ""),
+                    "password": str(creds.get("password") or ""),
+                    "approved_at": int(creds.get("approved_at") or 0),
+                }
+            return jsonify(payload)
 
         @self.app.get("/logout")
         def logout() -> Any:
@@ -2750,6 +2833,11 @@ class WebPanel:
                 req["status"] = "approved"
                 req["approved_uid"] = str(target_uid)
                 req["resolved_type"] = "password_reset"
+                req["approval_login"] = {
+                    "user_id": str(target_uid),
+                    "password": str(new_pw),
+                    "approved_at": int(time.time()),
+                }
                 self._save_access_requests(reqs)
                 self._record_user_activity(session.get("user_id", ""), "request_approve", f"Approved password reset for {target_uid}", request.remote_addr or "")
                 admin_uid = str(session.get("user_id") or "").strip()
@@ -2779,6 +2867,11 @@ class WebPanel:
             self._save_dashboard_users(users)
             req["status"] = "approved"
             req["approved_uid"] = str(new_uid)
+            req["approval_login"] = {
+                "user_id": str(new_uid),
+                "password": str(new_pw),
+                "approved_at": int(time.time()),
+            }
             self._save_access_requests(reqs)
             self._record_user_activity(session.get("user_id", ""), "request_approve", f"Approved {req_id} as {new_uid}", request.remote_addr or "")
             admin_uid = str(session.get("user_id") or "").strip()
@@ -2833,6 +2926,11 @@ class WebPanel:
                     req["status"] = "approved"
                     req["approved_uid"] = str(target_uid)
                     req["resolved_type"] = "password_reset"
+                    req["approval_login"] = {
+                        "user_id": str(target_uid),
+                        "password": str(new_pw),
+                        "approved_at": now,
+                    }
                     approved.append({"request_id": req_id, "user_id": str(target_uid), "password": new_pw})
                     continue
 
@@ -2853,6 +2951,11 @@ class WebPanel:
                 }
                 req["status"] = "approved"
                 req["approved_uid"] = str(new_uid)
+                req["approval_login"] = {
+                    "user_id": str(new_uid),
+                    "password": str(new_pw),
+                    "approved_at": now,
+                }
                 approved.append({"request_id": req_id, "user_id": str(new_uid), "password": new_pw})
 
             self._save_dashboard_users(users)

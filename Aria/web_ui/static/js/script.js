@@ -205,25 +205,11 @@ async function loadUserProfile() {
     if (tbUser) tbUser.textContent = data.username || '—';
     
     const tbAvatar = document.getElementById('topbarAvatar');
-    if (tbAvatar) {
-        if (data.avatar_url && data.avatar_url.trim()) {
-            tbAvatar.src = data.avatar_url;
-        } else {
-            tbAvatar.src = defaultAvatarUrl(data.user_id);
-        }
-        tbAvatar.onerror = () => { tbAvatar.src = defaultAvatarUrl(data.user_id); };
-    }
+    setAvatarImage(tbAvatar, data.avatar_url, data.user_id, { allowFallback: true });
     
     // Sync hero avatar
     const heroAvatar = document.getElementById('heroAvatar');
-    if (heroAvatar) {
-        if (data.avatar_url && data.avatar_url.trim()) {
-            heroAvatar.src = data.avatar_url;
-        } else {
-            heroAvatar.src = defaultAvatarUrl(data.user_id);
-        }
-        heroAvatar.onerror = () => { heroAvatar.src = defaultAvatarUrl(data.user_id); };
-    }
+    setAvatarImage(heroAvatar, data.avatar_url, data.user_id, { allowFallback: true });
 }
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -356,6 +342,30 @@ function defaultAvatarUrl(userId) {
     return `https://cdn.discordapp.com/embed/avatars/${slot}.png`;
 }
 
+function isDefaultishAvatarSrc(src) {
+    const s = String(src || '');
+    if (!s) return true;
+    return s.includes('/static/images/aria-favicon') || s.includes('/embed/avatars/');
+}
+
+function setAvatarImage(el, avatarUrl, userId, opts = {}) {
+    if (!el) return;
+    const allowFallback = opts.allowFallback !== false;
+    const next = String(avatarUrl || '').trim();
+    const fallback = defaultAvatarUrl(userId);
+
+    // Do not overwrite a valid custom avatar with fallback during async races.
+    if (next) {
+        if (el.src !== next) el.src = next;
+    } else if (allowFallback && isDefaultishAvatarSrc(el.src)) {
+        el.src = fallback;
+    }
+
+    el.onerror = () => {
+        if (el.src !== fallback) el.src = fallback;
+    };
+}
+
 function fmtTs(ts) {
     const n = Number(ts || 0);
     if (!n) return '—';
@@ -428,14 +438,7 @@ async function loadOverview() {
 
     // ── Topbar avatar/username sync ──────────────────────────────────────────
     const tbAvatar = document.getElementById('topbarAvatar');
-    if (tbAvatar) {
-        if (d.avatar_url && d.avatar_url.trim()) {
-            tbAvatar.src = d.avatar_url;
-        } else {
-            tbAvatar.src = defaultAvatarUrl(d.user_id);
-        }
-        tbAvatar.onerror = () => { tbAvatar.src = defaultAvatarUrl(d.user_id); };
-    }
+    setAvatarImage(tbAvatar, d.avatar_url, d.user_id, { allowFallback: false });
     const tbUser = document.getElementById('topbarUsername');
     if (tbUser) {
         tbUser.textContent = d.username || '—';
@@ -443,14 +446,7 @@ async function loadOverview() {
 
     // ── Hero avatar ──────────────────────────────────────────────────────────
     const heroAvatar = document.getElementById('heroAvatar');
-    if (heroAvatar) {
-        if (d.avatar_url && d.avatar_url.trim()) {
-            heroAvatar.src = d.avatar_url;
-        } else {
-            heroAvatar.src = defaultAvatarUrl(d.user_id);
-        }
-        heroAvatar.onerror = () => { heroAvatar.src = defaultAvatarUrl(d.user_id); };
-    }
+    setAvatarImage(heroAvatar, d.avatar_url, d.user_id, { allowFallback: false });
 
     await loadClientSwitcher(d);
     updateSparkline();
@@ -1538,11 +1534,19 @@ function inferRpcAppIdFromActivity(name, details = '', state = '') {
     return inferRpcAppIdFromName(blob);
 }
 
-function resolveRpcPreviewImage(rawValue) {
+function resolveRpcPreviewImage(rawValue, applicationId = '') {
     const value = String(rawValue || '').trim();
     if (!value) return '';
 
     if (value.startsWith('http://') || value.startsWith('https://')) return value;
+
+    const appId = String(applicationId || '').trim();
+
+    // Common Discord RPC image key format (e.g. "large", "cover_art")
+    // requires app id to resolve to app-assets CDN URL.
+    if (!value.includes('/') && appId) {
+        return `https://cdn.discordapp.com/app-assets/${appId}/${encodeURIComponent(value)}.png?size=256`;
+    }
 
     const toCdnPath = (path) => {
         const clean = String(path || '').replace(/^\/+/, '');
@@ -1579,6 +1583,12 @@ function syncRpcAppIdControls() {
     if (customRow) customRow.style.display = getRpcAppIdMode() === 'custom' ? '' : 'none';
 }
 
+function syncRpcStreamingControls() {
+    const typeVal = parseInt(document.getElementById('rpcType')?.value, 10) || 0;
+    const row = document.getElementById('rpcStreamUrlRow');
+    if (row) row.style.display = typeVal === 1 ? '' : 'none';
+}
+
 function readRpcDraftFromInputs() {
     const val = id => (document.getElementById(id)?.value || '').trim();
     return {
@@ -1586,6 +1596,7 @@ function readRpcDraftFromInputs() {
         name: val('rpcNameInput'),
         details: val('rpcDetailsInput'),
         state: val('rpcStateInput'),
+        streamUrl: val('rpcStreamUrlInput'),
         largeImage: val('rpcLargeImageInput'),
         smallImage: val('rpcSmallImageInput'),
         button1Label: val('rpcButton1Label'),
@@ -1613,6 +1624,7 @@ function applyRpcDraftToInputs(draft) {
     setVal('rpcNameInput', draft.name || '');
     setVal('rpcDetailsInput', draft.details || '');
     setVal('rpcStateInput', draft.state || '');
+    setVal('rpcStreamUrlInput', draft.streamUrl || '');
     setVal('rpcLargeImageInput', draft.largeImage || '');
     setVal('rpcSmallImageInput', draft.smallImage || '');
     setVal('rpcButton1Label', draft.button1Label || '');
@@ -1622,6 +1634,7 @@ function applyRpcDraftToInputs(draft) {
     setVal('rpcAppIdMode', draft.appIdMode === 'custom' ? 'custom' : 'auto');
     setVal('rpcCustomAppIdInput', draft.customAppId || '');
     syncRpcAppIdControls();
+    syncRpcStreamingControls();
     return true;
 }
 
@@ -1656,7 +1669,11 @@ async function loadRpc() {
     const botStatusDot = document.getElementById('rpcDiscordStatusDot');
     const cachedBot = window._botDataCache || {};
     if (botUsername)  botUsername.textContent          = cachedBot.username  || 'Loading…';
-    if (botAvatarEl && cachedBot.avatar_url) botAvatarEl.src = cachedBot.avatar_url;
+    if (botAvatarEl) {
+        const topbarSrc = document.getElementById('topbarAvatar')?.src || '';
+        const rpcAvatar = String(cachedBot.avatar_url || topbarSrc || '').trim();
+        setAvatarImage(botAvatarEl, rpcAvatar, cachedBot.user_id, { allowFallback: true });
+    }
     if (botStatusDot) {
         botStatusDot.className = 'discord-user-dot';
         const s = cachedBot.status || 'online';
@@ -1678,9 +1695,9 @@ async function loadRpc() {
     // Large art
     const artEl = document.getElementById('rpcDiscordArt');
     if (artEl) {
-        const li = resolveRpcPreviewImage(assets.large_image || '');
+        const li = resolveRpcPreviewImage(assets.large_image || '', act.application_id || getEffectiveRpcAppId());
         if (active && li) {
-            artEl.style.backgroundImage  = `url(${JSON.stringify(li)})`;
+            artEl.style.backgroundImage  = `url("${String(li).replace(/"/g, '%22')}")`;
             artEl.style.backgroundSize   = 'cover';
             artEl.style.backgroundColor = 'transparent';
         } else {
@@ -1692,10 +1709,10 @@ async function loadRpc() {
     // Small art
     const smallArtEl = document.getElementById('rpcDiscordSmallArt');
     if (smallArtEl) {
-        const si = resolveRpcPreviewImage(assets.small_image || '');
+        const si = resolveRpcPreviewImage(assets.small_image || '', act.application_id || getEffectiveRpcAppId());
         if (active && si) {
             smallArtEl.classList.add('visible');
-            smallArtEl.style.backgroundImage = `url(${JSON.stringify(si)})`;
+            smallArtEl.style.backgroundImage = `url("${String(si).replace(/"/g, '%22')}")`;
             smallArtEl.style.backgroundSize  = 'cover';
             smallArtEl.style.backgroundColor = 'transparent';
         } else {
@@ -1753,6 +1770,7 @@ async function loadRpc() {
             setVal('rpcNameInput',       act.name    || '');
             setVal('rpcDetailsInput',    act.details || '');
             setVal('rpcStateInput',      act.state   || '');
+            setVal('rpcStreamUrlInput',  act.url     || '');
             setVal('rpcLargeImageInput', assets.large_image || '');
             setVal('rpcSmallImageInput', assets.small_image || '');
             const btns    = Array.isArray(act.buttons) ? act.buttons : [];
@@ -1768,6 +1786,7 @@ async function loadRpc() {
             setVal('rpcAppIdMode', customMode ? 'custom' : 'auto');
             setVal('rpcCustomAppIdInput', customMode ? loadedAppId : '');
             syncRpcAppIdControls();
+            syncRpcStreamingControls();
             saveRpcDraft();
         }
     }
@@ -1786,11 +1805,13 @@ const RPC_ACTIVITY_HEADERS = {
 
 function updateRpcPreview() {
     syncRpcAppIdControls();
+    syncRpcStreamingControls();
 
     const typeVal   = parseInt(document.getElementById('rpcType')?.value) || 0;
     const name      = (document.getElementById('rpcNameInput')?.value    || '').trim();
     const details   = (document.getElementById('rpcDetailsInput')?.value || '').trim();
     const state     = (document.getElementById('rpcStateInput')?.value   || '').trim();
+    const streamUrl = (document.getElementById('rpcStreamUrlInput')?.value || '').trim();
     const largeImg  = (document.getElementById('rpcLargeImageInput')?.value  || '').trim();
     const smallImg  = (document.getElementById('rpcSmallImageInput')?.value  || '').trim();
     const btn1Label = (document.getElementById('rpcButton1Label')?.value || '').trim();
@@ -1803,14 +1824,14 @@ function updateRpcPreview() {
     // Text fields in card
     setText('rpcPreviewName',    name    || '—');
     setText('rpcPreviewDetails', details || '');
-    setText('rpcPreviewState',   state   || '');
+    setText('rpcPreviewState',   typeVal === 1 ? (streamUrl || state || '') : (state || ''));
 
     // Large image
     const artEl = document.getElementById('rpcDiscordArt');
     if (artEl) {
-        const largePreview = resolveRpcPreviewImage(largeImg);
+        const largePreview = resolveRpcPreviewImage(largeImg, getEffectiveRpcAppId());
         if (largePreview) {
-            artEl.style.backgroundImage = `url(${JSON.stringify(largePreview)})`;
+            artEl.style.backgroundImage = `url("${String(largePreview).replace(/"/g, '%22')}")`;
             artEl.style.backgroundSize  = 'cover';
             artEl.style.backgroundColor = 'transparent';
         } else {
@@ -1822,10 +1843,10 @@ function updateRpcPreview() {
     // Small art visibility
     const smallArtEl = document.getElementById('rpcDiscordSmallArt');
     if (smallArtEl) {
-        const smallPreview = resolveRpcPreviewImage(smallImg);
+        const smallPreview = resolveRpcPreviewImage(smallImg, getEffectiveRpcAppId());
         if (smallPreview) {
             smallArtEl.classList.add('visible');
-            smallArtEl.style.backgroundImage = `url(${JSON.stringify(smallPreview)})`;
+            smallArtEl.style.backgroundImage = `url("${String(smallPreview).replace(/"/g, '%22')}")`;
             smallArtEl.style.backgroundSize  = 'cover';
             smallArtEl.style.backgroundColor = 'transparent';
         } else {
@@ -1869,6 +1890,7 @@ async function applyRpc() {
     const name = document.getElementById('rpcNameInput').value.trim();
     const details = document.getElementById('rpcDetailsInput').value.trim();
     const state = document.getElementById('rpcStateInput').value.trim();
+    const streamUrl = (document.getElementById('rpcStreamUrlInput')?.value || '').trim();
     const largeImage = (document.getElementById('rpcLargeImageInput')?.value || '').trim();
     const smallImage = (document.getElementById('rpcSmallImageInput')?.value || '').trim();
     const button1Label = (document.getElementById('rpcButton1Label')?.value || '').trim();
@@ -1877,9 +1899,19 @@ async function applyRpc() {
     const button2Url = (document.getElementById('rpcButton2Url')?.value || '').trim();
     const appId = getEffectiveRpcAppId();
     if (!name) { showRpcMsg('Name is required.', false); return; }
+
+    if (type === 1) {
+        const twitchOk = /^https?:\/\/(www\.)?twitch\.tv\/[A-Za-z0-9_]+/i.test(streamUrl);
+        if (!twitchOk) {
+            showRpcMsg('Streaming type requires a valid Twitch URL.', false);
+            return;
+        }
+    }
+
     const activity = { type, name, application_id: appId };
     if (details) activity.details = details;
     if (state) activity.state = state;
+    if (type === 1 && streamUrl) activity.url = streamUrl;
     
     // Build assets object properly for Discord API
     const assets = {};
