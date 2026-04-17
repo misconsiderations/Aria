@@ -2365,14 +2365,25 @@ def setup_bulk_commands(bot, delete_after_delay):
 
     @bot.command(name="helpwall", aliases=["cmdwall", "allcmds", "wallcmds"])
     def helpwall_cmd(ctx, args):
+        import formatter as fmt
         b = ctx["bot"]
+        prefix = b.prefix
         cmds = sorted(b.commands.keys())
         unique_cmds = sorted(set(b.commands[k].name for k in cmds))
-        chunk_size = 50
+        chunk_size = 30
         chunks = [unique_cmds[i:i+chunk_size] for i in range(0, len(unique_cmds), chunk_size)]
+        include_help_hint_in_wall_header = True
         for i, chunk in enumerate(chunks[:4]):
-            text = f"```Commands ({i*chunk_size+1}-{i*chunk_size+len(chunk)} of {len(unique_cmds)}):\n"
-            text += ", ".join(chunk) + "```"
+            lines = [f"{fmt.CYAN}{prefix}{name}{fmt.RESET}" for name in chunk]
+            header_suffix = "Bulk"
+            if include_help_hint_in_wall_header:
+                header_suffix = f"Bulk {prefix}help <category> {prefix}help <command>"
+            footer = f"page {i + 1}/{min(len(chunks), 4)}  {len(chunk)} cmds"
+            text = fmt.sections(
+                header_suffix,
+                "\n".join(lines),
+                f"{fmt.DARK}{footer}{fmt.RESET}",
+            )
             msg = ctx["api"].send_message(ctx["channel_id"], text)
             if msg and i < len(chunks) - 1:
                 delete_after_delay(ctx["api"], ctx["channel_id"], msg.get("id"), 30)

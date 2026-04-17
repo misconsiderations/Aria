@@ -84,6 +84,16 @@ class HostManager:
                 return True
         return False
 
+    def _user_has_active_hosted_locked(self, owner_id):
+        """Return True if this owner_id already has an active hosted entry."""
+        owner_id = str(owner_id or "").strip()
+        if not owner_id:
+            return False
+        for data in self.active_tokens.values():
+            if str(data.get("owner") or "") == owner_id:
+                return True
+        return False
+
     # ------------------------------------------------------------------
 
     def can_use_command(self, user_id):
@@ -169,6 +179,10 @@ class HostManager:
 
             if self._has_existing_token_locked(token):
                 return False, "Already hosted"
+
+            # Prevent same requester from hosting more than once
+            if owner_id and self._user_has_active_hosted_locked(owner_id):
+                return False, "Already hosting"
 
             token_id = str(int(time.time() * 1000))
             config_file = f"hosted_{token_id}.json"

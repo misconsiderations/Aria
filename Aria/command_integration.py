@@ -25,48 +25,101 @@ class CommandIntegration:
 
     def setup_help_commands(self):
         """Register help commands with the bot"""
-        
-        if "help" not in self.bot.commands:
-            @self.bot.command(name="help", aliases=["h", "commands"])
-            def cmd_help(ctx, args):
-                # Fallback only when main.py help is unavailable.
-                unique = self._unique_commands()
-                lines = [(name, "") for name, _ in unique]
-                msg_text = fmt.command_page(
-                    "Commands",
-                    lines,
-                    f"{len(unique)} commands available",
-                )
-                self.api_client.send_message(ctx["channel_id"], msg_text)
-        else:
-            @self.bot.command(name="helpfallback")
-            def cmd_helpfallback(ctx, args):
-                # Keep manual-access fallback without overriding primary help handler.
-                unique = self._unique_commands()
-                lines = [(name, "") for name, _ in unique]
-                msg_text = fmt.command_page(
-                    "Commands",
-                    lines,
-                    f"{len(unique)} commands available",
-                )
-                self.api_client.send_message(ctx["channel_id"], msg_text)
+
+        @self.bot.command(name="helpfallback")
+        def cmd_helpfallback(ctx, args):
+            # Keep manual-access fallback without overriding the primary help handler.
+            unique = self._unique_commands()
+            lines = [(name, "") for name, _ in unique]
+            msg_text = fmt.command_page(
+                "Commands",
+                lines,
+                f"{len(unique)} commands available",
+            )
+            self.api_client.send_message(ctx["channel_id"], msg_text)
         
         @self.bot.command(name="helpwall", aliases=["wallcmds"])
         def cmd_helpwall(ctx, args):
             """List all real registered commands split across messages."""
             unique = self._unique_commands()
             prefix = self.bot.prefix
-            chunk, messages = [], []
+            category_rules = {
+                "System": ["help", "helpwall", "cmdwall", "categories", "quickhelp", "cmdinfo", "restart", "stop", "setprefix", "customize", "terminal", "ui", "web", "version"],
+                "Profile": ["setpfp", "setbanner", "stealpfp", "stealbanner", "stealname", "bio", "setbio", "pronouns", "setpronouns", "displayname", "setdisplayname", "setstatus", "deco", "avatar"],
+                "Guild": ["guild", "guilds", "myguilds", "server", "servercopy", "serverload", "join", "leave", "invite", "role", "channel"],
+                "Messaging": ["purge", "spurge", "spam", "massdm", "dm", "mimic", "mock", "react", "typing", "snipe", "esnipe"],
+                "User": ["userinfo", "friends", "mutual", "block", "auth", "unauth", "checktoken", "token", "hypesquad", "status", "client"],
+                "Activity": ["rpc", "vrrpc", "superreact", "autoreact", "quest"],
+                "Tools": ["ms", "ping", "bold", "italic", "upper", "lower", "reverse", "flip", "echo", "length", "time", "history", "badges", "backup"],
+                "Hosting": ["host", "listhosted", "listallhosted", "clearhost", "clearallhosted", "hoston", "hostoff", "hostblacklist"],
+                "Boost": ["nitro", "giveaway", "boost"],
+                "Voice": ["vc", "vce", "vccam", "vcstream", "vcmute", "vcdeaf", "vcswitch", "vcrejoin", "vcstatus"],
+                "Owner": ["d"],
+            }
+            category_order = [
+                "System", "Profile", "Guild", "Messaging", "User",
+                "Activity", "Tools", "Hosting", "Boost", "Voice", "Owner", "Other",
+            ]
+
+            categorized = {name: [] for name in category_order}
             for name, cmd in unique:
-                aliases = f" [{', '.join(cmd.aliases)}]" if cmd.aliases else ""
-                chunk.append(f"{fmt.CYAN}{prefix}{name}{fmt.RESET}{fmt.DARK}{aliases}{fmt.RESET}")
-                if len(chunk) >= 30:
-                    messages.append(fmt._block("\n".join(chunk)))
-                    chunk = []
-            if chunk:
-                messages.append(fmt._block("\n".join(chunk)))
-            for m in messages:
-                sent = self.api_client.send_message(ctx["channel_id"], m)
+                cmd_name = str(name or "").lower()
+                placed = False
+                for cat, rules in category_rules.items():
+                    for token in rules:
+                        if token == "d":
+                            if cmd_name.startswith("d"):
+                                categorized[cat].append((name, cmd))
+                                placed = True
+                                break
+                            continue
+                        if cmd_name == token or cmd_name.startswith(f"{token}_") or cmd_name.startswith(token):
+                            categorized[cat].append((name, cmd))
+                            placed = True
+                            break
+                    if placed:
+                        break
+                if not placed:
+                    categorized["Other"].append((name, cmd))
+
+            lines_per_page = 15
+            pages = []
+            for cat in category_order:
+                entries = categorized.get(cat) or []
+                if not entries:
+                    continue
+                for idx in range(0, len(entries), lines_per_page):
+                    chunk = entries[idx:idx + lines_per_page]
+                    lines = []
+                    for name, cmd in chunk:
+                        aliases = f" [{', '.join(cmd.aliases)}]" if cmd.aliases else ""
+                        lines.append(f"{fmt.CYAN}{prefix}{name}{fmt.RESET}{fmt.DARK}{aliases}{fmt.RESET}")
+                    pages.append({
+                        "category": cat,
+                        "total_in_category": len(entries),
+                        "page_in_category": (idx // lines_per_page) + 1,
+                        "category_pages": (len(entries) + lines_per_page - 1) // lines_per_page,
+                        "body": "\n".join(lines),
+                    })
+
+            total_pages = len(pages)
+            include_help_hint_in_wall_header = True
+            for i, page_data in enumerate(pages, start=1):
+                footer = (
+                    f"{page_data['category']} {page_data['page_in_category']}/{page_data['category_pages']}"
+                    f" | global {i}/{total_pages} | {page_data['total_in_category']} cmds"
+                )
+                header_suffix = page_data["category"]
+                if include_help_hint_in_wall_header:
+                    header_suffix = f"{page_data['category']} {prefix}help <category> {prefix}help <command>"
+                payload = fmt.sections(
+                    header_suffix,
+                    page_data["body"],
+                    f"{fmt.DARK}{footer}{fmt.RESET}",
+                )
+                self.api_client.send_message(ctx["channel_id"], payload)
+                if i < total_pages:
+                    time.sleep(0.3)
         
         @self.bot.command(name="cmdinfo")
         def cmd_cmdinfo(ctx, args):

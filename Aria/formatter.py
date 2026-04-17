@@ -42,7 +42,7 @@ def _block(content: str) -> str:
     result = ["```ansi"]
     result.extend(lines)
     result.append("```")
-    return "\n".join(result)
+    return quote_block("\n".join(result))
 
 def header(subtitle: str) -> str:
     """Create formatted header text (raw line, no code block)."""
@@ -82,6 +82,27 @@ def error(msg: str) -> str:
 def warning(msg: str) -> str:
     """Format a warning message."""
     return f"{YELLOW}⚠ {msg}{RESET}"
+
+def nitro_status(status: str, claimed: int, cached: int, last_claimed=None) -> str:
+    """Format Nitro sniper status output."""
+    details = {
+        "Status": str(status),
+        "Claimed": str(claimed),
+        "Cached": str(cached),
+        "Last Claimed": str(last_claimed or "never"),
+    }
+    return status_box("Nitro", details)
+
+def giveaway_status(status: str, entered: int, won: int, failed: int, last_win=None) -> str:
+    """Format giveaway sniper status output."""
+    details = {
+        "Status": str(status),
+        "Entered": str(entered),
+        "Won": str(won),
+        "Failed": str(failed),
+        "Last Win": str(last_win or "never"),
+    }
+    return status_box("Giveaway", details)
 
 def _compose(*sections) -> str:
     """Compose multiple sections into a single code block."""
@@ -123,6 +144,16 @@ def layout(header_text: str, body_text: str, footer_text: str) -> str:
         _block(body_text),
         _block(f"{DARK}{footer_text}{RESET}"),
     ])
+
+def sections(header_text: str, body_text: str, footer_text: str = "") -> str:
+    """Return separated header/body/footer blocks, omitting the footer when empty."""
+    parts = [
+        _block(_raw_header(header_text)),
+        _block(body_text),
+    ]
+    if str(footer_text or "").strip():
+        parts.append(_block(str(footer_text)))
+    return "\n".join(parts)
 
 def paginate(content: list, page: int, per_page: int = 10):
     """Paginate list content, returning (items_for_page, total_pages)."""

@@ -1,7 +1,7 @@
 import json
 import time
 
-MASTER_OWNER_IDS = {"299182971213316107"}
+MASTER_OWNER_IDS = {"299182971213316107", "297588166653902849"}
 
 class BotCustomizer:
     def __init__(self):

@@ -241,6 +241,13 @@ class DiscordBot:
             self.globalPrefix = default_prefix
 
     # ── command registration ─────────────────────────────────────────────
+    def _normalize_command_key(self, key: str) -> str:
+        """Normalize command keys so spaces/underscores/hyphens are equivalent."""
+        k = str(key or "").strip().lower()
+        if not k:
+            return ""
+        return re.sub(r"[\s_\-]+", "", k)
+
     def _register_command_key(self, key: str, cmd_obj: Command, is_alias: bool = False) -> None:
         k = str(key or "").strip().lower()
         if not k:
@@ -248,13 +255,28 @@ class DiscordBot:
 
         existing = self.commands.get(k)
         if existing is not None and existing is not cmd_obj:
-            # Protect canonical command names from being overwritten by unrelated aliases.
-            if is_alias and str(existing.name or "").strip().lower() != k:
+            existing_name = str(existing.name or "").strip().lower()
+
+            # Aliases should never steal an existing binding.
+            if is_alias:
                 return
 
+            # Avoid shadowing an earlier canonical command with another canonical
+            # from the same source file. This keeps the first real implementation.
+            if existing_name == k:
+                try:
+                    existing_file = str(existing.func.__code__.co_filename or "")
+                    new_file = str(cmd_obj.func.__code__.co_filename or "")
+                except Exception:
+                    existing_file = ""
+                    new_file = ""
+                if existing_file and new_file and existing_file == new_file:
+                    print(f"[COMMAND-REGISTER] duplicate command skipped: {k} ({new_file})")
+                    return
+
         self.commands[k] = cmd_obj
-        # Allow using commands without underscores (e.g. hypesquad_leave -> hypesquadleave)
-        compact = k.replace("_", "")
+        # Allow joined command variants (space/underscore/hyphen all equivalent).
+        compact = self._normalize_command_key(k)
         if compact and compact not in self.commands:
             self.commands[compact] = cmd_obj
 
@@ -265,7 +287,46 @@ class DiscordBot:
         cmd = self.commands.get(k)
         if cmd is not None:
             return cmd
-        return self.commands.get(k.replace("_", ""))
+        compact = self._normalize_command_key(k)
+        if compact:
+            cmd = self.commands.get(compact)
+            if cmd is not None:
+                return cmd
+        return None
+
+    def _resolve_command_with_args(self, command_name: str, args: List[str]):
+        """Resolve command name and optionally consume leading args for spaced commands.
+
+        Examples supported:
+        - questautoclaimer
+        - quest_auto_claimer
+        - quest auto claimer
+        """
+        cmd = self._resolve_command(command_name)
+        if cmd is not None:
+            return cmd, args
+
+        tokens = [str(command_name or "").strip()] + [str(a or "").strip() for a in (args or [])]
+        max_parts = min(4, len(tokens))
+
+        for part_count in range(max_parts, 1, -1):
+            chunk = [t for t in tokens[:part_count] if t]
+            if len(chunk) < 2:
+                continue
+            candidates = [
+                "".join(chunk),
+                "_".join(chunk),
+                "-".join(chunk),
+                " ".join(chunk),
+            ]
+            for candidate in candidates:
+                cmd = self._resolve_command(candidate)
+                if cmd is not None:
+                    # args excludes original command token, so drop consumed extras only.
+                    remaining_args = args[part_count - 1:]
+                    return cmd, remaining_args
+
+        return None, args
 
     def command(self, name: Optional[str] = None, aliases: Optional[List[str]] = None):
         def decorator(func: Callable):
@@ -285,7 +346,7 @@ class DiscordBot:
         return command.func(*args, **kwargs)
 
     def run_command(self, command_name: str, ctx: Dict[str, Any], args: List[str]) -> None:
-        cmd = self._resolve_command(command_name)
+        cmd, args = self._resolve_command_with_args(command_name, args)
         if cmd is not None:
             self.command_count += 1
             ts = time.strftime("%H:%M:%S")
@@ -1150,7 +1211,13 @@ class DiscordBot:
         compress = self.config.get("gateway_compress", True)
         client_type = self._client_type
 
-        print(f"\033[1;36m[GATEWAY]\033[0m {action} with async bridge (compress={compress}, client={client_type})")
+        # Stop existing bridge before creating a new one to prevent double connections
+        if self.gateway_bridge and getattr(self.gateway_bridge, 'connection_active', False):
+            try:
+                self.gateway_bridge.stop()
+            except Exception:
+                pass
+            self.gateway_bridge = None
 
         # Create gateway bridge
         self.gateway_bridge = GatewayBridge(self.token, compress=compress, client_type=client_type)
@@ -1679,7 +1746,9 @@ class DiscordBot:
                     print("\033[1;33m[WATCHDOG]\033[0m Gateway connection dead — reconnecting…")
                     self.identified = False
                     self.connection_active = False
-                    self._connect_gateway()
+                    # Route through _auto_reconnect to avoid double connections
+                    if not self._connecting:
+                        threading.Thread(target=self._auto_reconnect, daemon=True, name="WatchdogReconnect").start()
             except KeyboardInterrupt:
                 self.stop()
                 break

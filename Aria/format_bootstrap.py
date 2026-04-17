@@ -169,8 +169,12 @@ def _format_outgoing(content: Optional[str]) -> Optional[str]:
     text = str(content)
     stripped = text.strip()
 
-    if stripped.startswith("> ```ansi"):
-        return text  # already formatted — separate bars render in one message
+    if stripped.startswith("```ansi") or stripped.startswith("> ```ansi"):
+        return text  # already ANSI formatted
+
+    # Preserve manual ANSI strings by wrapping once instead of reformatting structure.
+    if "\u001b[" in text:
+        return fmt._block(text)
 
     body = _extract_code_block(text)
     body = body.strip() if body else stripped

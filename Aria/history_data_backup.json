@@ -6,7 +6,7 @@
   "user_guild_index": {},
   "connected_accounts": {
     "762819078141902848": {
-      "timestamp": 1776297191.1014795,
+      "timestamp": 1776297214.0996351,
       "user_id": "762819078141902848",
       "friend_user_ids": [
         "1215099129227640843",
@@ -25,6 +25,6 @@
       ]
     }
   },
-  "last_updated": 1776297191.1014907,
+  "last_updated": 1776297214.0996447,
   "version": "2.0"
 }
