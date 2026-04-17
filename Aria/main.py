@@ -8449,10 +8449,13 @@ Example Usage:
             ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt._compose(
-                    fmt.header(f"{p}help <category> | {p}help <command>"),
-                    fmt.category_list(dict(categories)),
-                    f"{fmt.DARK}Miscomprehend{fmt.RESET}",
+                fmt._block(
+                    f"{fmt.header('Help | Commands & Categories')}\n\n"
+                    + "\n".join(
+                        f"{fmt.PURPLE}{name:<16}{fmt.DARK}| {fmt.RESET}{fmt.WHITE}{desc}{fmt.RESET}"
+                        for name, desc in categories
+                    )
+                    + f"\n\n{fmt.DARK}Usage: {p}help <category> | {p}help <command>{fmt.RESET}"
                 ),
             )
             return
