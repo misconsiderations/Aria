@@ -3,6 +3,11 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; min-height: 100%; }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 :root {
   --bg-0:  #090a0b;
   --bg-1:  #0d1017;
@@ -175,6 +180,7 @@ body.panel-page::after {
   line-height: 1.05;
   letter-spacing: -0.04em;
   font-weight: 900;
+  color: var(--a1);
   background: linear-gradient(to bottom, var(--a1) 0%, var(--a2) 55%, var(--a3) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -244,6 +250,7 @@ body.panel-page::after {
   display: block;
   font-size: 2.2rem; font-weight: 900;
   letter-spacing: -0.05em;
+  color: var(--a1);
   background: linear-gradient(to bottom, var(--a1), var(--a2));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -629,6 +636,15 @@ body.panel-page::after {
   .panel-head { padding: 28px 22px 22px; }
   .panel-body { padding: 24px 22px 28px; }
   .site-hero { padding: 36px 22px 28px !important; }
+  .top-nav {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+  .brand { justify-content: center; }
+  .nav-links { justify-content: center; }
+  .nav-links a { padding: 8px 12px; }
   .metric-stack { grid-template-columns: 1fr 1fr; }
   .home-live-strip { grid-template-columns: 1fr; }
   .feature-grid { grid-template-columns: 1fr; }
@@ -724,6 +740,7 @@ body.panel-page::after {
 .home-headline {
   font-size: clamp(3rem, 8vw, 5.5rem);
   font-weight: 900; letter-spacing: -0.05em; line-height: 1.04;
+  color: var(--a1);
   background: linear-gradient(135deg, var(--a1) 0%, var(--a2) 55%, var(--a3) 100%);
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -761,6 +778,7 @@ body.panel-page::after {
   font-size: clamp(1.6rem, 3.5vw, 2.2rem);
   font-weight: 900;
   letter-spacing: -0.03em;
+  color: var(--a1);
   background: linear-gradient(135deg, var(--a1), var(--a2));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -875,6 +893,9 @@ body.panel-page::after {
   font-family: var(--mono);
   font-size: 0.78rem;
   line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .home-stats-grid {
@@ -900,6 +921,7 @@ body.panel-page::after {
 .home-stat-num {
   display: block;
   font-size: 2.4rem; font-weight: 900; letter-spacing: -0.05em;
+  color: var(--a1);
   background: linear-gradient(135deg, var(--a1), var(--a2));
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   background-clip: text; margin-bottom: 6px;
@@ -924,9 +946,22 @@ body.panel-page::after {
 .home-features-title {
   font-size: clamp(1.8rem, 4vw, 2.8rem);
   font-weight: 900; letter-spacing: -0.04em;
+  color: var(--a1);
   background: linear-gradient(135deg, var(--a1), var(--a2));
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   background-clip: text; margin-bottom: 10px;
+}
+
+@supports not ((-webkit-background-clip: text) or (background-clip: text)) {
+  .page-title,
+  .metric-card .value,
+  .home-headline,
+  .home-token-title,
+  .home-stat-num,
+  .home-features-title {
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
 }
 
 .home-features-sub {
@@ -1128,6 +1163,39 @@ body.panel-page::after {
   .home-features-grid { grid-template-columns: 1fr; }
   .home-hero { padding: 60px 20px 40px; }
   .home-headline { font-size: 2.8rem; }
+  .panel-head { padding: 20px 14px 16px; }
+  .panel-body { padding: 18px 14px 20px; }
+  .site-hero {
+    padding: 24px 14px 18px !important;
+    gap: 18px;
+  }
+  .page-title {
+    font-size: 1.7rem;
+    line-height: 1.15;
+  }
+  .page-sub {
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
+  .home-token-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .home-token-tab-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .home-token-step { gap: 8px; }
+  .home-token-step p {
+    font-size: 0.86rem;
+    line-height: 1.5;
+  }
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .actions .btn { width: 100%; }
   .home-token-section { padding-left: 20px; padding-right: 20px; }
   .home-support-bubble { right: 12px; bottom: 12px; }
   .home-support-pop { right: 12px; bottom: 64px; width: calc(100vw - 16px); }
