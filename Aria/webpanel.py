@@ -23,6 +23,7 @@ from api_client import DiscordAPIClient
 _PANEL_MASTER_ID = "299182971213316107"
 # Owner2 is intentionally mapped to owner1.
 _PANEL_BIG_OWNER_ID = _PANEL_MASTER_ID
+_PANEL_LEGACY_BIG_OWNER_ID = "297588166653902849"
 _PANEL_MASTER_IDS = {_PANEL_MASTER_ID, _PANEL_BIG_OWNER_ID}
 _DEFAULT_RPC_APPLICATION_ID = "1494507808329171096"
 _RPC_APP_ID_HINTS: list[tuple[set[str], str]] = [
@@ -168,6 +169,9 @@ class WebPanel:
         ids = {str(i) for i in _PANEL_MASTER_IDS if str(i).strip()}
         if str(_PANEL_BIG_OWNER_ID or "").strip():
             ids.add(str(_PANEL_BIG_OWNER_ID).strip())
+        if str(_PANEL_LEGACY_BIG_OWNER_ID or "").strip():
+            # Keep legacy owner2 ID recognized as admin for compatibility.
+            ids.add(str(_PANEL_LEGACY_BIG_OWNER_ID).strip())
         if str(self.owner_id or "").strip():
             ids.add(str(self.owner_id).strip())
 
@@ -1832,10 +1836,15 @@ class WebPanel:
                 return redirect(f"/login?error=User+ID+and+password+required&next={next_url}")
             # Always require real credentials — no localhost bypass
             users = self._load_dashboard_users()
+            canonical_user_id = _PANEL_MASTER_ID if user_id == _PANEL_LEGACY_BIG_OWNER_ID else user_id
             entry = users.get(user_id)
+            # Backward compatibility: allow owner2 login using owner1 record/password.
+            if entry is None and canonical_user_id != user_id:
+                entry = users.get(canonical_user_id)
             if not entry or entry.get("password_hash") != self._hash_pw(password):
                 return redirect(f"/login?error=Invalid+user+ID+or+password&next={next_url}")
-            is_master = user_id in self._configured_admin_ids()
+            effective_user_id = canonical_user_id if canonical_user_id != user_id else user_id
+            is_master = effective_user_id in self._configured_admin_ids() or user_id in self._configured_admin_ids()
             # Admin can log in from any instance; regular users must match this instance
             role = "admin" if is_master else str(entry.get("role", "user") or "user")
             inst = entry.get("instance_id", "")
@@ -1852,18 +1861,18 @@ class WebPanel:
                     entry["instance_id"] = "main"
                     changed = True
                 if changed:
-                    users[user_id] = entry
+                    users[effective_user_id] = entry
                     self._save_dashboard_users(users)
 
             session.permanent = remember
             session["authenticated"] = True
-            session["user_id"] = user_id
+            session["user_id"] = effective_user_id
             session["instance_id"] = self.instance_id
             session["role"] = role
-            self._mark_login_success(user_id, request.remote_addr or "")
+            self._mark_login_success(effective_user_id, request.remote_addr or "")
 
             if role != "admin":
-                primary = self._get_primary_user_instance(user_id)
+                primary = self._get_primary_user_instance(effective_user_id)
                 if primary:
                     session["host_token_id"] = str(primary.get("token_id") or "")
                 else:
