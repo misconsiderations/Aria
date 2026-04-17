@@ -2450,16 +2450,9 @@ def main():
     @bot.command(name="massdm")
     def mass_dm(ctx, args):
         if len(args) < 2:
-            import formatter as fmt
-            p = bot.prefix
-            cmds = [
-                (f"{p}massdm 1 <msg>", "DM from history"),
-                (f"{p}massdm 2 <msg>", "DM to friends"),
-                (f"{p}massdm 3 <msg>", "DM history + friends"),
-            ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt.header("Mass DM") + "\n" + fmt.command_list(cmds),
+                f"> **Mass DM** :: Usage: {bot.prefix}massdm <1|2|3> <message> — 1=DM history  2=Friends  3=Both",
             )
             return
 
@@ -4966,9 +4959,8 @@ Example Usage:
     @bot.command(name="stealserverbanner", aliases=["ssbanner", "stealservbanner"])
     def stealserverbanner_cmd(ctx, args):
         if not args:
-            import formatter as fmt
             msg = ctx["api"].send_message(ctx["channel_id"],
-                fmt.header("Steal Server Banner") + "\n" + fmt._block(f"Steals a user's server banner and applies it to this server.\n\nUsage: {bot.prefix}stealserverbanner <user_id|@mention>"))
+                f"> **Steal Server Banner** :: Usage: {bot.prefix}stealserverbanner <user_id|@mention>")
             return
 
         raw = args[0].strip("<@!>")
@@ -5026,9 +5018,8 @@ Example Usage:
     @bot.command(name="stealservernick", aliases=["ssnick", "stealservnick", "stealsnick"])
     def stealservernick_cmd(ctx, args):
         if not args:
-            import formatter as fmt
             msg = ctx["api"].send_message(ctx["channel_id"],
-                fmt.header("Steal Server Nick") + "\n" + fmt._block(f"Steals a user's server nickname and applies it to you.\n\nUsage: {bot.prefix}stealservernick <user_id|@mention>"))
+                f"> **Steal Server Nick** :: Usage: {bot.prefix}stealservernick <user_id|@mention>")
             return
 
         raw = args[0].strip("<@!>")
@@ -5651,15 +5642,8 @@ Example Usage:
     def status_cmd_presence(ctx, args):
         valid = {"online", "idle", "dnd", "invisible"}
         if not args or args[0].lower() not in valid:
-            import formatter as fmt
-            cmds = [
-                (f"{bot.prefix}status online", "Set online"),
-                (f"{bot.prefix}status idle", "Set idle"),
-                (f"{bot.prefix}status dnd", "Set do not disturb"),
-                (f"{bot.prefix}status invisible", "Set invisible"),
-            ]
             msg = ctx["api"].send_message(ctx["channel_id"],
-                fmt.header("Status") + "\n" + fmt.command_list(cmds))
+                f"> **Status** :: Usage: `{bot.prefix}status <online|idle|dnd|invisible>`")
             return
         status = args[0].lower()
         try:
@@ -6268,18 +6252,10 @@ Example Usage:
     @bot.command(name="antinuke", aliases=["anti_nuke"])
     def antinuke_cmd(ctx, args):
         if not args:
-            import formatter as fmt
             p = bot.prefix
-            cmds = [
-                (f"{p}antinuke on", "Enable protection"),
-                (f"{p}antinuke off", "Disable protection"),
-                (f"{p}antinuke status", "Show status"),
-                (f"{p}antinuke actions list", "List actions"),
-                (f"{p}antinuke actions add <action>", "Add action (warn/kick/ban)"),
-            ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt.header("Antinuke Commands") + "\n" + fmt.command_list(cmds),
+                f"> **Antinuke** :: Usage: {p}antinuke on|off|status|settings — {p}antinuke actions [add|remove|list] <warn|kick|ban>",
             )
             return
 
@@ -6584,14 +6560,7 @@ Example Usage:
     @bot.command(name="bump", aliases=["autobump"])
     def bump_cmd(ctx, args):
         if not args:
-            import formatter as fmt
-            p = bot.prefix
-            cmds = [
-                (f"{p}bump config <ch_id> <interval>", "Set up autobump"),
-                (f"{p}bump list", "Show config"),
-                (f"{p}bump stop", "Stop autobump"),
-            ]
-            msg = ctx["api"].send_message(ctx["channel_id"], fmt.header("Autobump") + "\n" + fmt.command_list(cmds))
+            msg = ctx["api"].send_message(ctx["channel_id"], f"> **Autobump** :: Usage: {bot.prefix}bump config <channel_id> <interval_seconds> | {bot.prefix}bump list | {bot.prefix}bump stop")
             return
         
         guild_id = str(ctx["guild_id"])
@@ -8445,23 +8414,11 @@ Example Usage:
                 ("Quest", "Quests"),
                 ("Owner", "Admin / owner only"),
             ]
-            quick_cmds = [
-                (f"{p}nitro stats", "Nitro stats"),
-                (f"{p}boost list", "Boosted servers"),
-                (f"{p}boost status", "Boost status"),
-                (f"{p}localstats", "Local account stats"),
-                (f"{p}history stats", "History stats"),
-            ]
-            quick_lines = "\n".join(
-                f"{fmt.PINK}{name:<20}{fmt.DARK}:: {fmt.RESET}{fmt.GREEN}{desc}{fmt.RESET}"
-                for name, desc in quick_cmds
-            )
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
                 "\n".join([
                     fmt.header(f"{p}help <category> {p}help <command>"),
                     fmt.category_list(dict(categories)),
-                    fmt._block(f"{fmt.CYAN}Quick Commands{fmt.RESET}\n{quick_lines}"),
                     fmt._block(f"{fmt.DARK}Miscomprehend{fmt.RESET}"),
                 ]),
             )
@@ -9188,16 +9145,9 @@ Example Usage:
             return
 
         if not args:
-            import formatter as fmt
-            p = bot.prefix
-            cmds = [
-                (f"{p}admin add <user_id>", "Add admin"),
-                (f"{p}admin remove <user_id>", "Remove admin"),
-                (f"{p}admin list", "List all admins"),
-            ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt.header("Admin Commands") + "\n" + fmt.command_list(cmds),
+                f"> **Admin** :: Usage: {bot.prefix}admin add <user_id> | {bot.prefix}admin remove <user_id> | {bot.prefix}admin list",
             )
             return
 
@@ -9230,15 +9180,9 @@ Example Usage:
             deny_restricted_command(ctx, "Auth")
             return
         if not args or not args[0].isdigit():
-            import formatter as fmt
             p = bot.prefix
-            cmds = [
-                (f"{p}auth <user_id>", "Grant user dashboard access"),
-                (f"{p}unauth <user_id>", "Revoke user access"),
-                (f"{p}authlist", "List authed users"),
-            ]
             msg = ctx["api"].send_message(ctx["channel_id"],
-                fmt.header("Auth Commands") + "\n" + fmt.command_list(cmds))
+                f"> **Auth** :: Usage: {p}auth <user_id> — grant access | {p}unauth <user_id> — revoke | {p}authlist — list")
             return
         uid = str(args[0])
         _authed_users.add(uid)
@@ -9270,16 +9214,9 @@ Example Usage:
             return
 
         if not args:
-            import formatter as fmt
-            p = bot.prefix
-            cmds = [
-                (f"{p}whitelist add <user_id>", "Whitelist user"),
-                (f"{p}whitelist remove <user_id>", "Un-whitelist user"),
-                (f"{p}whitelist list", "List whitelisted users"),
-            ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt.header("Whitelist Commands") + "\n" + fmt.command_list(cmds),
+                f"> **Whitelist** :: Usage: {bot.prefix}whitelist add <user_id> | {bot.prefix}whitelist remove <user_id> | {bot.prefix}whitelist list",
             )
             return
 
@@ -9319,16 +9256,9 @@ Example Usage:
             return
 
         if not args:
-            import formatter as fmt
-            p = bot.prefix
-            cmds = [
-                (f"{p}blacklist add <user_id>", "Blacklist user"),
-                (f"{p}blacklist remove <user_id>", "Un-blacklist user"),
-                (f"{p}blacklist list", "List blacklisted users"),
-            ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt.header("Blacklist Commands") + "\n" + fmt.command_list(cmds),
+                f"> **Blacklist** :: Usage: {bot.prefix}blacklist add <user_id> | {bot.prefix}blacklist remove <user_id> | {bot.prefix}blacklist list",
             )
             return
 
@@ -9715,21 +9645,14 @@ Example Usage:
 
     @bot.command(name="hosthelp", aliases=["helphost", "hostinghelp"])
     def hosthelp_cmd(ctx, args):
-        import formatter as fmt
-        p = bot.prefix
-        cmds = [
-            (f"{p}host <token> [prefix]", "Host a token/account"),
-            (f"{p}listhosted", "List all hosted instances"),
-            (f"{p}clearhost [uid|index]", "Stop hosted instance"),
-            (f"{p}backtoken <user_id|uid>", "Get token back from hosted user"),
-            (f"{p}validatehosted", "Check hosted instance status"),
-            (f"{p}hostedstatus", "View hosting status"),
-            (f"{p}hostedlogs <uid> [lines]", "View hosted instance logs"),
-        ]
-        msg = ctx["api"].send_message(
-            ctx["channel_id"],
-            fmt.header("Host Commands") + "\n" + fmt.command_list(cmds),
+        help_text = (
+            f"> **Host Help** :: {bot.prefix}host <token> [prefix] | "
+            f"{bot.prefix}listhosted | {bot.prefix}clearhost [uid|index] | "
+            f"{bot.prefix}backtoken <user_id|uid> | {bot.prefix}validatehosted | "
+            f"{bot.prefix}hostedstatus | {bot.prefix}hostedlogs <uid> [lines]\n"
+            "> Rate limits — host: 30s | listhosted: 10s | clearhost: 15s | backtoken: 20s | validatehosted: 60s"
         )
+        msg = ctx["api"].send_message(ctx["channel_id"], help_text)
 
     @bot.command(name="backup", aliases=["save"])
     def backup_cmd(ctx, args):
@@ -10424,19 +10347,9 @@ Example Usage:
     @bot.command(name="export")
     def export_cmd(ctx, args):
         if not args:
-            import formatter as fmt
-            p = bot.prefix
-            cmds = [
-                (f"{p}export account", "Export account data"),
-                (f"{p}export guilds", "Export guild list"),
-                (f"{p}export friends", "Export friend list"),
-                (f"{p}export auto start [target]", "Start auto-export"),
-                (f"{p}export auto stop", "Stop auto-export"),
-                (f"{p}export auto status", "Auto-export status"),
-            ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt.header("Export Commands") + "\n" + fmt.command_list(cmds),
+                f"> **Export** :: export account|guilds|friends|dms|summary|all | export auto start [target] [seconds] | export auto stop|status|run [target]"
             )
             return
 
@@ -10863,16 +10776,9 @@ Example Usage:
                 print(f"[hostblacklist] save error: {e}")
 
         if not args:
-            import formatter as fmt
-            p = bot.prefix
-            cmds = [
-                (f"{p}hostblacklist add <user_id>", "Blacklist user"),
-                (f"{p}hostblacklist remove <user_id>", "Un-blacklist user"),
-                (f"{p}hostblacklist list", "List blacklisted"),
-            ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt.header("Host Blacklist") + "\n" + fmt.command_list(cmds),
+                f"> **Host Blacklist** :: {bot.prefix}hostblacklist add <user_id> | remove <user_id> | list",
             )
             return
 
@@ -11223,16 +11129,9 @@ Example Usage:
 
         # Modes: "massleave all" or "massleave <id1> <id2> ..."
         if not args:
-            import formatter as fmt
-            p = bot.prefix
-            cmds = [
-                (f"{p}massleave all", "Leave all servers"),
-                (f"{p}massleave <id> <id>", "Leave specific servers"),
-                (f"{p}massleave all except <id>", "Leave all except these"),
-            ]
             msg = api.send_message(
                 ctx["channel_id"],
-                fmt.header("Mass Leave") + "\n" + fmt.command_list(cmds),
+                f"> **Mass Leave** :: Usage: {bot.prefix}massleave all | {bot.prefix}massleave <id> <id> ... | {bot.prefix}massleave all except <id> ...",
             )
             return
 
@@ -11958,16 +11857,9 @@ Example Usage:
             return
 
         if not args:
-            import formatter as fmt
-            p = bot.prefix
-            cmds = [
-                (f"{p}react <emoji>", "React to last message"),
-                (f"{p}react <msg_id> <emoji>", "React to specific message"),
-                (f"{p}react <ch_id> <msg_id> <emoji>", "React in different channel"),
-            ]
             msg = ctx["api"].send_message(
                 ctx["channel_id"],
-                fmt.header("React Commands") + "\n" + fmt.command_list(cmds),
+                f"> **React** :: Usage: {bot.prefix}react <emoji> | {bot.prefix}react <msg_id> <emoji> | {bot.prefix}react <ch_id> <msg_id> <emoji>",
             )
             return
 
