@@ -358,6 +358,39 @@ class WebPanel:
                 users[admin_id] = entry
                 self._save_dashboard_users(users)
 
+        # Ensure every configured master owner always has admin panel access.
+        updated = False
+        for master_id in _PANEL_MASTER_IDS:
+            m_id = str(master_id)
+            existing = users.get(m_id)
+            if not isinstance(existing, dict):
+                initial_pw = secrets.token_urlsafe(12)
+                users[m_id] = {
+                    "password_hash": self._hash_pw(initial_pw),
+                    "instance_id": "main",
+                    "username": "admin",
+                    "role": "admin",
+                    "created_at": int(time.time()),
+                }
+                updated = True
+                print(f"\n{'='*55}")
+                print("  Aria WebPanel — Master Admin Account Created")
+                print(f"  User ID  : {m_id}")
+                print(f"  Password : {initial_pw}")
+                print("  Change it at: /api/dash/change-password")
+                print(f"{'='*55}\n")
+            else:
+                if str(existing.get("role", "")).lower() != "admin":
+                    existing["role"] = "admin"
+                    updated = True
+                if str(existing.get("instance_id", "") or "") != "main":
+                    existing["instance_id"] = "main"
+                    updated = True
+                users[m_id] = existing
+
+        if updated:
+            self._save_dashboard_users(users)
+
     # ── Access requests (visitors) ────────────────────────────────────────────
     def _access_requests_path(self) -> str:
         return os.path.join(self._base_dir, "access_requests.json")
@@ -1481,6 +1514,59 @@ class WebPanel:
             except Exception as e:
                 return f"<h1>Login</h1><p>Template unavailable: {e}</p>"
 
+        @self.app.get("/reset-password")
+        def reset_password_get() -> Any:
+            error = str(request.args.get("error", "")).strip()
+            success = str(request.args.get("success", "")).strip()
+            error_block = f'<div class="alert alert-error">{error}</div>' if error else ""
+            success_block = f'<div class="alert alert-success">{success}</div>' if success else ""
+            return (
+                f"""<!DOCTYPE html><html><head><title>Reset Password</title>
+<meta name='viewport' content='width=device-width, initial-scale=1.0'>
+<link rel='stylesheet' href='/static/css/panel_pages.css'></head>
+<body class='panel-page'><div class='page-wrap page-wrap-sm'><section class='panel'>
+<div class='panel-head site-hero'><div class='hero-copy'><span class='kicker'><i></i> Account Recovery</span>
+<h1 class='page-title'>Reset Password Request</h1>
+<p class='page-sub'>Submit a request and it will appear in the admin panel queue.</p></div></div>
+<div class='panel-body'>{error_block}{success_block}
+<form class='form' method='post' action='/reset-password'>
+<div class='field'><label>User ID</label><input name='user_id' required placeholder='Your dashboard user ID'></div>
+<div class='field'><label>Reason (optional)</label><textarea name='reason' rows='3' placeholder='I forgot my password'></textarea></div>
+<div class='actions'><button class='btn btn-primary' type='submit'>Send Request</button>
+<a class='btn btn-ghost' href='/login'>Back to Login</a></div></form>
+</div></section></div></body></html>""",
+                200,
+                {"Content-Type": "text/html; charset=utf-8"},
+            )
+
+        @self.app.post("/reset-password")
+        def reset_password_post() -> Any:
+            user_id = str(request.form.get("user_id", "")).strip()
+            reason = str(request.form.get("reason", "")).strip()[:512]
+            if not user_id:
+                return redirect("/reset-password?error=User+ID+is+required")
+
+            users = self._load_dashboard_users()
+            entry = users.get(user_id) if isinstance(users, dict) else None
+            if not isinstance(entry, dict):
+                return redirect("/reset-password?error=User+ID+not+found")
+
+            username = str(entry.get("username", user_id) or user_id)
+            reqs = self._load_access_requests()
+            req_id = secrets.token_hex(8)
+            reqs.append({
+                "id": req_id,
+                "type": "password_reset",
+                "user_id": user_id,
+                "username": username,
+                "reason": reason or "Password reset requested",
+                "remote_addr": request.remote_addr,
+                "timestamp": int(time.time()),
+                "status": "pending",
+            })
+            self._save_access_requests(reqs)
+            return redirect("/reset-password?success=Request+sent+to+admin+panel")
+
         @self.app.post("/login")
         def login_post() -> Any:
             form = request.form
@@ -2307,10 +2393,37 @@ class WebPanel:
             if not req:
                 return jsonify({"ok": False, "error": "Request not found"}), 404
             data = request.get_json(force=True) or {}
+            req_type = str((req or {}).get("type", "access")).lower()
+            users = self._load_dashboard_users()
+
+            if req_type == "password_reset":
+                target_uid = str(data.get("user_id") or req.get("user_id") or "").strip()
+                if not target_uid or target_uid not in users:
+                    return jsonify({"ok": False, "error": "Target user not found"}), 404
+                new_pw = data.get("password") or secrets.token_urlsafe(10)
+                user_entry = users.get(target_uid) or {}
+                user_entry["password_hash"] = self._hash_pw(new_pw)
+                user_entry["last_seen_at"] = int(time.time())
+                timeline = user_entry.get("last_actions") if isinstance(user_entry.get("last_actions"), list) else []
+                timeline.append({
+                    "ts": int(time.time()),
+                    "action": "password_reset",
+                    "details": f"Admin approved reset request {req_id}",
+                    "ip": str(request.remote_addr or "")[:64],
+                })
+                user_entry["last_actions"] = timeline[-50:]
+                users[target_uid] = user_entry
+                self._save_dashboard_users(users)
+                req["status"] = "approved"
+                req["approved_uid"] = str(target_uid)
+                req["resolved_type"] = "password_reset"
+                self._save_access_requests(reqs)
+                self._record_user_activity(session.get("user_id", ""), "request_approve", f"Approved password reset for {target_uid}", request.remote_addr or "")
+                return jsonify({"ok": True, "user_id": str(target_uid), "password": new_pw})
+
             # Generate a random user_id and password for the new visitor account
             new_uid = data.get("user_id") or f"visitor_{secrets.token_hex(4)}"
             new_pw  = data.get("password") or secrets.token_urlsafe(10)
-            users = self._load_dashboard_users()
             users[str(new_uid)] = {
                 "password_hash": self._hash_pw(new_pw),
                 "instance_id": self.instance_id,
@@ -2354,6 +2467,26 @@ class WebPanel:
                 if str((req or {}).get("status", "pending")).lower() != "pending":
                     continue
                 req_id = str(req.get("id", "") or "")
+                req_type = str((req or {}).get("type", "access")).lower()
+
+                if req_type == "password_reset":
+                    target_uid = str(req.get("user_id") or "").strip()
+                    if not target_uid or target_uid not in users:
+                        continue
+                    new_pw = secrets.token_urlsafe(10)
+                    user_entry = users.get(target_uid) or {}
+                    user_entry["password_hash"] = self._hash_pw(new_pw)
+                    user_entry["last_seen_at"] = now
+                    timeline = user_entry.get("last_actions") if isinstance(user_entry.get("last_actions"), list) else []
+                    timeline.append({"ts": now, "action": "password_reset", "details": f"Bulk approved reset request {req_id}", "ip": str(request.remote_addr or "")[:64]})
+                    user_entry["last_actions"] = timeline[-50:]
+                    users[target_uid] = user_entry
+                    req["status"] = "approved"
+                    req["approved_uid"] = str(target_uid)
+                    req["resolved_type"] = "password_reset"
+                    approved.append({"request_id": req_id, "user_id": str(target_uid), "password": new_pw})
+                    continue
+
                 new_uid = f"visitor_{secrets.token_hex(4)}"
                 while str(new_uid) in users:
                     new_uid = f"visitor_{secrets.token_hex(4)}"
