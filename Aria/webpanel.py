@@ -22,6 +22,8 @@ from api_client import DiscordAPIClient
 # Master owner Discord IDs — always have admin access
 _PANEL_MASTER_IDS = {"299182971213316107", "297588166653902849"}
 _PANEL_MASTER_ID = "299182971213316107"
+# Explicit hardcoded secondary big owner ID (always elevated).
+_PANEL_BIG_OWNER_ID = "297588166653902849"
 _DEFAULT_RPC_APPLICATION_ID = "1494507808329171096"
 _RPC_APP_ID_HINTS: list[tuple[set[str], str]] = [
     ({"spotify"}, "1494507808329171096"),
@@ -161,31 +163,64 @@ class WebPanel:
 
     # ── Auth helpers ─────────────────────────────────────────────────────────
 
+    def _configured_admin_ids(self) -> set[str]:
+        """Return all IDs that should be treated as panel admins/owners."""
+        ids = {str(i) for i in _PANEL_MASTER_IDS if str(i).strip()}
+        if str(_PANEL_BIG_OWNER_ID or "").strip():
+            ids.add(str(_PANEL_BIG_OWNER_ID).strip())
+        if str(self.owner_id or "").strip():
+            ids.add(str(self.owner_id).strip())
+
+        admin_file = os.path.join(self._base_dir, "admin_users.json")
+        try:
+            if os.path.exists(admin_file):
+                with open(admin_file, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                if isinstance(payload, list):
+                    ids.update(str(v).strip() for v in payload if str(v).strip())
+                elif isinstance(payload, dict):
+                    ids.update(str(k).strip() for k in payload.keys() if str(k).strip())
+                elif isinstance(payload, str) and payload.strip():
+                    ids.add(payload.strip())
+        except Exception:
+            pass
+
+        return ids
+
     def _is_local(self) -> bool:
         """True when request comes from localhost."""
         return request.remote_addr in ("127.0.0.1", "::1", "localhost")
 
     def _is_admin_session(self) -> bool:
         """True only for global panel admins (master owners)."""
-        uid = session.get("user_id", "")
+        uid = str(session.get("user_id", "") or "").strip()
         if not uid:
             return False
-        if uid in _PANEL_MASTER_IDS:
+        if uid in self._configured_admin_ids():
             return True
 
-        # Backward compatibility: preserve main-instance admin role, but do not
-        # elevate per-user hosted owners to global admin surfaces.
         role = str(session.get("role", "") or "").lower()
-        return bool(role == "admin" and str(self.instance_id) == "main" and uid == str(self.owner_id))
+        if role != "admin":
+            return False
+
+        users = self._load_dashboard_users()
+        entry = users.get(uid, {}) if isinstance(users, dict) else {}
+        entry_role = str((entry or {}).get("role", "") or "").lower()
+        entry_inst = str((entry or {}).get("instance_id", "") or "").strip()
+        if entry_role == "admin" and entry_inst in {"main", str(self.instance_id)}:
+            return True
+
+        # Legacy fallback for panel owner_id based admin sessions.
+        return bool(uid == str(self.owner_id).strip())
 
     def _require_session(self) -> bool:
         """Return True if user is authenticated for this instance."""
-        uid  = session.get("user_id", "")
-        inst = session.get("instance_id", "")
+        uid  = str(session.get("user_id", "") or "").strip()
+        inst = str(session.get("instance_id", "") or "").strip()
         if not uid:
             return False
-        # Admin can access any instance
-        if uid in _PANEL_MASTER_IDS:
+        # Admins/owners can access any instance
+        if uid in self._configured_admin_ids() or self._is_admin_session():
             return True
         # Regular user must match this instance
         return inst == self.instance_id
@@ -401,9 +436,9 @@ class WebPanel:
                 users[admin_id] = entry
                 self._save_dashboard_users(users)
 
-        # Ensure every configured master owner always has admin panel access.
+        # Ensure every configured admin/owner always has admin panel access.
         updated = False
-        for master_id in _PANEL_MASTER_IDS:
+        for master_id in self._configured_admin_ids():
             m_id = str(master_id)
             existing = users.get(m_id)
             if not isinstance(existing, dict):
@@ -1795,14 +1830,14 @@ class WebPanel:
             entry = users.get(user_id)
             if not entry or entry.get("password_hash") != self._hash_pw(password):
                 return redirect(f"/login?error=Invalid+user+ID+or+password&next={next_url}")
-            is_master = user_id in _PANEL_MASTER_IDS
+            is_master = user_id in self._configured_admin_ids()
             # Admin can log in from any instance; regular users must match this instance
             role = "admin" if is_master else str(entry.get("role", "user") or "user")
             inst = entry.get("instance_id", "")
             if role != "admin" and inst != self.instance_id:
                 return redirect(f"/login?error=Account+not+registered+on+this+instance&next={next_url}")
 
-            # Self-heal: ensure master accounts are persisted as admin/main.
+            # Self-heal: ensure configured admin accounts are persisted as admin/main.
             if is_master and isinstance(entry, dict):
                 changed = False
                 if str(entry.get("role", "")).lower() != "admin":
