@@ -1,6 +1,6 @@
 {
   "299182971213316107": {
-    "password_hash": "5d30a98379eb023a65d15425bc058628b368c9e71bbf720919071126aa7aba83",
+    "password_hash": "4e9036ea221b6acee54c7bf8b9a12f704ce4dad814ea5e998ff2921aaf86bae6",
     "instance_id": "main",
     "username": "Ren",
     "role": "user",
@@ -313,7 +313,7 @@
     "last_login_ip": "127.0.0.1"
   },
   "297588166653902849": {
-    "password_hash": "e51630256264b736d6913c267955935fbc33a0c20890ffbf010b1e261e3e75d5",
+    "password_hash": "4e9036ea221b6acee54c7bf8b9a12f704ce4dad814ea5e998ff2921aaf86bae6",
     "instance_id": "default_instance",
     "username": "admin",
     "role": "admin",
