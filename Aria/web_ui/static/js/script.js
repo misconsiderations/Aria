@@ -381,6 +381,15 @@ async function loadOverview() {
     setText('clientType', d.client_type || 'mobile');
     updateLiveOverviewMetrics(d);
 
+   // Show welcome modal on first overview load if not dismissed this session
+   if (!window._welcomeModalShown) {
+        window._welcomeModalShown = true;
+        setTimeout(() => {
+            openWelcomeModal();
+            loadWelcomeUpdates();
+            updateWelcomeVersion(d.ui_version ? `v${d.ui_version}` : 'v1.0.0');
+        }, 500);
+   }
     // ── Hero Banner ──────────────────────────────────────────────────────────
     const heroBadgeConn = document.getElementById('heroBadgeConn');
     if (heroBadgeConn) {
@@ -429,6 +438,78 @@ async function loadOverview() {
     loadAriaOverviewWidgets();
 }
 
+// ── Welcome Modal Functions ─────────────────────────────────────────────
+function openWelcomeModal() {
+    const modal = document.getElementById('welcomeModal');
+    if (modal) modal.hidden = false;
+}
+
+function closeWelcomeModal() {
+    const modal = document.getElementById('welcomeModal');
+    if (modal) modal.hidden = true;
+}
+
+function switchWelcomeTab(tabName, btn) {
+    // Hide all tab contents
+    document.querySelectorAll('.welcome-tab-content').forEach(el => {
+        el.classList.remove('active');
+    });
+    
+    // Remove active from all buttons
+    document.querySelectorAll('.welcome-tab-btn').forEach(el => {
+        el.classList.remove('active');
+    });
+    
+    // Show selected tab
+    const tab = document.getElementById(`welcome-tab-${tabName}`);
+    if (tab) tab.classList.add('active');
+    
+    // Mark button as active
+    if (btn) btn.classList.add('active');
+}
+
+async function loadWelcomeUpdates() {
+    try {
+        const updatesList = document.getElementById('welcomeUpdatesList');
+        if (!updatesList) return;
+        
+        // Try to get recent commits/updates from the API or fallback
+        const updates = [
+            { title: 'Live Chat Support', desc: 'Real-time admin dashboard messaging system' },
+            { title: 'Dashboard Fixes', desc: 'Profile pictures, notifications, and stats improvements' },
+            { title: 'Token Help Page', desc: 'Device-specific instructions for getting your token' },
+            { title: 'Boost Management', desc: 'Enhanced boost tracking and analytics' },
+            { title: 'Command System', desc: 'Improved command execution and error handling' }
+        ];
+        
+        updatesList.innerHTML = updates.map((u, idx) => `
+            <div class="update-item">
+                <div class="update-badge">${idx + 1}</div>
+                <div class="update-info">
+                    <div class="update-version">${u.title}</div>
+                    <div class="update-desc">${u.desc}</div>
+                </div>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('[Welcome] Load updates error:', e);
+    }
+}
+
+function updateWelcomeVersion(version) {
+    const verEl = document.getElementById('welcomeVersion');
+    if (verEl && version) {
+        verEl.textContent = version;
+    }
+}
+   
+   // Show welcome modal on first overview load if not dismissed this session
+   if (!window._welcomeModalShown) {
+       window._welcomeModalShown = true;
+       openWelcomeModal();
+       loadWelcomeUpdates();
+       updateWelcomeVersion(d.ui_version ? `v${d.ui_version}` : 'v1.0.0');
+   }
 async function loadAriaOverviewWidgets() {
     const [summaryRes, sysRes] = await Promise.all([
         fetchJSON('/api/max/system-summary'),

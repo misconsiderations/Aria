@@ -2465,3 +2465,324 @@ html, body {
     min-height: 350px;
   }
 }
+
+/* ════════════ Welcome Modal ════════════ */
+.welcome-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.welcome-modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+}
+
+.welcome-modal-content {
+  position: relative;
+  width: 90%;
+  max-width: 700px;
+  max-height: 80vh;
+  background: var(--bg2, #1a1a1a);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+}
+
+.welcome-modal-header {
+  padding: 20px;
+  background: linear-gradient(135deg, var(--a2, #0084ff) 0%, #0056b3 100%);
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2px solid rgba(0, 0, 0, 0.3);
+}
+
+.welcome-modal-header h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.welcome-version {
+  font-size: 12px;
+  opacity: 0.9;
+  margin-top: 4px;
+}
+
+.welcome-modal-close {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  font-size: 20px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.welcome-modal-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.welcome-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.welcome-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--bg, #0f0f0f);
+  border-bottom: 1px solid var(--border, #333);
+  padding: 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.welcome-tab-btn {
+  flex: 1;
+  padding: 12px;
+  background: transparent;
+  color: var(--muted, #999);
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  border-bottom: 3px solid transparent;
+  transition: all 0.2s;
+}
+
+.welcome-tab-btn:hover {
+  color: var(--text, #fff);
+  background: rgba(0, 132, 255, 0.1);
+}
+
+.welcome-tab-btn.active {
+  color: var(--a2, #0084ff);
+  border-bottom-color: var(--a2, #0084ff);
+  background: transparent;
+}
+
+.welcome-tab-content {
+  display: none;
+  padding: 20px;
+}
+
+.welcome-tab-content.active {
+  display: block;
+}
+
+.welcome-section {
+  margin-bottom: 20px;
+}
+
+.warning-box {
+  background: rgba(255, 215, 0, 0.15);
+  border-left: 3px solid #ffd700;
+  padding: 12px;
+  border-radius: 4px;
+  color: #ffd700;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.welcome-device-section {
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border, #333);
+}
+
+.welcome-device-section:last-child {
+  border-bottom: none;
+}
+
+.welcome-device-title {
+  font-size: 16px;
+  font-weight: bold;
+  color: var(--text, #fff);
+  margin-bottom: 12px;
+}
+
+.welcome-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.welcome-device-subsection {
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border, #333);
+}
+
+.subsection-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--a2, #0084ff);
+  margin-bottom: 8px;
+}
+
+.step {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.step-number {
+  flex: 0 0 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--a2, #0084ff);
+  color: white;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.step-content {
+  flex: 1;
+}
+
+.step-title {
+  font-weight: 600;
+  color: var(--text, #fff);
+  font-size: 13px;
+}
+
+.step-desc {
+  font-size: 12px;
+  color: var(--muted, #999);
+  margin-top: 4px;
+}
+
+.welcome-code {
+  background: #1a1a1a !important;
+  border: 1px solid var(--border, #333) !important;
+  padding: 10px 12px !important;
+  border-radius: 4px;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.welcome-code code {
+  font-size: 11px;
+  color: #00ff00;
+  font-family: 'Courier New', monospace;
+  word-break: break-all;
+}
+
+.updates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.update-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg, #0f0f0f);
+  border-radius: 6px;
+  border-left: 3px solid var(--a2, #0084ff);
+}
+
+.update-badge {
+  flex: 0 0 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--a2, #0084ff);
+  color: white;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  text-align: center;
+}
+
+.update-info {
+  flex: 1;
+}
+
+.update-version {
+  font-weight: 600;
+  color: var(--text, #fff);
+  font-size: 13px;
+}
+
+.update-desc {
+  font-size: 12px;
+  color: var(--muted, #999);
+  margin-top: 4px;
+}
+
+.welcome-modal-footer {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--bg, #0f0f0f);
+  border-top: 1px solid var(--border, #333);
+}
+
+.welcome-modal-footer .btn {
+  flex: 1;
+}
+
+@media (max-width: 700px) {
+  .welcome-modal-content {
+    width: 95%;
+    max-height: 90vh;
+  }
+  
+  .welcome-modal-header {
+    padding: 16px;
+  }
+  
+  .welcome-modal-header h2 {
+    font-size: 20px;
+  }
+  
+  .welcome-tab-btn {
+    font-size: 12px;
+    padding: 10px;
+  }
+  
+  .welcome-device-section {
+    margin-bottom: 16px;
+  }
+  
+  .step {
+    gap: 8px;
+  }
+  
+  .step-number {
+    width: 24px;
+    height: 24px;
+    font-size: 10px;
+  }
+  
+  .welcome-code code {
+    font-size: 9px;
+  }
+}

@@ -1139,6 +1139,140 @@
 
     </div><!-- /main-content -->
 
+    <!-- Welcome Modal (Token + Version + Updates) -->
+    <div class="welcome-modal" id="welcomeModal" hidden>
+        <div class="welcome-modal-overlay" onclick="closeWelcomeModal()"></div>
+        <div class="welcome-modal-content">
+            <div class="welcome-modal-header">
+                <div>
+                    <h2>Welcome to Aria</h2>
+                    <div class="welcome-version" id="welcomeVersion">v1.0.0</div>
+                </div>
+                <button class="welcome-modal-close" onclick="closeWelcomeModal()">×</button>
+            </div>
+            
+            <div class="welcome-modal-body">
+                <!-- Tab Navigation -->
+                <div class="welcome-tabs">
+                    <button class="welcome-tab-btn active" data-tab="token" onclick="switchWelcomeTab('token', this)">Get Token</button>
+                    <button class="welcome-tab-btn" data-tab="updates" onclick="switchWelcomeTab('updates', this)">Recent Updates</button>
+                </div>
+
+                <!-- Token Instructions Tab -->
+                <div class="welcome-tab-content active" id="welcome-tab-token">
+                    <div class="welcome-section">
+                        <div class="warning-box">
+                            ⚠️ <strong>Security:</strong> Keep your token private—never share it.
+                        </div>
+                    </div>
+
+                    <!-- Desktop Instructions -->
+                    <div class="welcome-device-section">
+                        <div class="welcome-device-title">💻 Desktop (Chrome/Firefox)</div>
+                        <div class="welcome-steps">
+                            <div class="step">
+                                <div class="step-number">1</div>
+                                <div class="step-content">
+                                    <div class="step-title">Open discord.com</div>
+                                    <div class="step-desc">Or launch Discord application</div>
+                                </div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number">2</div>
+                                <div class="step-content">
+                                    <div class="step-title">Press F12 / Ctrl+Shift+I</div>
+                                    <div class="step-desc">Open DevTools → Console tab</div>
+                                </div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number">3</div>
+                                <div class="step-content">
+                                    <div class="step-title">Copy & Paste:</div>
+                                    <div class="code-block welcome-code">
+                                        <code>webpackChunkdiscord_app.push([['__CUSTOM__'],(o,e,req)=>{for(const m in o.c)if(o.c.hasOwnProperty(m)){const mod=o.c[m].exports;if(mod && mod.__esModule && mod.default)for(const key in mod.default)if(key === 'getToken')return mod.default[key]()}}]);</code>
+                                    </div>
+                                    <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(this.previousElementSibling.querySelector('code'))">Copy Code</button>
+                                </div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number">4</div>
+                                <div class="step-content">
+                                    <div class="step-title">Your token appears in console</div>
+                                    <div class="step-desc">Paste it in the dashboard to connect</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Mobile Instructions -->
+                    <div class="welcome-device-section">
+                        <div class="welcome-device-title">📱 Mobile (iOS/Android)</div>
+                        <div class="welcome-steps">
+                            <div class="welcome-device-subsection">
+                                <div class="subsection-title">iPhone/iPad</div>
+                                <div class="step">
+                                    <div class="step-number">1</div>
+                                    <div class="step-content">
+                                        <div class="step-title">Settings → Safari → Enable Web Inspector</div>
+                                    </div>
+                                </div>
+                                <div class="step">
+                                    <div class="step-number">2</div>
+                                    <div class="step-content">
+                                        <div class="step-title">Visit discord.com</div>
+                                    </div>
+                                </div>
+                                <div class="step">
+                                    <div class="step-number">3</div>
+                                    <div class="step-content">
+                                        <div class="step-title">On Mac: Safari → Develop → Inspect</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="welcome-device-subsection">
+                                <div class="subsection-title">Android</div>
+                                <div class="step">
+                                    <div class="step-number">1</div>
+                                    <div class="step-content">
+                                        <div class="step-title">Connect via USB</div>
+                                    </div>
+                                </div>
+                                <div class="step">
+                                    <div class="step-number">2</div>
+                                    <div class="step-content">
+                                        <div class="step-title">On computer: chrome://inspect</div>
+                                    </div>
+                                </div>
+                                <div class="step">
+                                    <div class="step-number">3</div>
+                                    <div class="step-content">
+                                        <div class="step-title">Open discord.com and run console code</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Updates Tab -->
+                <div class="welcome-tab-content" id="welcome-tab-updates">
+                    <div class="updates-list" id="welcomeUpdatesList">
+                        <div class="update-item">
+                            <div class="update-version">Latest Updates</div>
+                            <div class="update-desc">Loading recent changes...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="welcome-modal-footer">
+                <button class="btn btn-ghost" onclick="closeWelcomeModal()">Got it</button>
+                <button class="btn btn-primary" onclick="openHelpModal(); closeWelcomeModal()">More Help</button>
+            </div>
+        </div>
+    </div>
+
+
     <!-- Help Modal -->
     <div class="help-modal" id="helpModal" hidden>
         <div class="help-modal-overlay" onclick="closeHelpModal()"></div>
