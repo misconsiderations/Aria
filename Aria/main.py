@@ -16,8 +16,6 @@ except ImportError:
 bot = None
 web_panel = None
 
-BOT_START_TIME = time.time()
-
 import importlib
 
 import re
@@ -26,6 +24,8 @@ import time
 import random
 import json
 from urllib.parse import quote as _url_quote
+
+BOT_START_TIME = time.time()
 
 try:
     import aiohttp  # type: ignore[import-untyped]
