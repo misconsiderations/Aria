@@ -58,9 +58,14 @@
 
               <div class="field">
                 <label>Password</label>
-                <div class="setting-controls">
-                  <input type="password" id="loginPasswordInput" name="password" class="setting-input" placeholder="Password" autocomplete="current-password" required />
-                  <button type="button" class="btn btn-ghost" style="margin-left:8px" onclick="togglePasswordField('loginPasswordInput', this)">Show</button>
+                <div class="password-input-wrap">
+                  <input type="password" id="loginPasswordInput" name="password" placeholder="Password" autocomplete="current-password" required />
+                  <button type="button" class="password-toggle-icon" onclick="togglePasswordField('loginPasswordInput', this)" aria-label="Show password" title="Show password">
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M1.5 10s3-5.5 8.5-5.5S18.5 10 18.5 10s-3 5.5-8.5 5.5S1.5 10 1.5 10z"></path>
+                      <circle cx="10" cy="10" r="2.5"></circle>
+                    </svg>
+                  </button>
                 </div>
               </div>
 
@@ -105,7 +110,12 @@
       if (!el) return;
       var next = el.type === 'password' ? 'text' : 'password';
       el.type = next;
-      if (btn) btn.textContent = next === 'password' ? 'Show' : 'Hide';
+      if (btn) {
+        var showing = next === 'text';
+        btn.classList.toggle('is-visible', showing);
+        btn.setAttribute('aria-label', showing ? 'Hide password' : 'Show password');
+        btn.setAttribute('title', showing ? 'Hide password' : 'Show password');
+      }
     }
   </script>
 </body>

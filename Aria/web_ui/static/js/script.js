@@ -176,22 +176,38 @@ function togglePasswordField(inputId, btn) {
     if (!el) return;
     const next = el.type === 'password' ? 'text' : 'password';
     el.type = next;
-    if (btn) btn.textContent = next === 'password' ? 'Show' : 'Hide';
+    if (btn) {
+        const showing = next === 'text';
+        btn.classList.toggle('is-visible', showing);
+        btn.setAttribute('aria-label', showing ? 'Hide password' : 'Show password');
+        btn.setAttribute('title', showing ? 'Hide password' : 'Show password');
+    }
 }
 
 // ── User Profile Loader (topbar sync only) ──
 async function loadUserProfile() {
-    fetchJSON('/api/max/user-profile').then(data => {
-        if (!data || !data.ok) return;
-        // Sync topbar chip
-        const tbAvatar = document.getElementById('topbarAvatar');
-        const tbUser = document.getElementById('topbarUsername');
-        if (tbAvatar && data.avatar_url) tbAvatar.src = data.avatar_url;
-        if (tbUser) tbUser.textContent = data.username || '—';
-        // Sync hero avatar
-        const heroAvatar = document.getElementById('heroAvatar');
-        if (heroAvatar && data.avatar_url) heroAvatar.src = data.avatar_url;
-    });
+    let data = await fetchJSON('/api/max/user-profile');
+    if (!data || !data.ok) {
+        const me = await fetchJSON('/api/dash/me');
+        if (me && me.ok && me.profile) {
+            data = {
+                ok: true,
+                username: me.profile.username || me.profile.user_id || '—',
+                user_id: me.profile.user_id || '',
+                avatar_url: '',
+            };
+        }
+    }
+    if (!data || !data.ok) return;
+
+    // Sync topbar chip
+    const tbAvatar = document.getElementById('topbarAvatar');
+    const tbUser = document.getElementById('topbarUsername');
+    if (tbAvatar && data.avatar_url) tbAvatar.src = data.avatar_url;
+    if (tbUser) tbUser.textContent = data.username || '—';
+    // Sync hero avatar
+    const heroAvatar = document.getElementById('heroAvatar');
+    if (heroAvatar && data.avatar_url) heroAvatar.src = data.avatar_url;
 }
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -1108,7 +1124,21 @@ async function loadNotifications() {
     // Legacy feed on Notifications section page
     const feed = document.getElementById('notificationFeed');
     if (!feed) return;
-    const res = await fetchJSON('/api/discord/notifications');
+    let res = await fetchJSON('/api/discord/notifications');
+    if (!res || !res.ok) {
+        const fallback = await fetchJSON('/api/max/notifications');
+        const events = (fallback && fallback.ok && Array.isArray(fallback.events))
+            ? fallback.events.map(e => ({
+                title: e.action || 'Activity',
+                body: e.details || '',
+                author: e.user || '',
+                ts: Number(e.ts || 0),
+                kind: 'system',
+                icon: '⚙️',
+            }))
+            : [];
+        res = { ok: true, notifications: events };
+    }
     if (!res || !res.notifications || !res.notifications.length) {
         feed.innerHTML = '<div class="log-loading">No Discord notifications yet.</div>';
         return;
@@ -1134,7 +1164,22 @@ async function refreshNotificationCenter() {
     const list      = document.getElementById('notificationCenterList');
     if (!bellBadge || !bell || !list) return;
 
-    const res = await fetchJSON('/api/discord/notifications');
+    let res = await fetchJSON('/api/discord/notifications');
+    if (!res || !res.ok) {
+        const fallback = await fetchJSON('/api/max/notifications');
+        const events = (fallback && fallback.ok && Array.isArray(fallback.events))
+            ? fallback.events.map(e => ({
+                title: e.action || 'Activity',
+                body: e.details || '',
+                author: e.user || '',
+                ts: Number(e.ts || 0),
+                kind: 'system',
+                icon: '⚙️',
+                read: false,
+            }))
+            : [];
+        res = { ok: true, notifications: events };
+    }
     const notifs = (res && res.ok && Array.isArray(res.notifications)) ? res.notifications : [];
     _notificationState.events = notifs;
 

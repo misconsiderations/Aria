@@ -742,8 +742,15 @@
                         <div class="setting-sub">Paste a valid token to launch a hosted instance</div>
                     </div>
                     <div class="setting-controls setting-controls-wide">
-                        <input type="password" id="hostTokenInput" class="setting-input" placeholder="Token" autocomplete="off">
-                        <button class="btn btn-ghost button-ml-sm" type="button" onclick="togglePasswordField('hostTokenInput', this)">Show</button>
+                        <div class="password-input-wrap">
+                            <input type="password" id="hostTokenInput" class="setting-input" placeholder="Token" autocomplete="off">
+                            <button class="password-toggle-icon" type="button" onclick="togglePasswordField('hostTokenInput', this)" aria-label="Show password" title="Show password">
+                                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M1.5 10s3-5.5 8.5-5.5S18.5 10 18.5 10s-3 5.5-8.5 5.5S1.5 10 1.5 10z"></path>
+                                    <circle cx="10" cy="10" r="2.5"></circle>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div class="setting-row">
@@ -908,15 +915,29 @@
                 <div class="setting-row">
                     <div><div class="setting-label">Current Password</div></div>
                     <div class="setting-controls">
-                        <input type="password" id="oldPasswordInput" class="setting-input" placeholder="Current password">
-                        <button class="btn btn-ghost button-ml-sm" type="button" onclick="togglePasswordField('oldPasswordInput', this)">Show</button>
+                        <div class="password-input-wrap">
+                            <input type="password" id="oldPasswordInput" class="setting-input" placeholder="Current password">
+                            <button class="password-toggle-icon" type="button" onclick="togglePasswordField('oldPasswordInput', this)" aria-label="Show password" title="Show password">
+                                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M1.5 10s3-5.5 8.5-5.5S18.5 10 18.5 10s-3 5.5-8.5 5.5S1.5 10 1.5 10z"></path>
+                                    <circle cx="10" cy="10" r="2.5"></circle>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div class="setting-row">
                     <div><div class="setting-label">New Password</div><div class="setting-sub">Minimum 8 characters</div></div>
                     <div class="setting-controls">
-                        <input type="password" id="newPasswordInput" class="setting-input" placeholder="New password">
-                        <button class="btn btn-ghost button-ml-sm" type="button" onclick="togglePasswordField('newPasswordInput', this)">Show</button>
+                        <div class="password-input-wrap">
+                            <input type="password" id="newPasswordInput" class="setting-input" placeholder="New password">
+                            <button class="password-toggle-icon" type="button" onclick="togglePasswordField('newPasswordInput', this)" aria-label="Show password" title="Show password">
+                                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M1.5 10s3-5.5 8.5-5.5S18.5 10 18.5 10s-3 5.5-8.5 5.5S1.5 10 1.5 10z"></path>
+                                    <circle cx="10" cy="10" r="2.5"></circle>
+                                </svg>
+                            </button>
+                        </div>
                         <button class="btn btn-primary" onclick="changeMyPassword()">Update</button>
                     </div>
                 </div>
@@ -954,8 +975,15 @@
                 <div class="setting-row">
                     <div><div class="setting-label">Password</div></div>
                     <div class="setting-controls">
-                        <input type="password" id="newDashPassword" class="setting-input" placeholder="Set password">
-                        <button class="btn btn-ghost button-ml-sm" type="button" onclick="togglePasswordField('newDashPassword', this)">Show</button>
+                        <div class="password-input-wrap">
+                            <input type="password" id="newDashPassword" class="setting-input" placeholder="Set password">
+                            <button class="password-toggle-icon" type="button" onclick="togglePasswordField('newDashPassword', this)" aria-label="Show password" title="Show password">
+                                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M1.5 10s3-5.5 8.5-5.5S18.5 10 18.5 10s-3 5.5-8.5 5.5S1.5 10 1.5 10z"></path>
+                                    <circle cx="10" cy="10" r="2.5"></circle>
+                                </svg>
+                            </button>
+                        </div>
                         <button class="btn btn-primary button-ml-sm" onclick="addDashUser()">Save</button>
                     </div>
                 </div>
