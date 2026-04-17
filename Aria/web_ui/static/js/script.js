@@ -228,6 +228,7 @@ async function loadUserProfile() {
 
 window.addEventListener('DOMContentLoaded', () => {
     loadUserProfile();
+    setInterval(loadUserProfile, 10000);
 });
 // ── Sidebar Toggle (Mobile) ──
 const sidebarToggle = document.getElementById('sidebarToggle');
@@ -298,7 +299,7 @@ navItems.forEach(item => {
 // ── API helpers ───────────────────────────────────────────────────────────────
 async function fetchJSON(url) {
     try {
-        const r = await fetch(url);
+        const r = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
         if (!r.ok) throw new Error(r.status);
         return await r.json();
     } catch (e) {
@@ -312,6 +313,8 @@ async function postJSON(url, body) {
         const r = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            credentials: 'same-origin',
             body: JSON.stringify(body),
         });
         return await r.json();
@@ -417,12 +420,17 @@ async function loadOverview() {
 
     // ── Topbar avatar/username sync ──────────────────────────────────────────
     const tbAvatar = document.getElementById('topbarAvatar');
-    if (tbAvatar && d.avatar_url && tbAvatar.src.includes('aria-favicon')) {
-        tbAvatar.src = d.avatar_url;
+    if (tbAvatar) {
+        if (d.avatar_url && d.avatar_url.trim()) {
+            tbAvatar.src = d.avatar_url;
+        } else {
+            tbAvatar.src = '/static/images/aria-favicon.png';
+        }
+        tbAvatar.onerror = () => { tbAvatar.src = '/static/images/aria-favicon.png'; };
     }
     const tbUser = document.getElementById('topbarUsername');
-    if (tbUser && tbUser.textContent === '—' && d.username) {
-        tbUser.textContent = d.username;
+    if (tbUser) {
+        tbUser.textContent = d.username || '—';
     }
 
     // ── Hero avatar ──────────────────────────────────────────────────────────
@@ -436,6 +444,7 @@ async function loadOverview() {
     updateSparkline();
     updateToastFeed();
     loadAriaOverviewWidgets();
+    loadUserProfile();
 }
 
 // ── Welcome Modal Functions ─────────────────────────────────────────────
@@ -2773,4 +2782,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
 setInterval(() => {
     refreshNotificationCenter();
-}, 15000);
+}, 7000);

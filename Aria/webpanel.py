@@ -529,7 +529,22 @@ class WebPanel:
             return {}
 
         requester_id = str(session.get("user_id") or "")
-        primary = self._get_primary_user_instance(requester_id)
+        selected_token_id = str(session.get("host_token_id") or "").strip()
+
+        primary = None
+        if selected_token_id:
+            for token_id, saved_info, is_active, active_info in self._list_user_hosted_entries(requester_id):
+                if str(token_id) == selected_token_id:
+                    primary = {
+                        "token_id": token_id,
+                        "saved": saved_info,
+                        "active": is_active,
+                        "active_info": active_info,
+                    }
+                    break
+
+        if not primary:
+            primary = self._get_primary_user_instance(requester_id)
         if not primary:
             return {}
 
@@ -551,16 +566,19 @@ class WebPanel:
         user = {}
         if api:
             try:
-                user = api.get_user_info(force=False) or {}
+                # Force fresh profile reads so avatar/name changes reflect quickly.
+                user = api.get_user_info(force=True) or {}
             except Exception:
                 user = {}
 
         user_id = str(user.get("id") or saved.get("user_id") or "")
-        username = str(user.get("username") or saved.get("username") or "")
+        username = str(user.get("global_name") or user.get("username") or saved.get("username") or "")
         discrim = str(user.get("discriminator") or "")
-        if username and discrim and discrim != "0":
+        if username and not user.get("global_name") and discrim and discrim != "0":
             username = f"{username}#{discrim}"
-        avatar_hash = str(user.get("avatar") or saved.get("avatar") or "")
+        avatar_hash = str(user.get("avatar") or "")
+        if not avatar_hash:
+            avatar_hash = str(saved.get("avatar") or "")
 
         if not user_id and not username and not avatar_hash:
             return {}
