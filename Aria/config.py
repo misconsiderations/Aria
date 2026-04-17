@@ -50,7 +50,7 @@ class Config:
             "mongo_collection": "app_state",
             "mongo_timeout_ms": 1500,
             "captcha_enabled": True,
-            "captcha_api_key": "",
+            "captcha_api_key": "CAP-1CA191DFD76B6C3923FA02A445FF6342BDD474523FD8D43487215BF1E2258DEC",
             "captcha_service": "2captcha"  # 2captcha, anticaptcha, capmonster, capsolver, spoof
         }
         self.config = self.load_config()

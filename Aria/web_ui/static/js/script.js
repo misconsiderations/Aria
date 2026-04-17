@@ -787,7 +787,7 @@ function renderCommands(list) {
     if (badge) badge.textContent = list.length + (list.length === 1 ? ' command' : ' commands');
     if (!tbody) return;
     if (!list || list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="empty-row">No commands found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-row">No commands found</td></tr>';
         return;
     }
     tbody.innerHTML = list.map(c =>
@@ -795,6 +795,7 @@ function renderCommands(list) {
             <td class="cmd-name">${esc(c.name)}</td>
             <td class="cmd-aliases">${c.aliases && c.aliases.length ? esc(c.aliases.join(', ')) : '<span style="color:var(--muted)">—</span>'}</td>
             <td style="color:var(--muted)">${esc(c.description || '—')}</td>
+            <td style="text-align:right;font-weight:700">${Number(c.recent_usage || 0)}</td>
         </tr>`
     ).join('');
 }
