@@ -2542,10 +2542,9 @@ let _chatState = {
 
 async function loadChat() {
     try {
-        const chatLayout = document.getElementById('chat-layout');
+        const chatLayout = document.getElementById('chat-layout') || document.querySelector('.chat-layout');
         if (!chatLayout) return;
-        
-        showSection('chat');
+
         loadChatSessions();
         
         // Set up auto-refresh
@@ -2577,7 +2576,7 @@ async function loadChatSessions() {
         _chatState.sessions.forEach(session => {
             const item = document.createElement('div');
             item.className = 'chat-session-item' + (session.session_id === _chatState.currentSessionId ? ' active' : '');
-            item.onclick = () => openChatSession(session.session_id);
+            item.onclick = () => openChatSession(session.session_id, item);
             
             const unreadCount = (session.unread_count || 0);
             const unreadBadge = unreadCount > 0 ? `<span class="unread-badge">${unreadCount}</span>` : '';
@@ -2600,7 +2599,7 @@ async function loadChatSessions() {
     }
 }
 
-async function openChatSession(sessionId) {
+async function openChatSession(sessionId, clickedItem = null) {
     try {
         _chatState.currentSessionId = sessionId;
         
@@ -2618,7 +2617,7 @@ async function openChatSession(sessionId) {
         document.querySelectorAll('.chat-session-item').forEach(item => {
             item.classList.remove('active');
         });
-        event.target.closest('.chat-session-item').classList.add('active');
+        if (clickedItem) clickedItem.classList.add('active');
         
         // Find session data
         const session = _chatState.sessions.find(s => s.session_id === sessionId);

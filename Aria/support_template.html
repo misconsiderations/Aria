@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aria - Support</title>
+  <link rel="icon" type="image/png" href="/static/images/aria-favicon.png" />
+  <link rel="apple-touch-icon" href="/static/images/aria-favicon.png" />
+  <link rel="stylesheet" href="/static/css/panel_pages.css" />
+</head>
+<body class="panel-page">
+  <div class="page-wrap page-wrap-sm">
+    <nav class="top-nav">
+      <div class="brand"><span class="dot"></span> ARIA</div>
+      <div class="nav-links">
+        <a href="/home">Home</a>
+        <a href="/support">Support</a>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/logout">Logout</a>
+      </div>
+    </nav>
+
+    <section class="panel">
+      <div class="panel-head site-hero">
+        <div class="hero-copy">
+          <span class="kicker"><i></i> Live Support</span>
+          <h1 class="page-title">Support Inbox</h1>
+          <p class="page-sub">Send a message to panel admins. This chat refreshes automatically.</p>
+        </div>
+        <div class="hero-stack">
+          <div class="metric-card">
+            <span class="label">Status</span>
+            <span class="value" id="supportStatus">Live</span>
+            <div class="hint" id="supportStatusHint">Waiting for messages</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <div id="supportMessages" class="history-feed" style="min-height:280px; max-height:420px; overflow:auto; border:1px solid var(--line-s); border-radius:12px; padding:12px;"></div>
+
+        <div class="form mt-18">
+          <div class="field">
+            <label for="supportMessage">Message</label>
+            <textarea id="supportMessage" placeholder="Write your message to support..."></textarea>
+          </div>
+          <div class="actions">
+            <button class="btn btn-primary" type="button" onclick="sendSupportMessage()">Send</button>
+            <a class="btn btn-ghost" href="/dashboard">Back Dashboard</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    let _supportRefresh = null;
+
+    function esc(v) {
+      return String(v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function fmt(ts) {
+      const d = new Date(Number(ts || 0) * 1000);
+      if (Number.isNaN(d.getTime())) return '--:--';
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    async function fetchSupportMessages() {
+      const wrap = document.getElementById('supportMessages');
+      if (!wrap) return;
+
+      try {
+        const r = await fetch('/api/support/messages');
+        const data = await r.json();
+        if (!data || !data.ok) {
+          wrap.innerHTML = '<div class="log-loading">Could not load support messages.</div>';
+          return;
+        }
+
+        const msgs = Array.isArray(data.messages) ? data.messages : [];
+        if (!msgs.length) {
+          wrap.innerHTML = '<div class="log-loading">No messages yet. Send one to start.</div>';
+          return;
+        }
+
+        wrap.innerHTML = msgs.map((m) => {
+          const fromAdmin = m.from === 'admin';
+          return `
+            <div class="history-item" style="margin-bottom:8px;">
+              <div class="history-dot" style="background:${fromAdmin ? '#22c55e' : '#accbee'}"></div>
+              <div class="history-content">
+                <span class="history-cmd">${fromAdmin ? 'Admin' : 'You'}</span>
+                <div class="history-meta">${esc(fmt(m.ts))}</div>
+                <div class="history-raw">${esc(m.text || '')}</div>
+              </div>
+            </div>`;
+        }).join('');
+
+        wrap.scrollTop = wrap.scrollHeight;
+        const hint = document.getElementById('supportStatusHint');
+        if (hint) hint.textContent = data.resolved ? 'Conversation marked resolved' : 'Conversation active';
+      } catch (_) {
+        wrap.innerHTML = '<div class="log-loading">Network error loading support.</div>';
+      }
+    }
+
+    async function sendSupportMessage() {
+      const input = document.getElementById('supportMessage');
+      if (!input) return;
+      const message = (input.value || '').trim();
+      if (!message) return;
+
+      try {
+        const r = await fetch('/api/support/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message }),
+        });
+        const data = await r.json();
+        if (!data || !data.ok) return;
+        input.value = '';
+        fetchSupportMessages();
+      } catch (_) {}
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      fetchSupportMessages();
+      _supportRefresh = setInterval(fetchSupportMessages, 5000);
+
+      const input = document.getElementById('supportMessage');
+      if (input) {
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendSupportMessage();
+          }
+        });
+      }
+    });
+
+    window.addEventListener('beforeunload', () => {
+      if (_supportRefresh) clearInterval(_supportRefresh);
+    });
+  </script>
+</body>
+</html>

@@ -1347,10 +1347,25 @@ class WebPanel:
         @self.app.get("/api/max/user-profile")
         def api_max_user_profile():
             """Return the live bot identity used for avatar/name surfaces."""
-            bot_d = self._bot_data()
-            username = str(bot_d.get("username") or "").strip()
-            user_id = str(bot_d.get("user_id") or "").strip()
-            avatar_url = str(bot_d.get("avatar_url") or "").strip()
+            username = ""
+            user_id = ""
+            avatar_url = ""
+
+            # For authenticated non-admin sessions, prefer hosted context identity
+            # so each owner sees their own account profile/avatars.
+            if self._require_session() and not self._require_admin():
+                hosted_ctx = self._session_hosted_live_context()
+                profile = self._hosted_user_profile(hosted_ctx)
+                username = str(profile.get("username") or "").strip()
+                user_id = str(profile.get("user_id") or "").strip()
+                avatar_url = str(profile.get("avatar_url") or "").strip()
+
+            # Fallback to global bot identity when hosted context isn't available.
+            if not username and not user_id:
+                bot_d = self._bot_data()
+                username = str(bot_d.get("username") or "").strip()
+                user_id = str(bot_d.get("user_id") or "").strip()
+                avatar_url = str(bot_d.get("avatar_url") or "").strip()
 
             # Fallback for dashboard account identity when bot data is unavailable.
             if self._require_session() and (not username or username == "—"):
@@ -1508,7 +1523,8 @@ class WebPanel:
             if not (session.get("authenticated") or self._require_session()):
                 return jsonify({"ok": False, "error": "unauthenticated"}), 401
 
-            # For non-admin users, use their hosted token context for live DM notifications.
+            # For all authenticated non-admin users, always use hosted token context
+            # so notifications are scoped to their own connected account.
             if self._require_session() and not self._require_admin():
                 hosted_ctx = self._session_hosted_live_context()
                 api = hosted_ctx.get("api")
@@ -1654,6 +1670,15 @@ class WebPanel:
                 return self._read_raw_template("get_token_template.html"), 200, {"Content-Type": "text/html; charset=utf-8"}
             except Exception:
                 return redirect("/home")
+
+        @self.app.get("/support")
+        def support_page() -> Any:
+            if not self._require_session():
+                return redirect("/login?next=/support")
+            try:
+                return self._read_raw_template("support_template.html"), 200, {"Content-Type": "text/html; charset=utf-8"}
+            except Exception:
+                return redirect("/dashboard")
 
         @self.app.get("/tos")
         @self.app.get("/terms")
@@ -2833,7 +2858,9 @@ class WebPanel:
                 return jsonify({"ok": False, "error": "message required"}), 400
             
             user_id = str(session.get("user_id") or "")
-            username = str(session.get("username") or user_id)
+            users = self._load_dashboard_users()
+            entry = users.get(user_id, {}) if isinstance(users, dict) else {}
+            username = str((entry or {}).get("username") or session.get("username") or user_id)
             session_id = self._get_or_create_chat_session(user_id, username)
             
             chats = self._load_chat_messages()
