@@ -414,6 +414,10 @@ body::before {
   display: flex; align-items: center; justify-content: center;
 }
 
+.help-modal[hidden] {
+  display: none !important;
+}
+
 .help-modal-overlay {
   position: absolute; inset: 0;
   background: rgba(0,0,0,0.6); backdrop-filter: var(--backdrop-blur);
@@ -2477,6 +2481,10 @@ html, body {
   align-items: center;
   justify-content: center;
   z-index: 10000;
+}
+
+.welcome-modal[hidden] {
+  display: none !important;
 }
 
 .welcome-modal-overlay {
