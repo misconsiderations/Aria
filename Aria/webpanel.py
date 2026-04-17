@@ -1648,6 +1648,13 @@ class WebPanel:
             except Exception:
                 return redirect("/dashboard")
 
+        @self.app.get("/get-token")
+        def get_token() -> Any:
+            try:
+                return self._read_raw_template("get_token_template.html"), 200, {"Content-Type": "text/html; charset=utf-8"}
+            except Exception:
+                return redirect("/home")
+
         @self.app.get("/tos")
         @self.app.get("/terms")
         def tos() -> Any:

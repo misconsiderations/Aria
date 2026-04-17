@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aria - Get Token</title>
+  <link rel="icon" type="image/png" href="/static/images/aria-favicon.png" />
+  <link rel="apple-touch-icon" href="/static/images/aria-favicon.png" />
+  <link rel="stylesheet" href="/static/css/panel_pages.css" />
+</head>
+<body class="panel-page">
+  <div class="page-wrap page-wrap-sm">
+
+    <nav class="top-nav">
+      <div class="brand"><span class="dot"></span> ARIA</div>
+      <div class="nav-links">
+        <a href="/home">Home</a>
+        <a href="/get-token">Get Token</a>
+        <a href="/request-access">Access</a>
+        <a href="/login">Login</a>
+      </div>
+    </nav>
+
+    <section class="panel">
+      <div class="panel-head site-hero">
+        <div class="hero-copy">
+          <span class="kicker"><i></i> Token Guide</span>
+          <h1 class="page-title">How to Get Your Token</h1>
+          <p class="page-sub">Use the steps below for your device. Keep your token private and do not share it.</p>
+          <div class="hero-note">Security warning <strong>treat token like password</strong></div>
+        </div>
+        <div class="hero-stack">
+          <div class="metric-card">
+            <span class="label">Important</span>
+            <span class="value">Private</span>
+            <div class="hint">Never paste your token in chats, screenshots, or support tickets.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <div class="home-token-tabs" role="tablist" aria-label="Token guide tabs">
+          <button class="home-token-tab-btn active" data-tab="desktop" onclick="switchTokenTab('desktop', this)">Desktop</button>
+          <button class="home-token-tab-btn" data-tab="mobile" onclick="switchTokenTab('mobile', this)">Mobile</button>
+          <button class="home-token-tab-btn" data-tab="alternative" onclick="switchTokenTab('alternative', this)">Alternative</button>
+        </div>
+
+        <div class="home-token-tab-content active" id="token-tab-desktop">
+          <div class="home-token-step"><span>1</span><p>Open Discord or discord.com.</p></div>
+          <div class="home-token-step"><span>2</span><p>Press F12 or Ctrl+Shift+I and open the Console tab.</p></div>
+          <div class="home-token-step"><span>3</span><p>Paste and run this command:</p></div>
+          <div class="home-token-code-wrap">
+            <code id="token-code">webpackChunkdiscord_app.push([['__CUSTOM__'],(o,e,req)=>{for(const m in o.c)if(o.c.hasOwnProperty(m)){const mod=o.c[m].exports;if(mod && mod.__esModule && mod.default)for(const key in mod.default)if(key === 'getToken')return mod.default[key]()}}]);</code>
+            <button class="btn btn-ghost" type="button" onclick="copyTokenCode()">Copy Code</button>
+          </div>
+          <div class="home-token-step"><span>4</span><p>Your token appears in console output.</p></div>
+        </div>
+
+        <div class="home-token-tab-content" id="token-tab-mobile">
+          <div class="home-token-step"><span>1</span><p>iOS: Enable Safari Web Inspector. Android: Enable USB debugging.</p></div>
+          <div class="home-token-step"><span>2</span><p>Open discord.com on your phone.</p></div>
+          <div class="home-token-step"><span>3</span><p>Inspect from desktop browser and run the desktop command.</p></div>
+        </div>
+
+        <div class="home-token-tab-content" id="token-tab-alternative">
+          <div class="home-token-step"><span>1</span><p>Open Discord Desktop.</p></div>
+          <div class="home-token-step"><span>2</span><p>Press Ctrl+Shift+I and open Console.</p></div>
+          <div class="home-token-step"><span>3</span><p>Run the desktop command and copy token result.</p></div>
+        </div>
+
+        <div class="actions mt-18">
+          <a class="btn btn-primary" href="/login">Continue to Login</a>
+          <a class="btn btn-ghost" href="/home">Back Home</a>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    function switchTokenTab(tabName, btn) {
+      document.querySelectorAll('.home-token-tab-content').forEach((tab) => tab.classList.remove('active'));
+      document.querySelectorAll('.home-token-tab-btn').forEach((b) => b.classList.remove('active'));
+      const selected = document.getElementById(`token-tab-${tabName}`);
+      if (selected) selected.classList.add('active');
+      if (btn) btn.classList.add('active');
+    }
+
+    function copyTokenCode() {
+      const el = document.getElementById('token-code');
+      if (!el) return;
+      const value = el.textContent || '';
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(value).catch(() => {});
+        return;
+      }
+
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+      } catch (_) {}
+      document.body.removeChild(textarea);
+    }
+  </script>
+</body>
+</html>

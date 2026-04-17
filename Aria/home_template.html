@@ -16,7 +16,7 @@
       <div class="brand"><span class="dot"></span> ARIA</div>
       <div class="nav-links">
         <a href="/home">Home</a>
-        <a href="#get-token">Get Token</a>
+        <a href="/get-token">Get Token</a>
         <a href="/request-access">Access</a>
         <a href="/login">Login</a>
         <a href="/dashboard">Dashboard</a>
@@ -31,6 +31,7 @@
         <p class="home-lead">Command flow, account masking, live telemetry, and access management — all in one clean panel. No filler. No noise.</p>
         <div class="home-cta-row">
           <a class="btn btn-primary" href="/login">Enter Aria</a>
+          <a class="btn btn-ghost" href="/get-token">Get Token</a>
           <a class="btn btn-ghost" href="/request-access">Request Access</a>
         </div>
       </div>
@@ -55,46 +56,6 @@
           <span class="home-stat-num" id="stat-commands">—</span>
           <span class="home-stat-label">Actions</span>
         </div>
-      </div>
-    </section>
-
-    <!-- TOKEN GUIDE -->
-    <section class="home-token-section" id="get-token">
-      <div class="home-token-header">
-        <h2 class="home-token-title">How to Get Your Token</h2>
-        <p class="home-token-sub">Follow the steps for your device and keep your token private.</p>
-      </div>
-
-      <div class="home-token-warning">
-        <strong>Security:</strong> Never share your token with anyone.
-      </div>
-
-      <div class="home-token-tabs" role="tablist" aria-label="Token guide tabs">
-        <button class="home-token-tab-btn active" data-tab="desktop" onclick="switchHomeTokenTab('desktop', this)">Desktop</button>
-        <button class="home-token-tab-btn" data-tab="mobile" onclick="switchHomeTokenTab('mobile', this)">Mobile</button>
-        <button class="home-token-tab-btn" data-tab="alternative" onclick="switchHomeTokenTab('alternative', this)">Alternative</button>
-      </div>
-
-      <div class="home-token-tab-content active" id="home-token-tab-desktop">
-        <div class="home-token-step"><span>1</span><p>Open Discord or discord.com.</p></div>
-        <div class="home-token-step"><span>2</span><p>Press F12 or Ctrl+Shift+I and open the Console tab.</p></div>
-        <div class="home-token-step"><span>3</span><p>Paste and run this command:</p></div>
-        <div class="home-token-code-wrap">
-          <code id="home-token-code">webpackChunkdiscord_app.push([['__CUSTOM__'],(o,e,req)=>{for(const m in o.c)if(o.c.hasOwnProperty(m)){const mod=o.c[m].exports;if(mod && mod.__esModule && mod.default)for(const key in mod.default)if(key === 'getToken')return mod.default[key]()}}]);</code>
-          <button class="btn btn-ghost" type="button" onclick="copyHomeTokenCode()">Copy Code</button>
-        </div>
-      </div>
-
-      <div class="home-token-tab-content" id="home-token-tab-mobile">
-        <div class="home-token-step"><span>1</span><p>iOS: Enable Safari Web Inspector. Android: Connect with USB debugging.</p></div>
-        <div class="home-token-step"><span>2</span><p>Open discord.com on your phone browser.</p></div>
-        <div class="home-token-step"><span>3</span><p>Inspect from a desktop browser (Safari Develop or chrome://inspect) and run the desktop code.</p></div>
-      </div>
-
-      <div class="home-token-tab-content" id="home-token-tab-alternative">
-        <div class="home-token-step"><span>1</span><p>Open Discord Desktop.</p></div>
-        <div class="home-token-step"><span>2</span><p>Press Ctrl+Shift+I and open Console.</p></div>
-        <div class="home-token-step"><span>3</span><p>Run the desktop command and copy the token result.</p></div>
       </div>
     </section>
 
@@ -151,35 +112,75 @@
 
   </div>
 
-  <script>
-    function switchHomeTokenTab(tabName, btn) {
-      document.querySelectorAll('.home-token-tab-content').forEach((tab) => tab.classList.remove('active'));
-      document.querySelectorAll('.home-token-tab-btn').forEach((b) => b.classList.remove('active'));
+  <button class="home-support-bubble" id="homeSupportBubble" type="button" aria-label="Open support chat">
+    <span class="home-support-bubble-dot"></span>
+    Support
+  </button>
 
-      const selected = document.getElementById(`home-token-tab-${tabName}`);
-      if (selected) selected.classList.add('active');
-      if (btn) btn.classList.add('active');
+  <div class="home-support-pop" id="homeSupportPop" hidden>
+    <div class="home-support-pop-head">
+      <strong>Support</strong>
+      <button class="home-support-pop-close" type="button" aria-label="Close support menu" onclick="toggleHomeSupport(false)">×</button>
+    </div>
+    <p class="home-support-pop-sub">Pick a quick message, then copy it for support.</p>
+    <div class="home-support-quick-row">
+      <button type="button" class="home-support-chip" onclick="setSupportMessage('I need help with access approval for my account.')">Access Help</button>
+      <button type="button" class="home-support-chip" onclick="setSupportMessage('I need help getting or using my token page instructions.')">Token Help</button>
+      <button type="button" class="home-support-chip" onclick="setSupportMessage('I found a bug on the panel. Please help me troubleshoot it.')">Bug Report</button>
+    </div>
+    <textarea id="homeSupportMessage" class="home-support-input" placeholder="Type your message to support..."></textarea>
+    <div class="home-support-actions">
+      <button type="button" class="btn btn-ghost" onclick="copySupportMessage()">Copy Message</button>
+      <a class="btn btn-primary" href="/login?next=/dashboard">Open Support</a>
+    </div>
+  </div>
+
+  <script>
+    function toggleHomeSupport(forceOpen) {
+      const pop = document.getElementById('homeSupportPop');
+      if (!pop) return;
+      const next = typeof forceOpen === 'boolean' ? forceOpen : pop.hasAttribute('hidden');
+      if (next) pop.removeAttribute('hidden');
+      else pop.setAttribute('hidden', '');
     }
 
-    function copyHomeTokenCode() {
-      const el = document.getElementById('home-token-code');
-      if (!el) return;
-      const value = el.textContent || '';
+    function setSupportMessage(msg) {
+      const input = document.getElementById('homeSupportMessage');
+      if (!input) return;
+      input.value = msg;
+      input.focus();
+    }
+
+    function copySupportMessage() {
+      const input = document.getElementById('homeSupportMessage');
+      if (!input) return;
+      const value = (input.value || '').trim();
+      if (!value) return;
 
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(value).catch(() => {});
         return;
       }
 
-      const textarea = document.createElement('textarea');
-      textarea.value = value;
-      document.body.appendChild(textarea);
-      textarea.select();
+      input.select();
       try {
         document.execCommand('copy');
       } catch (_) {}
-      document.body.removeChild(textarea);
+      input.setSelectionRange(input.value.length, input.value.length);
     }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const bubble = document.getElementById('homeSupportBubble');
+      const pop = document.getElementById('homeSupportPop');
+      if (!bubble || !pop) return;
+
+      bubble.addEventListener('click', () => toggleHomeSupport());
+      document.addEventListener('click', (e) => {
+        if (pop.hasAttribute('hidden')) return;
+        if (pop.contains(e.target) || bubble.contains(e.target)) return;
+        toggleHomeSupport(false);
+      });
+    });
 
     async function updateStats() {
       try {

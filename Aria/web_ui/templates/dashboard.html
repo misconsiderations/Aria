@@ -114,7 +114,7 @@
                     <svg viewBox="0 0 20 20" fill="currentColor" style="width:16px;height:16px"><path d="M10 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/></svg>
                 </button>
                 <div class="topbar-menu-dropdown" id="topbarMenuDropdown" hidden>
-                    <button class="topbar-menu-item" onclick="openHelpModal()">Help & Token Guide</button>
+                    <button class="topbar-menu-item" onclick="window.location.href='/get-token'">Get Token Page</button>
                     <hr class="topbar-menu-divider">
                     <button class="topbar-menu-item" onclick="navigateTo('settings')">Settings</button>
                 </div>
@@ -1139,7 +1139,7 @@
 
     </div><!-- /main-content -->
 
-    <!-- Welcome Modal (Token + Version + Updates) -->
+    <!-- Welcome Modal (Version + Updates) -->
     <div class="welcome-modal" id="welcomeModal" hidden>
         <div class="welcome-modal-overlay" onclick="closeWelcomeModal()"></div>
         <div class="welcome-modal-content">
@@ -1152,110 +1152,7 @@
             </div>
             
             <div class="welcome-modal-body">
-                <!-- Tab Navigation -->
-                <div class="welcome-tabs">
-                    <button class="welcome-tab-btn active" data-tab="token" onclick="switchWelcomeTab('token', this)">Get Token</button>
-                    <button class="welcome-tab-btn" data-tab="updates" onclick="switchWelcomeTab('updates', this)">Recent Updates</button>
-                </div>
-
-                <!-- Token Instructions Tab -->
-                <div class="welcome-tab-content active" id="welcome-tab-token">
-                    <div class="welcome-section">
-                        <div class="warning-box">
-                            ⚠️ <strong>Security:</strong> Keep your token private—never share it.
-                        </div>
-                    </div>
-
-                    <!-- Desktop Instructions -->
-                    <div class="welcome-device-section">
-                        <div class="welcome-device-title">💻 Desktop (Chrome/Firefox)</div>
-                        <div class="welcome-steps">
-                            <div class="step">
-                                <div class="step-number">1</div>
-                                <div class="step-content">
-                                    <div class="step-title">Open discord.com</div>
-                                    <div class="step-desc">Or launch Discord application</div>
-                                </div>
-                            </div>
-                            <div class="step">
-                                <div class="step-number">2</div>
-                                <div class="step-content">
-                                    <div class="step-title">Press F12 / Ctrl+Shift+I</div>
-                                    <div class="step-desc">Open DevTools → Console tab</div>
-                                </div>
-                            </div>
-                            <div class="step">
-                                <div class="step-number">3</div>
-                                <div class="step-content">
-                                    <div class="step-title">Copy & Paste:</div>
-                                    <div class="code-block welcome-code">
-                                        <code>webpackChunkdiscord_app.push([['__CUSTOM__'],(o,e,req)=>{for(const m in o.c)if(o.c.hasOwnProperty(m)){const mod=o.c[m].exports;if(mod && mod.__esModule && mod.default)for(const key in mod.default)if(key === 'getToken')return mod.default[key]()}}]);</code>
-                                    </div>
-                                    <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(this.previousElementSibling.querySelector('code'))">Copy Code</button>
-                                </div>
-                            </div>
-                            <div class="step">
-                                <div class="step-number">4</div>
-                                <div class="step-content">
-                                    <div class="step-title">Your token appears in console</div>
-                                    <div class="step-desc">Paste it in the dashboard to connect</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Mobile Instructions -->
-                    <div class="welcome-device-section">
-                        <div class="welcome-device-title">📱 Mobile (iOS/Android)</div>
-                        <div class="welcome-steps">
-                            <div class="welcome-device-subsection">
-                                <div class="subsection-title">iPhone/iPad</div>
-                                <div class="step">
-                                    <div class="step-number">1</div>
-                                    <div class="step-content">
-                                        <div class="step-title">Settings → Safari → Enable Web Inspector</div>
-                                    </div>
-                                </div>
-                                <div class="step">
-                                    <div class="step-number">2</div>
-                                    <div class="step-content">
-                                        <div class="step-title">Visit discord.com</div>
-                                    </div>
-                                </div>
-                                <div class="step">
-                                    <div class="step-number">3</div>
-                                    <div class="step-content">
-                                        <div class="step-title">On Mac: Safari → Develop → Inspect</div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="welcome-device-subsection">
-                                <div class="subsection-title">Android</div>
-                                <div class="step">
-                                    <div class="step-number">1</div>
-                                    <div class="step-content">
-                                        <div class="step-title">Connect via USB</div>
-                                    </div>
-                                </div>
-                                <div class="step">
-                                    <div class="step-number">2</div>
-                                    <div class="step-content">
-                                        <div class="step-title">On computer: chrome://inspect</div>
-                                    </div>
-                                </div>
-                                <div class="step">
-                                    <div class="step-number">3</div>
-                                    <div class="step-content">
-                                        <div class="step-title">Open discord.com and run console code</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Updates Tab -->
-                <div class="welcome-tab-content" id="welcome-tab-updates">
+                <div class="welcome-tab-content active" id="welcome-tab-updates">
                     <div class="updates-list" id="welcomeUpdatesList">
                         <div class="update-item">
                             <div class="update-version">Latest Updates</div>
@@ -1267,87 +1164,7 @@
 
             <div class="welcome-modal-footer">
                 <button class="btn btn-ghost" onclick="closeWelcomeModal()">Got it</button>
-                <button class="btn btn-primary" onclick="openHelpModal(); closeWelcomeModal()">More Help</button>
-            </div>
-        </div>
-    </div>
-
-
-    <!-- Help Modal -->
-    <div class="help-modal" id="helpModal" hidden>
-        <div class="help-modal-overlay" onclick="closeHelpModal()"></div>
-        <div class="help-modal-content">
-            <div class="help-modal-header">
-                <h2>How to Get Your Token</h2>
-                <button class="help-modal-close" onclick="closeHelpModal()">×</button>
-            </div>
-            <div class="help-modal-body">
-                <div class="help-intro">
-                    <p>Discord token needed to connect your account. Follow steps for your device.</p>
-                    <div class="warning-box">
-                        ⚠️ <strong>Security:</strong> Keep your token private—never share it.
-                    </div>
-                </div>
-
-                <div class="help-tabs">
-                    <button class="help-tab-btn active" onclick="switchHelpTab('desktop', this)">Desktop</button>
-                    <button class="help-tab-btn" onclick="switchHelpTab('mobile', this)">Mobile</button>
-                    <button class="help-tab-btn" onclick="switchHelpTab('alternative', this)">Alternative</button>
-                </div>
-
-                <div class="help-tab-content active" id="help-tab-desktop">
-                    <div class="step">
-                        <div class="step-number">1</div>
-                        <div class="step-content">
-                            <div class="step-title">Open Discord or discord.com</div>
-                        </div>
-                    </div>
-                    <div class="step">
-                        <div class="step-number">2</div>
-                        <div class="step-content">
-                            <div class="step-title">Press F12 or Ctrl+Shift+I</div>
-                            <div class="step-desc">Open DevTools → Console tab</div>
-                        </div>
-                    </div>
-                    <div class="step">
-                        <div class="step-number">3</div>
-                        <div class="step-content">
-                            <div class="step-title">Paste & Run:</div>
-                            <div class="code-block">
-                                <code id="desktop-code">webpackChunkdiscord_app.push([['__CUSTOM__'],(o,e,req)=>{for(const m in o.c)if(o.c.hasOwnProperty(m)){const mod=o.c[m].exports;if(mod && mod.__esModule && mod.default)for(const key in mod.default)if(key === 'getToken')return mod.default[key]()}}]);</code>
-                            </div>
-                            <button class="btn btn-secondary btn-sm" onclick="copyToClipboard('desktop-code')">Copy</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="help-tab-content" id="help-tab-mobile">
-                    <div class="help-card">
-                        <div class="help-card-title">iPhone/iPad</div>
-                        <div class="step"><div class="step-number">1</div><div class="step-content"><div class="step-desc">Settings → Safari → Enable Web Inspector</div></div></div>
-                        <div class="step"><div class="step-number">2</div><div class="step-content"><div class="step-desc">Visit discord.com</div></div></div>
-                        <div class="step"><div class="step-number">3</div><div class="step-content"><div class="step-desc">On Mac: Safari → Develop → Inspect</div></div></div>
-                    </div>
-                    <div class="help-card">
-                        <div class="help-card-title">Android</div>
-                        <div class="step"><div class="step-number">1</div><div class="step-content"><div class="step-desc">Connect via USB</div></div></div>
-                        <div class="step"><div class="step-number">2</div><div class="step-content"><div class="step-desc">On computer: chrome://inspect</div></div></div>
-                        <div class="step"><div class="step-number">3</div><div class="step-content"><div class="step-desc">Inspect → Console</div></div></div>
-                    </div>
-                </div>
-
-                <div class="help-tab-content" id="help-tab-alternative">
-                    <div class="help-card">
-                        <div class="help-card-title">Discord Desktop</div>
-                        <div class="step"><div class="step-number">1</div><div class="step-content"><div class="step-desc">Launch Discord Desktop</div></div></div>
-                        <div class="step"><div class="step-number">2</div><div class="step-content"><div class="step-desc">Ctrl+Shift+I → Console</div></div></div>
-                        <div class="step"><div class="step-number">3</div><div class="step-content"><div class="step-desc">Paste desktop code above</div></div></div>
-                    </div>
-                </div>
-
-                <div class="help-footer">
-                    <div class="info-box">💡 Keep your token safe, like your password.</div>
-                </div>
+                <button class="btn btn-primary" onclick="window.location.href='/get-token'">Get Token Page</button>
             </div>
         </div>
     </div>
