@@ -1206,11 +1206,19 @@ let _rpcDraftRestored = false;
 const RPC_APP_ID_BY_NAME = [
     { keys: ['spotify'], appId: '1494507808329171096' },
     { keys: ['crunchyroll', 'crunchy roll'], appId: '463097721130188830' },
+    { keys: ['youtube music', 'yt music', 'youtube_music'], appId: '880218394199220334' },
     { keys: ['youtube', 'yt'], appId: '880218394199220334' },
+    { keys: ['soundcloud', 'sound cloud'], appId: '195323574500409344' },
     { keys: ['netflix'], appId: '883483001462849607' },
+    { keys: ['disneyplus', 'disney plus', 'disney+'], appId: '883483001462849607' },
+    { keys: ['primevideo', 'prime video', 'amazon prime'], appId: '883483001462849607' },
     { keys: ['twitch'], appId: '488633707456348190' },
+    { keys: ['kick'], appId: '1096876388377366548' },
     { keys: ['apple music', 'applemusic'], appId: '886578863147192350' },
     { keys: ['deezer'], appId: '356268235697553409' },
+    { keys: ['tidal'], appId: '1041821781058760745' },
+    { keys: ['plex'], appId: '910362402908213248' },
+    { keys: ['jellyfin'], appId: '969748111193886730' },
     { keys: ['vscode', 'visual studio code', 'code'], appId: '383226320970055681' },
     { keys: ['valorant'], appId: '813612000139853844' },
     { keys: ['discord'], appId: '938956540159881230' },
@@ -1227,6 +1235,11 @@ function inferRpcAppIdFromName(name) {
         if (entry.keys.some(k => normalized.includes(k))) return entry.appId;
     }
     return DEFAULT_RPC_APPLICATION_ID;
+}
+
+function inferRpcAppIdFromActivity(name, details = '', state = '') {
+    const blob = `${name || ''} ${details || ''} ${state || ''}`.trim();
+    return inferRpcAppIdFromName(blob);
 }
 
 function resolveRpcPreviewImage(rawValue) {
@@ -1259,8 +1272,10 @@ function getEffectiveRpcAppId() {
     const mode = getRpcAppIdMode();
     const custom = (document.getElementById('rpcCustomAppIdInput')?.value || '').trim();
     const name = (document.getElementById('rpcNameInput')?.value || '').trim();
+    const details = (document.getElementById('rpcDetailsInput')?.value || '').trim();
+    const state = (document.getElementById('rpcStateInput')?.value || '').trim();
     if (mode === 'custom' && custom) return custom;
-    return inferRpcAppIdFromName(name);
+    return inferRpcAppIdFromActivity(name, details, state);
 }
 
 function syncRpcAppIdControls() {
@@ -1451,7 +1466,7 @@ async function loadRpc() {
             setVal('rpcButton2Label', btns[1]    || '');
             setVal('rpcButton2Url',   btnUrls[1] || '');
 
-            const inferredAppId = inferRpcAppIdFromName(act.name || '');
+            const inferredAppId = inferRpcAppIdFromActivity(act.name || '', act.details || '', act.state || '');
             const loadedAppId = String(act.application_id || '').trim();
             const customMode = loadedAppId && loadedAppId !== inferredAppId;
             setVal('rpcAppIdMode', customMode ? 'custom' : 'auto');

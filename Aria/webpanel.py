@@ -17,11 +17,30 @@ import hashlib
 from flask import Flask, jsonify, redirect, send_from_directory, request, session
 from werkzeug.serving import make_server, WSGIRequestHandler
 from mongo_store import get_mongo_store
+from api_client import DiscordAPIClient
 
 # Master owner Discord IDs — always have admin access
 _PANEL_MASTER_IDS = {"299182971213316107", "297588166653902849"}
 _PANEL_MASTER_ID = "299182971213316107"
 _DEFAULT_RPC_APPLICATION_ID = "1494507808329171096"
+_RPC_APP_ID_HINTS: list[tuple[set[str], str]] = [
+    ({"spotify"}, "1494507808329171096"),
+    ({"crunchyroll", "crunchy roll"}, "463097721130188830"),
+    ({"youtube music", "yt music", "youtube_music"}, "880218394199220334"),
+    ({"youtube", "yt"}, "880218394199220334"),
+    ({"soundcloud", "sound cloud"}, "195323574500409344"),
+    ({"apple music", "applemusic"}, "886578863147192350"),
+    ({"deezer"}, "356268235697553409"),
+    ({"tidal"}, "1041821781058760745"),
+    ({"twitch"}, "488633707456348190"),
+    ({"kick"}, "1096876388377366548"),
+    ({"netflix"}, "883483001462849607"),
+    ({"disneyplus", "disney plus", "disney+"}, "883483001462849607"),
+    ({"primevideo", "prime video", "amazon prime"}, "883483001462849607"),
+    ({"plex"}, "910362402908213248"),
+    ({"jellyfin"}, "969748111193886730"),
+    ({"vscode", "visual studio code", "code"}, "383226320970055681"),
+]
 
 
 class _QuietWSGIRequestHandler(WSGIRequestHandler):
@@ -407,6 +426,132 @@ class WebPanel:
         mins, secs = divmod(rem, 60)
         return f"{hours}h {mins}m {secs}s"
 
+    @staticmethod
+    def _avatar_url_for(user_id: str, avatar_hash: str) -> str:
+        uid = str(user_id or "").strip()
+        ah = str(avatar_hash or "").strip()
+        if uid and ah:
+            ext = "gif" if ah.startswith("a_") else "png"
+            return f"https://cdn.discordapp.com/avatars/{uid}/{ah}.{ext}?size=128"
+        if uid:
+            return "https://cdn.discordapp.com/embed/avatars/0.png"
+        return ""
+
+    @staticmethod
+    def _snowflake_to_unix(snowflake: str) -> int:
+        try:
+            return int((int(str(snowflake)) >> 22) + 1420070400000) // 1000
+        except Exception:
+            return int(time.time())
+
+    def _session_hosted_live_context(self) -> dict[str, Any]:
+        """Return hosted instance context + live API for non-admin users."""
+        if not (self._require_session() and not self._require_admin()):
+            return {}
+
+        requester_id = str(session.get("user_id") or "")
+        primary = self._get_primary_user_instance(requester_id)
+        if not primary:
+            return {}
+
+        saved = primary.get("saved") or {}
+        token = str(saved.get("token") or "").strip()
+        if not token:
+            return {"primary": primary, "saved": saved, "api": None}
+
+        try:
+            api = DiscordAPIClient(token)
+            return {"primary": primary, "saved": saved, "api": api}
+        except Exception:
+            return {"primary": primary, "saved": saved, "api": None}
+
+    def _hosted_user_profile(self, hosted_ctx: dict[str, Any]) -> dict[str, Any]:
+        """Fetch best-effort live user profile from hosted token API."""
+        api = hosted_ctx.get("api")
+        if not api:
+            return {}
+        try:
+            user = api.get_user_info(force=False) or {}
+            user_id = str(user.get("id") or "")
+            username = str(user.get("username") or "")
+            discrim = str(user.get("discriminator") or "")
+            if username and discrim and discrim != "0":
+                username = f"{username}#{discrim}"
+            return {
+                "user_id": user_id,
+                "username": username,
+                "avatar_url": self._avatar_url_for(user_id, str(user.get("avatar") or "")),
+                "premium_type": int(user.get("premium_type") or 0),
+            }
+        except Exception:
+            return {}
+
+    def _hosted_boost_data(self, hosted_ctx: dict[str, Any]) -> dict:
+        """Build live Nitro/boost stats for a hosted non-admin account."""
+        api = hosted_ctx.get("api")
+        if not api:
+            return {}
+
+        try:
+            me = api.get_user_info(force=False) or {}
+        except Exception:
+            me = {}
+
+        try:
+            guilds_resp = api.request("GET", "/users/@me/guilds?with_counts=true")
+            guilds = guilds_resp.json() if guilds_resp and guilds_resp.status_code == 200 else []
+            if not isinstance(guilds, list):
+                guilds = []
+        except Exception:
+            guilds = []
+
+        try:
+            slots_resp = api.request("GET", "/users/@me/guilds/premium/subscription-slots")
+            slots = slots_resp.json() if slots_resp and slots_resp.status_code == 200 else []
+            if not isinstance(slots, list):
+                slots = []
+        except Exception:
+            slots = []
+
+        server_boosts: dict[str, int] = {}
+        boosted_servers = 0
+        total_boosts = 0
+        for g in guilds:
+            if not isinstance(g, dict):
+                continue
+            gid = str(g.get("id") or "")
+            boost_count = int(g.get("premium_subscription_count") or 0)
+            if gid:
+                server_boosts[gid] = boost_count
+            if boost_count > 0:
+                boosted_servers += 1
+            total_boosts += boost_count
+
+        total_slots = len(slots)
+        slots_used = sum(1 for s in slots if isinstance(s, dict) and s.get("premium_guild_subscription"))
+        slots_cooldown = sum(1 for s in slots if isinstance(s, dict) and s.get("cooldown_ends_at"))
+        slots_available = max(0, total_slots - slots_used)
+        premium_type = int(me.get("premium_type") or 0)
+
+        return {
+            "server_boosts": server_boosts,
+            "available_boosts": slots_available,
+            "rotation_servers": [],
+            "rotation_hours": 24,
+            "live": {
+                "status": "active" if premium_type > 0 else "idle",
+                "tracked_servers": len(server_boosts),
+                "boosted_servers": boosted_servers,
+                "total_boosts": total_boosts,
+                "total_slots": total_slots,
+                "slots_available": slots_available,
+                "slots_used": slots_used,
+                "slots_cooldown": slots_cooldown,
+                "last_checked": int(time.time()),
+                "nitro_tier": premium_type,
+            },
+        }
+
     def _normalize_rpc_asset_key(self, image_value: str, application_id: str = "") -> str:
         """Convert image URLs to Discord media-proxy keys where possible."""
         value = str(image_value or "").strip()
@@ -452,6 +597,33 @@ class WebPanel:
             pass
 
         return value
+
+    @staticmethod
+    def _normalize_rpc_text(value: str) -> str:
+        text = re.sub(r"[^a-z0-9 ]+", " ", str(value or "").lower())
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    def _infer_rpc_application_id(self, activity: dict[str, Any]) -> str:
+        if not isinstance(activity, dict):
+            return _DEFAULT_RPC_APPLICATION_ID
+
+        combined = " ".join(
+            [
+                str(activity.get("name") or ""),
+                str(activity.get("details") or ""),
+                str(activity.get("state") or ""),
+            ]
+        )
+        haystack = self._normalize_rpc_text(combined)
+        if not haystack:
+            return _DEFAULT_RPC_APPLICATION_ID
+
+        for keys, app_id in _RPC_APP_ID_HINTS:
+            for key in keys:
+                if key in haystack:
+                    return app_id
+        return _DEFAULT_RPC_APPLICATION_ID
 
     def _upload_rpc_image_to_self_dm(self, api, image_url: str) -> Optional[str]:
         """Upload an image URL to self-DM and return `mp:attachments/...` key."""
@@ -594,15 +766,16 @@ class WebPanel:
         # For regular dashboard users, show their own hosted-instance context.
         try:
             if self._require_session() and not self._require_admin():
-                requester_id = str(session.get("user_id") or "")
-                primary = self._get_primary_user_instance(requester_id)
+                hosted_ctx = self._session_hosted_live_context()
+                primary = hosted_ctx.get("primary")
                 if primary:
                     saved = primary.get("saved") or {}
                     active_info = primary.get("active_info") or {}
                     connected = bool(primary.get("active"))
-                    user_id = str(saved.get("user_id") or "")
-                    username = str(saved.get("username") or "User Instance")
-                    avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
+                    live_profile = self._hosted_user_profile(hosted_ctx)
+                    user_id = str(live_profile.get("user_id") or saved.get("user_id") or "")
+                    username = str(live_profile.get("username") or saved.get("username") or "User Instance")
+                    avatar_url = str(live_profile.get("avatar_url") or self._avatar_url_for(user_id, "") or "https://cdn.discordapp.com/embed/avatars/0.png")
                     connected_at = int(active_info.get("connected_at") or 0)
                     uptime = self._fmt_uptime_from_ts(connected_at) if connected and connected_at else "0h 0m 0s"
                     return {
@@ -767,6 +940,12 @@ class WebPanel:
 
     def _boost_data(self) -> dict:
         """Return boost state, preferring live manager data when available."""
+        if self._require_session() and not self._require_admin():
+            hosted_ctx = self._session_hosted_live_context()
+            hosted_live = self._hosted_boost_data(hosted_ctx)
+            if hosted_live:
+                return hosted_live
+
         b = self.bot
         bm = getattr(b, "boost_manager", None) if b is not None else None
         if bm is not None:
@@ -1162,6 +1341,48 @@ class WebPanel:
             """
             if not session.get("authenticated"):
                 return jsonify({"ok": False, "error": "unauthenticated"}), 401
+
+            # For non-admin users, use their hosted token context for live DM notifications.
+            if self._require_session() and not self._require_admin():
+                hosted_ctx = self._session_hosted_live_context()
+                api = hosted_ctx.get("api")
+                notifications = []
+                if api:
+                    try:
+                        dms_resp = api.request("GET", "/users/@me/channels")
+                        dms = dms_resp.json() if dms_resp and dms_resp.status_code == 200 else []
+                        if isinstance(dms, list):
+                            for ch in dms[:50]:
+                                if not isinstance(ch, dict) or int(ch.get("type") or 0) != 1:
+                                    continue
+                                recips = ch.get("recipients") if isinstance(ch.get("recipients"), list) else []
+                                recip = recips[0] if recips else {}
+                                rid = str(recip.get("id") or "")
+                                rname = str(recip.get("global_name") or recip.get("username") or "Direct Message")
+                                mid = str(ch.get("last_message_id") or "")
+                                ts = self._snowflake_to_unix(mid) if mid else int(time.time())
+                                notifications.append({
+                                    "id": mid or f"dm-{ch.get('id')}",
+                                    "kind": "dm",
+                                    "title": f"DM from {rname}",
+                                    "body": "New direct message",
+                                    "author": rname,
+                                    "author_id": rid,
+                                    "channel_id": str(ch.get("id") or ""),
+                                    "guild_id": "",
+                                    "icon": "✉️",
+                                    "ts": ts,
+                                    "read": False,
+                                })
+                    except Exception:
+                        notifications = []
+
+                since = since_ts or int(request.args.get("since", 0))
+                if since:
+                    notifications = [e for e in notifications if int(e.get("ts") or 0) > since]
+                notifications.sort(key=lambda x: int(x.get("ts") or 0), reverse=True)
+                return jsonify({"ok": True, "notifications": notifications, "total": len(notifications)})
+
             since = since_ts or int(request.args.get("since", 0))
             mark_read = request.args.get("mark_read") == "1"
             with self._notif_lock:
@@ -1283,6 +1504,7 @@ class WebPanel:
             if role != "admin" and inst != self.instance_id:
                 return redirect(f"/login?error=Account+not+registered+on+this+instance&next={next_url}")
             session.permanent = remember
+            session["authenticated"] = True
             session["user_id"] = user_id
             session["instance_id"] = self.instance_id
             session["role"] = role
@@ -1591,8 +1813,12 @@ class WebPanel:
                             # No URLs provided, use Discord's default
                             pass
 
-                # Force a stable app id for RPC image assets so external URLs can resolve in Discord.
-                app_id = str(activity.get("application_id") or _DEFAULT_RPC_APPLICATION_ID).strip()
+                # Resolve app id: keep explicit custom ids, otherwise infer from activity text.
+                explicit_app_id = str(activity.get("application_id") or "").strip()
+                if explicit_app_id and explicit_app_id != _DEFAULT_RPC_APPLICATION_ID:
+                    app_id = explicit_app_id
+                else:
+                    app_id = self._infer_rpc_application_id(activity)
                 activity["application_id"] = app_id
                 assets = activity.get("assets") if isinstance(activity.get("assets"), dict) else {}
                 if assets:
