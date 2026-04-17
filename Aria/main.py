@@ -8515,6 +8515,43 @@ Example Usage:
             elif msg:
                 pass
 
+    @bot.command(name="cmdhealth", aliases=["commandhealth", "cmddoctor"])
+    def cmdhealth(ctx, args):
+        import formatter as _fmt
+        cmds = ctx["bot"].commands
+        total_keys = len(cmds)
+
+        primaries = {}
+        collisions = []
+        for key, cmd in cmds.items():
+            if not cmd:
+                continue
+            cname = str(getattr(cmd, "name", "") or "").strip().lower()
+            if not cname:
+                continue
+            if cname not in primaries:
+                primaries[cname] = cmd
+            if key == cname:
+                continue
+            # alias key resolving to another canonical name is expected, collect only real collisions
+            if key in primaries and primaries[key] is not cmd:
+                collisions.append(f"{key} -> {cname}")
+
+        unique_cmds = len(primaries)
+        aliases = max(0, total_keys - unique_cmds)
+        info = {
+            "Unique Commands": str(unique_cmds),
+            "Alias Keys": str(aliases),
+            "Total Registry Keys": str(total_keys),
+            "Collision Warnings": str(len(collisions)),
+        }
+
+        block = _fmt.status_box("Command Health", info)
+        if collisions:
+            preview = "\n".join(collisions[:20])
+            block += "\n" + _fmt._block(f"{_fmt.CYAN}Collisions (sample){_fmt.RESET}\n{preview}")
+        ctx["api"].send_message(ctx["channel_id"], block)
+
     @bot.command(name="restart")
     def restart_cmd(ctx, args):
         if not is_strict_owner_user(ctx["author_id"]):

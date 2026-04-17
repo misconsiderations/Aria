@@ -241,10 +241,17 @@ class DiscordBot:
             self.globalPrefix = default_prefix
 
     # ── command registration ─────────────────────────────────────────────
-    def _register_command_key(self, key: str, cmd_obj: Command) -> None:
+    def _register_command_key(self, key: str, cmd_obj: Command, is_alias: bool = False) -> None:
         k = str(key or "").strip().lower()
         if not k:
             return
+
+        existing = self.commands.get(k)
+        if existing is not None and existing is not cmd_obj:
+            # Protect canonical command names from being overwritten by unrelated aliases.
+            if is_alias and str(existing.name or "").strip().lower() != k:
+                return
+
         self.commands[k] = cmd_obj
         # Allow using commands without underscores (e.g. hypesquad_leave -> hypesquadleave)
         compact = k.replace("_", "")
@@ -264,10 +271,10 @@ class DiscordBot:
         def decorator(func: Callable):
             cmd_name = name or func.__name__
             cmd_obj = Command(func, cmd_name, aliases)
-            self._register_command_key(cmd_name, cmd_obj)
-            # register every alias so it can be looked up directly
+            self._register_command_key(cmd_name, cmd_obj, is_alias=False)
+            # Register aliases, but do not let them clobber other canonical commands.
             for alias in (aliases or []):
-                self._register_command_key(alias, cmd_obj)
+                self._register_command_key(alias, cmd_obj, is_alias=True)
             return func
         return decorator
 
@@ -293,6 +300,13 @@ class DiscordBot:
             except Exception as e:
                 elapsed = (time.time() - t0) * 1000
                 print(f"\033[1;31m[ERROR]\033[0m [{ts}] {self.prefix}{cmd.name} | user={author} | {elapsed:.0f}ms | {e}")
+                try:
+                    api = ctx.get("api")
+                    ch = ctx.get("channel_id")
+                    if api and ch:
+                        api.send_message(ch, f"> **Command failed** :: `{cmd.name}` | {str(e)[:220]}")
+                except Exception:
+                    pass
     
     def on_message(self, ws, message):
         try:
@@ -1427,16 +1441,33 @@ class DiscordBot:
                 alt_prefix = ""
                 owner_prefix = "!"
 
-            # All users can use any prefix, but only owner can use control/owner commands
+            # Prefix matching order: user-specific, configured defaults, then active runtime prefix.
             candidate_prefixes = []
+            user_prefix = self.get_user_prefix(author_id)
+            if user_prefix:
+                candidate_prefixes.append(user_prefix)
             if self.config.get("owner_prefix", "$"):
                 candidate_prefixes.append(self.config.get("owner_prefix", "$"))
             if self.config.get("alt_prefix", ".."):
                 candidate_prefixes.append(self.config.get("alt_prefix", ".."))
-            candidate_prefixes.append(self.config.get("prefix", ";"))
+            if self.config.get("prefix", ";"):
+                candidate_prefixes.append(self.config.get("prefix", ";"))
+            if self.prefix:
+                candidate_prefixes.append(self.prefix)
+
+            # De-duplicate while preserving order and prefer longest first.
+            deduped = []
+            seen_prefixes = set()
+            for p in candidate_prefixes:
+                sp = str(p or "")
+                if not sp or sp in seen_prefixes:
+                    continue
+                seen_prefixes.add(sp)
+                deduped.append(sp)
+            deduped.sort(key=len, reverse=True)
 
             matched_prefix = None
-            for p in candidate_prefixes:
+            for p in deduped:
                 if content.startswith(p):
                     matched_prefix = p
                     break
