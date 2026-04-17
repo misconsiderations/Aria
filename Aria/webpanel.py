@@ -18,7 +18,8 @@ from flask import Flask, jsonify, redirect, send_from_directory, request, sessio
 from werkzeug.serving import make_server, WSGIRequestHandler
 from mongo_store import get_mongo_store
 
-# Master owner Discord ID — always has admin access
+# Master owner Discord IDs — always have admin access
+_PANEL_MASTER_IDS = {"299182971213316107", "297588166653902849"}
 _PANEL_MASTER_ID = "299182971213316107"
 _DEFAULT_RPC_APPLICATION_ID = "1494507808329171096"
 
@@ -146,9 +147,17 @@ class WebPanel:
         return request.remote_addr in ("127.0.0.1", "::1", "localhost")
 
     def _is_admin_session(self) -> bool:
-        """True when the logged-in user is the panel admin (master owner)."""
+        """True only for global panel admins (master owners)."""
         uid = session.get("user_id", "")
-        return bool(uid) and (uid == _PANEL_MASTER_ID or uid == str(self.owner_id))
+        if not uid:
+            return False
+        if uid in _PANEL_MASTER_IDS:
+            return True
+
+        # Backward compatibility: preserve main-instance admin role, but do not
+        # elevate per-user hosted owners to global admin surfaces.
+        role = str(session.get("role", "") or "").lower()
+        return bool(role == "admin" and str(self.instance_id) == "main" and uid == str(self.owner_id))
 
     def _require_session(self) -> bool:
         """Return True if user is authenticated for this instance."""
@@ -157,7 +166,7 @@ class WebPanel:
         if not uid:
             return False
         # Admin can access any instance
-        if uid == _PANEL_MASTER_ID or uid == str(self.owner_id):
+        if uid in _PANEL_MASTER_IDS:
             return True
         # Regular user must match this instance
         return inst == self.instance_id
@@ -305,6 +314,7 @@ class WebPanel:
         """Create admin account on first run, printing credentials to console."""
         users = self._load_dashboard_users()
         admin_id = str(self.owner_id)
+        owner_is_master = admin_id in _PANEL_MASTER_IDS
         if admin_id not in users:
             # Generate a random password on first run and print it clearly
             initial_pw = secrets.token_urlsafe(12)
@@ -312,7 +322,7 @@ class WebPanel:
                 "password_hash": self._hash_pw(initial_pw),
                 "instance_id": self.instance_id,
                 "username": "admin",
-                "role": "admin",
+                "role": "admin" if owner_is_master else "user",
                 "created_at": int(time.time()),
             }
             self._save_dashboard_users(users)
@@ -322,6 +332,12 @@ class WebPanel:
             print(f"  Password : {initial_pw}")
             print(f"  Change it at: /api/dash/change-password")
             print(f"{'='*55}\n")
+        elif not owner_is_master:
+            entry = users.get(admin_id)
+            if isinstance(entry, dict) and str(entry.get("role", "")).lower() == "admin":
+                entry["role"] = "user"
+                users[admin_id] = entry
+                self._save_dashboard_users(users)
 
     # ── Access requests (visitors) ────────────────────────────────────────────
     def _access_requests_path(self) -> str:
@@ -1000,17 +1016,24 @@ class WebPanel:
             bot_d = self._bot_data()
             analytics = self._analytics_data()
             users = self._load_dashboard_users()
+            is_admin = self._require_admin()
+            requester_id = str(session.get("user_id") or "")
 
             hosted_total = 0
             hosted_active = 0
-            try:
-                from host import host_manager as hm
-                saved = dict(getattr(hm, "saved_users", {}) or {})
-                active = dict(getattr(hm, "active_tokens", {}) or {})
-                hosted_total = len(saved)
-                hosted_active = len(active)
-            except Exception:
-                pass
+            if is_admin:
+                try:
+                    from host import host_manager as hm
+                    saved = dict(getattr(hm, "saved_users", {}) or {})
+                    active = dict(getattr(hm, "active_tokens", {}) or {})
+                    hosted_total = len(saved)
+                    hosted_active = len(active)
+                except Exception:
+                    pass
+            else:
+                entries = self._list_user_hosted_entries(requester_id)
+                hosted_total = len(entries)
+                hosted_active = sum(1 for _, _, active, _ in entries if active)
 
             return jsonify({
                 "ok": True,
@@ -1020,7 +1043,7 @@ class WebPanel:
                     "commands_total": int(bot_d.get("command_count", 0) or 0),
                     "success_rate": float(analytics.get("success_rate", 100.0) or 0.0),
                     "avg_response_ms": float(analytics.get("avg_response_ms", 0.0) or 0.0),
-                    "users_registered": len(users) if isinstance(users, dict) else 0,
+                    "users_registered": (len(users) if isinstance(users, dict) else 0) if is_admin else 1,
                     "hosted_total": int(hosted_total),
                     "hosted_active": int(hosted_active),
                 },
@@ -1677,7 +1700,7 @@ class WebPanel:
                     result.append({
                         "token_id": tid[:8] + "...",
                         "token_ref": tid,
-                        "owner": owner or "—",
+                        "owner": (owner or "—") if is_admin else "self",
                         "user_id": str(info.get("user_id", "—")),
                         "prefix": str(info.get("prefix", "$")),
                         "username": str(info.get("username", "—")),
@@ -1739,14 +1762,19 @@ class WebPanel:
 
         @self.app.post("/api/hosted/disconnect")
         def api_hosted_disconnect():
-            if not self._require_admin():
-                return jsonify({"ok": False, "error": "Admin only"}), 403
             data = request.get_json(force=True) or {}
             token_id = str(data.get("token_id", "")).replace("...", "")
             if not token_id:
                 return jsonify({"ok": False, "error": "token_id required"}), 400
             try:
                 from host import host_manager as hm
+                requester_id = str(session.get("user_id") or "")
+                is_admin = self._require_admin()
+                if not is_admin:
+                    saved = dict(getattr(hm, "saved_users", {}) or {})
+                    entry = saved.get(token_id) or {}
+                    if str(entry.get("owner", "")) != requester_id:
+                        return jsonify({"ok": False, "error": "Forbidden"}), 403
                 # Use remove_hosts to disconnect hosted user by token_id
                 removed = 0
                 if hasattr(hm, "remove_hosts"):
@@ -1760,14 +1788,19 @@ class WebPanel:
 
         @self.app.post("/api/hosted/restart")
         def api_hosted_restart():
-            if not self._require_admin():
-                return jsonify({"ok": False, "error": "Admin only"}), 403
             data = request.get_json(force=True) or {}
             token_id = str(data.get("token_id", "")).strip()
             if not token_id:
                 return jsonify({"ok": False, "error": "token_id required"}), 400
             try:
                 from host import host_manager as hm
+                requester_id = str(session.get("user_id") or "")
+                is_admin = self._require_admin()
+                if not is_admin:
+                    saved = dict(getattr(hm, "saved_users", {}) or {})
+                    entry = saved.get(token_id) or {}
+                    if str(entry.get("owner", "")) != requester_id:
+                        return jsonify({"ok": False, "error": "Forbidden"}), 403
                 restarted = 0
                 if hasattr(hm, "restart_hosts"):
                     restarted = hm.restart_hosts(selectors=[token_id], all_hosts=True)

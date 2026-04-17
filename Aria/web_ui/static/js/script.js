@@ -1229,6 +1229,27 @@ function inferRpcAppIdFromName(name) {
     return DEFAULT_RPC_APPLICATION_ID;
 }
 
+function resolveRpcPreviewImage(rawValue) {
+    const value = String(rawValue || '').trim();
+    if (!value) return '';
+
+    if (value.startsWith('http://') || value.startsWith('https://')) return value;
+
+    const toCdnPath = (path) => {
+        const clean = String(path || '').replace(/^\/+/, '');
+        if (!clean) return '';
+        if (clean.startsWith('attachments/')) return `https://media.discordapp.net/${clean}`;
+        if (clean.startsWith('external/')) return `https://media.discordapp.net/${clean}`;
+        if (clean.startsWith('app-assets/')) return `https://cdn.discordapp.com/${clean}`;
+        return '';
+    };
+
+    if (value.startsWith('mp:')) {
+        return toCdnPath(value.slice(3));
+    }
+    return toCdnPath(value);
+}
+
 function getRpcAppIdMode() {
     const mode = (document.getElementById('rpcAppIdMode')?.value || 'auto').toLowerCase();
     return mode === 'custom' ? 'custom' : 'auto';
@@ -1346,8 +1367,8 @@ async function loadRpc() {
     // Large art
     const artEl = document.getElementById('rpcDiscordArt');
     if (artEl) {
-        const li = assets.large_image || '';
-        if (active && li && (li.startsWith('http://') || li.startsWith('https://'))) {
+        const li = resolveRpcPreviewImage(assets.large_image || '');
+        if (active && li) {
             artEl.style.backgroundImage  = `url(${JSON.stringify(li)})`;
             artEl.style.backgroundSize   = 'cover';
             artEl.style.backgroundColor = 'transparent';
@@ -1360,15 +1381,16 @@ async function loadRpc() {
     // Small art
     const smallArtEl = document.getElementById('rpcDiscordSmallArt');
     if (smallArtEl) {
-        const si = assets.small_image || '';
+        const si = resolveRpcPreviewImage(assets.small_image || '');
         if (active && si) {
             smallArtEl.classList.add('visible');
-            if (si.startsWith('http://') || si.startsWith('https://')) {
-                smallArtEl.style.backgroundImage = `url(${JSON.stringify(si)})`;
-                smallArtEl.style.backgroundSize  = 'cover';
-            }
+            smallArtEl.style.backgroundImage = `url(${JSON.stringify(si)})`;
+            smallArtEl.style.backgroundSize  = 'cover';
+            smallArtEl.style.backgroundColor = 'transparent';
         } else {
             smallArtEl.classList.remove('visible');
+            smallArtEl.style.backgroundImage = 'none';
+            smallArtEl.style.backgroundColor = 'var(--a1)';
         }
     }
 
@@ -1475,8 +1497,9 @@ function updateRpcPreview() {
     // Large image
     const artEl = document.getElementById('rpcDiscordArt');
     if (artEl) {
-        if (largeImg && (largeImg.startsWith('http://') || largeImg.startsWith('https://'))) {
-            artEl.style.backgroundImage = `url(${CSS.escape ? JSON.stringify(largeImg) : '"' + largeImg + '"'})`;
+        const largePreview = resolveRpcPreviewImage(largeImg);
+        if (largePreview) {
+            artEl.style.backgroundImage = `url(${JSON.stringify(largePreview)})`;
             artEl.style.backgroundSize  = 'cover';
             artEl.style.backgroundColor = 'transparent';
         } else {
@@ -1488,15 +1511,16 @@ function updateRpcPreview() {
     // Small art visibility
     const smallArtEl = document.getElementById('rpcDiscordSmallArt');
     if (smallArtEl) {
-        if (smallImg) {
+        const smallPreview = resolveRpcPreviewImage(smallImg);
+        if (smallPreview) {
             smallArtEl.classList.add('visible');
-            if (smallImg.startsWith('http://') || smallImg.startsWith('https://')) {
-                smallArtEl.style.backgroundImage = `url(${JSON.stringify(smallImg)})`;
-                smallArtEl.style.backgroundSize  = 'cover';
-                smallArtEl.style.backgroundColor = 'transparent';
-            }
+            smallArtEl.style.backgroundImage = `url(${JSON.stringify(smallPreview)})`;
+            smallArtEl.style.backgroundSize  = 'cover';
+            smallArtEl.style.backgroundColor = 'transparent';
         } else {
             smallArtEl.classList.remove('visible');
+            smallArtEl.style.backgroundImage = 'none';
+            smallArtEl.style.backgroundColor = 'var(--a1)';
         }
     }
 
