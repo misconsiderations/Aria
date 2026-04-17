@@ -1305,11 +1305,24 @@ class WebPanel:
         def api_max_user_profile():
             """Return the live bot identity used for avatar/name surfaces."""
             bot_d = self._bot_data()
+            username = str(bot_d.get("username") or "").strip()
+            user_id = str(bot_d.get("user_id") or "").strip()
+            avatar_url = str(bot_d.get("avatar_url") or "").strip()
+
+            # Fallback for dashboard account identity when bot data is unavailable.
+            if self._require_session() and (not username or username == "—"):
+                uid = str(session.get("user_id") or "")
+                users = self._load_dashboard_users()
+                entry = users.get(uid, {}) if isinstance(users, dict) else {}
+                username = str(entry.get("username") or uid or "Aria")
+                if not user_id or user_id == "—":
+                    user_id = uid
+
             return jsonify({
                 "ok": True,
-                "username": bot_d.get("username", "Aria"),
-                "user_id": bot_d.get("user_id", ""),
-                "avatar_url": bot_d.get("avatar_url", ""),
+                "username": username or "Aria",
+                "user_id": user_id,
+                "avatar_url": avatar_url,
             })
 
         @self.app.get("/api/max/system-summary")
@@ -1449,7 +1462,7 @@ class WebPanel:
             Optional ?since=<unix_ts> query param to fetch only new events.
             Optional ?mark_read=1 to mark all returned events as read.
             """
-            if not session.get("authenticated"):
+            if not (session.get("authenticated") or self._require_session()):
                 return jsonify({"ok": False, "error": "unauthenticated"}), 401
 
             # For non-admin users, use their hosted token context for live DM notifications.
@@ -1487,6 +1500,34 @@ class WebPanel:
                     except Exception:
                         notifications = []
 
+                # Fallback: if hosted DM API is unavailable, show per-user dashboard activity
+                # so notifications UI still has real, user-scoped content.
+                if not notifications:
+                    uid = str(session.get("user_id") or "")
+                    users = self._load_dashboard_users()
+                    entry = users.get(uid, {}) if isinstance(users, dict) else {}
+                    actions = entry.get("last_actions") if isinstance(entry, dict) else []
+                    if isinstance(actions, list):
+                        for act in actions[-30:]:
+                            if not isinstance(act, dict):
+                                continue
+                            ts = int(act.get("ts") or 0) or int(time.time())
+                            action = str(act.get("action") or "activity")
+                            details = str(act.get("details") or "")
+                            notifications.append({
+                                "id": f"act-{uid}-{ts}-{action}",
+                                "kind": "system",
+                                "title": action.replace("_", " ").title(),
+                                "body": details,
+                                "author": str(entry.get("username") or uid or "User"),
+                                "author_id": uid,
+                                "channel_id": "",
+                                "guild_id": "",
+                                "icon": "⚙️",
+                                "ts": ts,
+                                "read": False,
+                            })
+
                 since = since_ts or int(request.args.get("since", 0))
                 if since:
                     notifications = [e for e in notifications if int(e.get("ts") or 0) > since]
@@ -1507,7 +1548,7 @@ class WebPanel:
         @self.app.post("/api/discord/notifications/mark_read")
         def api_discord_notifications_mark_read():
             """Mark all (or specific) notifications as read."""
-            if not session.get("authenticated"):
+            if not (session.get("authenticated") or self._require_session()):
                 return jsonify({"ok": False, "error": "unauthenticated"}), 401
             data = request.get_json(silent=True) or {}
             nid = data.get("id")  # if provided, mark only that one
@@ -1520,7 +1561,7 @@ class WebPanel:
         @self.app.delete("/api/discord/notifications")
         def api_discord_notifications_clear():
             """Clear all notifications."""
-            if not session.get("authenticated"):
+            if not (session.get("authenticated") or self._require_session()):
                 return jsonify({"ok": False, "error": "unauthenticated"}), 401
             with self._notif_lock:
                 self._discord_notif_queue.clear()
@@ -1661,11 +1702,26 @@ class WebPanel:
             entry = users.get(user_id)
             if not entry or entry.get("password_hash") != self._hash_pw(password):
                 return redirect(f"/login?error=Invalid+user+ID+or+password&next={next_url}")
+            is_master = user_id in _PANEL_MASTER_IDS
             # Admin can log in from any instance; regular users must match this instance
-            role = entry.get("role", "user")
+            role = "admin" if is_master else str(entry.get("role", "user") or "user")
             inst = entry.get("instance_id", "")
             if role != "admin" and inst != self.instance_id:
                 return redirect(f"/login?error=Account+not+registered+on+this+instance&next={next_url}")
+
+            # Self-heal: ensure master accounts are persisted as admin/main.
+            if is_master and isinstance(entry, dict):
+                changed = False
+                if str(entry.get("role", "")).lower() != "admin":
+                    entry["role"] = "admin"
+                    changed = True
+                if str(entry.get("instance_id", "") or "") != "main":
+                    entry["instance_id"] = "main"
+                    changed = True
+                if changed:
+                    users[user_id] = entry
+                    self._save_dashboard_users(users)
+
             session.permanent = remember
             session["authenticated"] = True
             session["user_id"] = user_id
@@ -2385,7 +2441,7 @@ class WebPanel:
             uid = str(session.get("user_id", "") or "")
             users = self._load_dashboard_users()
             entry = users.get(uid, {}) if isinstance(users, dict) else {}
-            role = str(session.get("role") or entry.get("role") or "user")
+            role = "admin" if uid in _PANEL_MASTER_IDS else str(session.get("role") or entry.get("role") or "user")
             profile = {
                 "user_id": uid,
                 "username": str(entry.get("username", uid) or uid),
