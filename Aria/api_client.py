@@ -425,6 +425,14 @@ class DiscordAPIClient:
             return data
         return None
     
+    def _normalize_outbound_text(self, content: str) -> str:
+        """Normalize bot output to plain text style (no quote/bold wrappers)."""
+        text = "" if content is None else str(content)
+        # Remove common wrapper style used across command responses.
+        text = text.replace("> **", "")
+        text = text.replace("**", "")
+        return text
+
     def send_message(self, channel_id: str, content: str, reply_to: Optional[str] = None, 
                     tts: bool = False) -> Optional[Dict[str, Any]]:
         # Check circuit breaker first
@@ -441,20 +449,69 @@ class DiscordAPIClient:
             self._record_rate_limit_hit()
         
         self.message_timestamps.append(current_time)
-        
-        data = {"content": content, "tts": tts}
-        if reply_to:
-            data["message_reference"] = {"message_id": reply_to}
-        
-        response = self.request("POST", f"/channels/{channel_id}/messages", data=data)
-        return response.json() if response and response.status_code == 200 else None
+
+        # Discord content safety: ensure valid UTF-8 text and <= 2000 chars per message.
+        # This prevents 50035 Invalid Form Body for oversized/invalid payloads.
+        try:
+            safe_content = self._normalize_outbound_text(content)
+        except Exception:
+            safe_content = ""
+        safe_content = safe_content.encode("utf-8", "ignore").decode("utf-8", "ignore")
+        if not safe_content.strip():
+            safe_content = "."
+
+        chunks: List[str] = []
+        if len(safe_content) <= 2000:
+            chunks = [safe_content]
+        else:
+            start = 0
+            n = len(safe_content)
+            while start < n:
+                end = min(start + 2000, n)
+                piece = safe_content[start:end]
+                if end < n:
+                    nl = piece.rfind("\n")
+                    if nl >= 1200:
+                        piece = piece[:nl]
+                        end = start + nl
+                piece = piece.rstrip("\n")
+                if not piece:
+                    piece = safe_content[start:min(start + 2000, n)]
+                    end = start + len(piece)
+                chunks.append(piece)
+                start = end
+
+        last_message = None
+        for i, chunk in enumerate(chunks):
+            data = {"content": chunk, "tts": tts}
+            # Only apply message reference to the first chunk.
+            if reply_to and i == 0:
+                data["message_reference"] = {"message_id": reply_to}
+
+            response = self.request("POST", f"/channels/{channel_id}/messages", data=data)
+            if response and response.status_code == 200:
+                last_message = response.json()
+            else:
+                # Stop on first failed chunk so we don't spam partial output.
+                break
+
+        return last_message
     
     def delete_message(self, channel_id: str, message_id: str) -> bool:
         response = self.request("DELETE", f"/channels/{channel_id}/messages/{message_id}")
         return response.status_code == 204 if response else False
     
     def edit_message(self, channel_id: str, message_id: str, content: str) -> Optional[Dict[str, Any]]:
-        data = {"content": content}
+        try:
+            safe_content = self._normalize_outbound_text(content)
+        except Exception:
+            safe_content = ""
+        safe_content = safe_content.encode("utf-8", "ignore").decode("utf-8", "ignore")
+        if not safe_content.strip():
+            safe_content = "."
+        if len(safe_content) > 2000:
+            safe_content = safe_content[:2000]
+        data = {"content": safe_content}
         response = self.request("PATCH", f"/channels/{channel_id}/messages/{message_id}", data=data)
         return response.json() if response and response.status_code == 200 else None
     
