@@ -16,6 +16,7 @@
       <div class="brand"><span class="dot"></span> ARIA</div>
       <div class="nav-links">
         <a href="/home">Home</a>
+        <a href="#get-token">Get Token</a>
         <a href="/request-access">Access</a>
         <a href="/login">Login</a>
         <a href="/dashboard">Dashboard</a>
@@ -54,6 +55,46 @@
           <span class="home-stat-num" id="stat-commands">—</span>
           <span class="home-stat-label">Actions</span>
         </div>
+      </div>
+    </section>
+
+    <!-- TOKEN GUIDE -->
+    <section class="home-token-section" id="get-token">
+      <div class="home-token-header">
+        <h2 class="home-token-title">How to Get Your Token</h2>
+        <p class="home-token-sub">Follow the steps for your device and keep your token private.</p>
+      </div>
+
+      <div class="home-token-warning">
+        <strong>Security:</strong> Never share your token with anyone.
+      </div>
+
+      <div class="home-token-tabs" role="tablist" aria-label="Token guide tabs">
+        <button class="home-token-tab-btn active" data-tab="desktop" onclick="switchHomeTokenTab('desktop', this)">Desktop</button>
+        <button class="home-token-tab-btn" data-tab="mobile" onclick="switchHomeTokenTab('mobile', this)">Mobile</button>
+        <button class="home-token-tab-btn" data-tab="alternative" onclick="switchHomeTokenTab('alternative', this)">Alternative</button>
+      </div>
+
+      <div class="home-token-tab-content active" id="home-token-tab-desktop">
+        <div class="home-token-step"><span>1</span><p>Open Discord or discord.com.</p></div>
+        <div class="home-token-step"><span>2</span><p>Press F12 or Ctrl+Shift+I and open the Console tab.</p></div>
+        <div class="home-token-step"><span>3</span><p>Paste and run this command:</p></div>
+        <div class="home-token-code-wrap">
+          <code id="home-token-code">webpackChunkdiscord_app.push([['__CUSTOM__'],(o,e,req)=>{for(const m in o.c)if(o.c.hasOwnProperty(m)){const mod=o.c[m].exports;if(mod && mod.__esModule && mod.default)for(const key in mod.default)if(key === 'getToken')return mod.default[key]()}}]);</code>
+          <button class="btn btn-ghost" type="button" onclick="copyHomeTokenCode()">Copy Code</button>
+        </div>
+      </div>
+
+      <div class="home-token-tab-content" id="home-token-tab-mobile">
+        <div class="home-token-step"><span>1</span><p>iOS: Enable Safari Web Inspector. Android: Connect with USB debugging.</p></div>
+        <div class="home-token-step"><span>2</span><p>Open discord.com on your phone browser.</p></div>
+        <div class="home-token-step"><span>3</span><p>Inspect from a desktop browser (Safari Develop or chrome://inspect) and run the desktop code.</p></div>
+      </div>
+
+      <div class="home-token-tab-content" id="home-token-tab-alternative">
+        <div class="home-token-step"><span>1</span><p>Open Discord Desktop.</p></div>
+        <div class="home-token-step"><span>2</span><p>Press Ctrl+Shift+I and open Console.</p></div>
+        <div class="home-token-step"><span>3</span><p>Run the desktop command and copy the token result.</p></div>
       </div>
     </section>
 
@@ -111,6 +152,35 @@
   </div>
 
   <script>
+    function switchHomeTokenTab(tabName, btn) {
+      document.querySelectorAll('.home-token-tab-content').forEach((tab) => tab.classList.remove('active'));
+      document.querySelectorAll('.home-token-tab-btn').forEach((b) => b.classList.remove('active'));
+
+      const selected = document.getElementById(`home-token-tab-${tabName}`);
+      if (selected) selected.classList.add('active');
+      if (btn) btn.classList.add('active');
+    }
+
+    function copyHomeTokenCode() {
+      const el = document.getElementById('home-token-code');
+      if (!el) return;
+      const value = el.textContent || '';
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(value).catch(() => {});
+        return;
+      }
+
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+      } catch (_) {}
+      document.body.removeChild(textarea);
+    }
+
     async function updateStats() {
       try {
         const res = await fetch('/api/public/stats');

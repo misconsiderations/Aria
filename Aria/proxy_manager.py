@@ -5,6 +5,9 @@ import time
 from urllib.parse import urlparse
 
 class ProxyManager:
+    _local_load_logged = False
+    _github_load_logged = False
+
     def __init__(self, proxy_list=None):
         self.proxies = []
         self.last_fetch = 0
@@ -71,8 +74,9 @@ class ProxyManager:
                 return []
             lines = self.local_proxy_file.read_text(encoding="utf-8").splitlines()
             proxies = self._normalize_proxies(lines)
-            if proxies:
+            if proxies and not ProxyManager._local_load_logged:
                 print(f"[PROXY] Loaded {len(proxies)} proxies from {self.local_proxy_file.name}")
+                ProxyManager._local_load_logged = True
             return proxies
         except Exception as e:
             print(f"[PROXY] Failed to load local proxies: {e}")
@@ -87,8 +91,9 @@ class ProxyManager:
                 lines = response.text.strip().split('\n')
                 self.proxies = self._normalize_proxies(lines)
                 self.last_fetch = time.time()
-                if self.proxies:
+                if self.proxies and not ProxyManager._github_load_logged:
                     print(f"[PROXY] Loaded {len(self.proxies)} proxies from GitHub")
+                    ProxyManager._github_load_logged = True
         except Exception as e:
             print(f"[PROXY] Failed to fetch from GitHub: {e}")
     

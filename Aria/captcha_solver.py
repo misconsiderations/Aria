@@ -38,6 +38,8 @@ except ImportError:
 
 class CaptchaSolver:
     """Comprehensive captcha solver for Discord API captcha challenges"""
+    _missing_config_logged = False
+
     def __init__(self, api_key: str = "", service: str = "2captcha"):
         self.api_key = api_key
         self.service = service.lower() if isinstance(service, str) else service
@@ -59,7 +61,7 @@ class CaptchaSolver:
                 self.solver = None
             else:
                 print("[ERROR] 2captcha support requires either twocaptcha or requests.")
-        elif api_key and service == "capsolver":
+        elif api_key and self.service == "capsolver":
             if CAPSOLVER_AVAILABLE:
                 capsolver.api_key = api_key
                 print("[DEBUG] CapSolver library initialized.")
@@ -70,7 +72,9 @@ class CaptchaSolver:
         elif self.spoof_only:
             print("[DEBUG] Captcha spoof-only mode enabled; no solver key required.")
         else:
-            print("[DEBUG] Captcha support not configured or API key missing.")
+            if not CaptchaSolver._missing_config_logged:
+                print("[DEBUG] Captcha support not configured or API key missing.")
+                CaptchaSolver._missing_config_logged = True
 
     def is_enabled(self) -> bool:
         """Check if captcha solving is enabled"""

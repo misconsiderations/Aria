@@ -441,12 +441,18 @@ async function loadOverview() {
 // ── Welcome Modal Functions ─────────────────────────────────────────────
 function openWelcomeModal() {
     const modal = document.getElementById('welcomeModal');
-    if (modal) modal.hidden = false;
+    if (modal) {
+        modal.hidden = false;
+        document.body.style.overflow = 'hidden';
+    }
 }
 
 function closeWelcomeModal() {
     const modal = document.getElementById('welcomeModal');
-    if (modal) modal.hidden = true;
+    if (modal) {
+        modal.hidden = true;
+        document.body.style.overflow = '';
+    }
 }
 
 function switchWelcomeTab(tabName, btn) {
@@ -502,14 +508,7 @@ function updateWelcomeVersion(version) {
         verEl.textContent = version;
     }
 }
-   
-   // Show welcome modal on first overview load if not dismissed this session
-   if (!window._welcomeModalShown) {
-       window._welcomeModalShown = true;
-       openWelcomeModal();
-       loadWelcomeUpdates();
-       updateWelcomeVersion(d.ui_version ? `v${d.ui_version}` : 'v1.0.0');
-   }
+
 async function loadAriaOverviewWidgets() {
     const [summaryRes, sysRes] = await Promise.all([
         fetchJSON('/api/max/system-summary'),
@@ -1007,8 +1006,10 @@ function switchHelpTab(tabName, btn) {
     trackDashboardAction('help_tab_switch', `Switched help tab to ${tabName}`);
 }
 
-function copyToClipboard(elementId) {
-    const codeElement = document.getElementById(elementId);
+function copyToClipboard(elementRef) {
+    const codeElement = typeof elementRef === 'string'
+        ? document.getElementById(elementRef)
+        : elementRef;
     if (!codeElement) return;
     
     const code = codeElement.textContent;
@@ -1122,8 +1123,10 @@ function switchHelpTab(tabName, btn) {
     if (btn) btn.classList.add('active');
 }
 
-function copyToClipboard(elementId) {
-    const codeElement = document.getElementById(elementId);
+function copyToClipboard(elementRef) {
+    const codeElement = typeof elementRef === 'string'
+        ? document.getElementById(elementRef)
+        : elementRef;
     if (!codeElement) return;
     const code = codeElement.textContent;
     navigator.clipboard.writeText(code).then(() => {
