@@ -209,9 +209,9 @@ async function loadUserProfile() {
         if (data.avatar_url && data.avatar_url.trim()) {
             tbAvatar.src = data.avatar_url;
         } else {
-            tbAvatar.src = '/static/images/aria-favicon.png';
+            tbAvatar.src = defaultAvatarUrl(data.user_id);
         }
-        tbAvatar.onerror = () => { tbAvatar.src = '/static/images/aria-favicon.png'; };
+        tbAvatar.onerror = () => { tbAvatar.src = defaultAvatarUrl(data.user_id); };
     }
     
     // Sync hero avatar
@@ -220,9 +220,9 @@ async function loadUserProfile() {
         if (data.avatar_url && data.avatar_url.trim()) {
             heroAvatar.src = data.avatar_url;
         } else {
-            heroAvatar.src = '/static/images/aria-favicon.png';
+            heroAvatar.src = defaultAvatarUrl(data.user_id);
         }
-        heroAvatar.onerror = () => { heroAvatar.src = '/static/images/aria-favicon.png'; };
+        heroAvatar.onerror = () => { heroAvatar.src = defaultAvatarUrl(data.user_id); };
     }
 }
 
@@ -348,6 +348,14 @@ function esc(s) {
         .replace(/"/g, '&quot;');
 }
 
+function defaultAvatarUrl(userId) {
+    const id = String(userId || '').trim();
+    if (!id || id === '—') return '/static/images/aria-favicon.png';
+    const n = Number(id);
+    const slot = Number.isFinite(n) ? Math.abs(n) % 5 : 0;
+    return `https://cdn.discordapp.com/embed/avatars/${slot}.png`;
+}
+
 function fmtTs(ts) {
     const n = Number(ts || 0);
     if (!n) return '—';
@@ -424,9 +432,9 @@ async function loadOverview() {
         if (d.avatar_url && d.avatar_url.trim()) {
             tbAvatar.src = d.avatar_url;
         } else {
-            tbAvatar.src = '/static/images/aria-favicon.png';
+            tbAvatar.src = defaultAvatarUrl(d.user_id);
         }
-        tbAvatar.onerror = () => { tbAvatar.src = '/static/images/aria-favicon.png'; };
+        tbAvatar.onerror = () => { tbAvatar.src = defaultAvatarUrl(d.user_id); };
     }
     const tbUser = document.getElementById('topbarUsername');
     if (tbUser) {
@@ -435,9 +443,13 @@ async function loadOverview() {
 
     // ── Hero avatar ──────────────────────────────────────────────────────────
     const heroAvatar = document.getElementById('heroAvatar');
-    if (heroAvatar && d.avatar_url) {
-        heroAvatar.onerror = () => { heroAvatar.onerror = null; heroAvatar.src = '/static/images/aria-favicon.svg'; };
-        heroAvatar.src = d.avatar_url;
+    if (heroAvatar) {
+        if (d.avatar_url && d.avatar_url.trim()) {
+            heroAvatar.src = d.avatar_url;
+        } else {
+            heroAvatar.src = defaultAvatarUrl(d.user_id);
+        }
+        heroAvatar.onerror = () => { heroAvatar.src = defaultAvatarUrl(d.user_id); };
     }
 
     await loadClientSwitcher(d);

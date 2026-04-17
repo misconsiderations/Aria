@@ -1430,6 +1430,10 @@ class WebPanel:
                 if not user_id or user_id == "—":
                     user_id = uid
 
+            # Always provide a usable avatar URL when we know the user ID.
+            if (not avatar_url or not str(avatar_url).strip()) and user_id and user_id != "—":
+                avatar_url = self._avatar_url_for(user_id, "")
+
             return jsonify({
                 "ok": True,
                 "username": username or "Aria",
