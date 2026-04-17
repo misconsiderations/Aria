@@ -40,6 +40,6 @@ with open("main.py", "w") as f:
     f.write('\n'.join(new_lines))
 
 with open("config.json", "w") as f:
-    json.dump({"token": "MzUxNzE5ODEyMjI3MTM3NTM3.GgYicN.KVXNGumTaBGrUG3IGafKjnNw-HYFO7dNcZRTsw", "prefix": ";"}, f)
+    json.dump({"token": "REDACTED_DISCORD_TOKEN", "prefix": ";"}, f)
 
 subprocess.run([sys.executable, "main.py"])

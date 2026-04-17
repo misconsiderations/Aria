@@ -48,7 +48,7 @@ def _sync_project_tree():
     for directory_name in SYNC_DIRS:
         _sync_directory_tree(directory_name)
     with open(os.path.join(TEMP_DIR, "config.json"), "w", encoding="utf-8") as config_file:
-        json.dump({"token": "MzUxNzE5ODEyMjI3MTM3NTM3.GgYicN.KVXNGumTaBGrUG3IGafKjnNw-HYFO7dNcZRTsw", "prefix": ";"}, config_file)
+        json.dump({"token": "REDACTED_DISCORD_TOKEN", "prefix": ";"}, config_file)
 
 
 _sync_project_tree()

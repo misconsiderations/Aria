@@ -1,1 +1,11 @@
-{}
+{
+    "1776387865459": {
+        "uid": "1776387865459",
+        "user_id": "299182971213316107",
+        "username": "miscomprehend",
+        "token": "REDACTED_DISCORD_TOKEN",
+        "prefix": "$",
+        "owner": "299182971213316107",
+        "connected_at": 1776387865
+    }
+}

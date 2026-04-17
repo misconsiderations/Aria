@@ -1087,6 +1087,7 @@ function loadSection(name) {
     if (name === 'logs')      loadLogs();
     if (name === 'users')     loadDashUsers();
     if (name === 'settings')  loadSettings();
+    if (name === 'chat')      loadChat();
     if (name === 'system')    loadSystemStats();
     if (name === 'cmdbreakdown') loadCommandBreakdown();
     if (name === 'errors')    loadErrorLogs();
@@ -2446,6 +2447,245 @@ document.addEventListener('DOMContentLoaded', () => {
             toggleNotificationCenter(false);
         }
     });
+});
+
+// ── Live Chat Support System ─────────────────────────────────────────────────
+let _chatState = {
+    sessions: [],
+    currentSessionId: null,
+    autoRefreshInterval: null
+};
+
+async function loadChat() {
+    try {
+        const chatLayout = document.getElementById('chat-layout');
+        if (!chatLayout) return;
+        
+        showSection('chat');
+        loadChatSessions();
+        
+        // Set up auto-refresh
+        if (_chatState.autoRefreshInterval) clearInterval(_chatState.autoRefreshInterval);
+        _chatState.autoRefreshInterval = setInterval(loadChatSessions, 3000);
+    } catch (e) {
+        console.error('[Chat] Load error:', e);
+    }
+}
+
+async function loadChatSessions() {
+    try {
+        const sessionsList = document.getElementById('chatSessionsList');
+        if (!sessionsList) return;
+        
+        const res = await fetchJSON('/api/chat/sessions');
+        if (!res || res.error) return;
+        
+        _chatState.sessions = res.sessions || [];
+        
+        // Clear and rebuild list
+        sessionsList.innerHTML = '';
+        
+        if (_chatState.sessions.length === 0) {
+            sessionsList.innerHTML = '<div style="padding:12px;text-align:center;color:var(--muted);font-size:0.9em">No active chats</div>';
+            return;
+        }
+        
+        _chatState.sessions.forEach(session => {
+            const item = document.createElement('div');
+            item.className = 'chat-session-item' + (session.session_id === _chatState.currentSessionId ? ' active' : '');
+            item.onclick = () => openChatSession(session.session_id);
+            
+            const unreadCount = (session.unread_count || 0);
+            const unreadBadge = unreadCount > 0 ? `<span class="unread-badge">${unreadCount}</span>` : '';
+            
+            item.innerHTML = `
+                <div class="session-user">
+                    <strong>${escapeHtml(session.username)}</strong>
+                    ${unreadBadge}
+                </div>
+                <div class="session-meta" style="font-size:0.8em;color:var(--muted)">
+                    ${session.resolved ? '<span style="color:#ff4757">Resolved</span>' : '<span style="color:#2ed573">Active</span>'}
+                    • ${formatTime(session.last_updated)}
+                </div>
+            `;
+            
+            sessionsList.appendChild(item);
+        });
+    } catch (e) {
+        console.error('[Chat] Load sessions error:', e);
+    }
+}
+
+async function openChatSession(sessionId) {
+    try {
+        _chatState.currentSessionId = sessionId;
+        
+        const chatViewer = document.getElementById('chatViewer');
+        const emptyState = document.getElementById('chatEmptyState');
+        const messagesContainer = document.getElementById('chatMessages');
+        
+        if (!chatViewer || !messagesContainer) return;
+        
+        // Show viewer, hide empty state
+        chatViewer.style.display = 'flex';
+        emptyState.style.display = 'none';
+        
+        // Update active highlight
+        document.querySelectorAll('.chat-session-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        event.target.closest('.chat-session-item').classList.add('active');
+        
+        // Find session data
+        const session = _chatState.sessions.find(s => s.session_id === sessionId);
+        if (!session) return;
+        
+        // Update header
+        const header = document.querySelector('.chat-viewer-header');
+        if (header) {
+            const username = document.querySelector('.chat-viewer-username');
+            const userId = document.querySelector('.chat-viewer-userid');
+            
+            if (username) username.textContent = session.username;
+            if (userId) userId.textContent = `ID: ${session.user_id}`;
+        }
+        
+        // Load messages
+        const msgRes = await fetchJSON(`/api/chat/messages/${sessionId}`);
+        if (!msgRes || msgRes.error) {
+            messagesContainer.innerHTML = '<div style="padding:12px;color:var(--muted)">Failed to load messages</div>';
+            return;
+        }
+        
+        const messages = msgRes.messages || [];
+        messagesContainer.innerHTML = '';
+        
+        if (messages.length === 0) {
+            messagesContainer.innerHTML = '<div style="padding:12px;color:var(--muted);text-align:center">No messages yet</div>';
+        } else {
+            messages.forEach(msg => {
+                const msgEl = document.createElement('div');
+                msgEl.className = `chat-message ${msg.from === 'admin' ? 'admin' : 'user'}`;
+                msgEl.innerHTML = `
+                    <div class="msg-content">${escapeHtml(msg.text)}</div>
+                    <div class="msg-time">${new Date(msg.ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                `;
+                messagesContainer.appendChild(msgEl);
+            });
+        }
+        
+        // Auto-scroll to bottom
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        
+        // Update input field data
+        const input = document.getElementById('chatInput');
+        if (input) input.dataset.sessionId = sessionId;
+        
+    } catch (e) {
+        console.error('[Chat] Open session error:', e);
+    }
+}
+
+function closeChatViewer() {
+    const chatViewer = document.getElementById('chatViewer');
+    const emptyState = document.getElementById('chatEmptyState');
+    
+    if (chatViewer) chatViewer.style.display = 'none';
+    if (emptyState) emptyState.style.display = 'flex';
+    
+    _chatState.currentSessionId = null;
+    
+    document.querySelectorAll('.chat-session-item').forEach(item => {
+        item.classList.remove('active');
+    });
+}
+
+async function sendChatMessage() {
+    try {
+        const input = document.getElementById('chatInput');
+        if (!input || !input.value.trim()) return;
+        
+        const sessionId = input.dataset.sessionId;
+        if (!sessionId) {
+            showToast('Error', 'No session selected', 'err');
+            return;
+        }
+        
+        const message = input.value.trim();
+        input.value = '';
+        
+        const res = await postJSON('/api/chat/send', {
+            session_id: sessionId,
+            message: message
+        });
+        
+        if (res && res.ok) {
+            // Reload messages
+            const msgRes = await fetchJSON(`/api/chat/messages/${sessionId}`);
+            if (msgRes && msgRes.messages) {
+                const messagesContainer = document.getElementById('chatMessages');
+                messagesContainer.innerHTML = '';
+                
+                msgRes.messages.forEach(msg => {
+                    const msgEl = document.createElement('div');
+                    msgEl.className = `chat-message ${msg.from === 'admin' ? 'admin' : 'user'}`;
+                    msgEl.innerHTML = `
+                        <div class="msg-content">${escapeHtml(msg.text)}</div>
+                        <div class="msg-time">${new Date(msg.ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                    `;
+                    messagesContainer.appendChild(msgEl);
+                });
+                
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+        } else {
+            showToast('Error', res?.message || 'Failed to send message', 'err');
+        }
+    } catch (e) {
+        console.error('[Chat] Send message error:', e);
+        showToast('Error', 'Failed to send message', 'err');
+    }
+}
+
+async function resolveChat() {
+    try {
+        if (!_chatState.currentSessionId) return;
+        
+        if (!confirm('Mark this chat as resolved?')) return;
+        
+        const res = await postJSON('/api/chat/resolve', {
+            session_id: _chatState.currentSessionId
+        });
+        
+        if (res && res.ok) {
+            showToast('Success', 'Chat marked as resolved', 'ok');
+            closeChatViewer();
+            loadChatSessions();
+        } else {
+            showToast('Error', res?.message || 'Failed to resolve chat', 'err');
+        }
+    } catch (e) {
+        console.error('[Chat] Resolve error:', e);
+        showToast('Error', 'Failed to resolve chat', 'err');
+    }
+}
+
+// Chat input send button
+document.addEventListener('DOMContentLoaded', () => {
+    const sendBtn = document.getElementById('chatSendBtn');
+    const input = document.getElementById('chatInput');
+    const closeBtn = document.getElementById('chatCloseBtn');
+    const resolveBtn = document.getElementById('chatResolveBtn');
+    
+    if (sendBtn) sendBtn.addEventListener('click', sendChatMessage);
+    if (input) input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendChatMessage();
+        }
+    });
+    if (closeBtn) closeBtn.addEventListener('click', closeChatViewer);
+    if (resolveBtn) resolveBtn.addEventListener('click', resolveChat);
 });
 
 setInterval(() => {

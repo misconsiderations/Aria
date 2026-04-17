@@ -68,6 +68,10 @@
                 <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="16" height="6" rx="1.5"/><rect x="2" y="11" width="16" height="6" rx="1.5"/><circle cx="15.5" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="14" r="1" fill="currentColor" stroke="none"/></svg>
                 Instances
             </li>
+            <li class="nav-item" data-section="chat" data-admin-only="true">
+                <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h16v10H4l-2 3v-3z"/><circle cx="5" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="10" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="9" r="1" fill="currentColor" stroke="none"/></svg>
+                Support Chat
+            </li>
             <li class="nav-item" data-section="logs" data-admin-only="true">
                 <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M6 9l2 2 4-4"/></svg>
                 Runtime
@@ -1017,6 +1021,65 @@
                 <div class="settings-msg-wrap"><div id="accessReqBulkMsg" class="settings-msg"></div></div>
             </div>
         </section>
+
+        <!-- ══════════════════════════════════════════════
+             LIVE CHAT SUPPORT
+        ══════════════════════════════════════════════ -->
+        <section class="section" id="section-chat" data-admin-only="true">
+            <div class="section-header">
+                <div>
+                    <div class="section-title">Live Support Chat</div>
+                    <div class="section-sub">Manage user support conversations in real-time</div>
+                </div>
+            </div>
+
+            <div class="chat-layout">
+                <!-- Chat Sessions List -->
+                <div class="chat-sidebar">
+                    <div class="chat-sidebar-header">
+                        <h3>Active Chats</h3>
+                        <span class="chat-badge" id="chatBadge">0</span>
+                    </div>
+                    <div class="chat-sessions-list" id="chatSessionsList">
+                        <div class="chat-empty">No active conversations</div>
+                    </div>
+                </div>
+
+                <!-- Chat Viewer -->
+                <div class="chat-main">
+                    <div class="chat-viewer" id="chatViewer" hidden>
+                        <div class="chat-viewer-header">
+                            <div class="chat-viewer-info">
+                                <div class="chat-viewer-username" id="chatUsername">—</div>
+                                <div class="chat-viewer-userid" id="chatUserId">—</div>
+                            </div>
+                            <div class="chat-viewer-actions">
+                                <button class="chat-button" id="chatCloseBtn" title="Close">Close</button>
+                                <button class="chat-button danger" id="chatResolveBtn">Resolve</button>
+                            </div>
+                        </div>
+
+                        <div id="chatMessages"></div>
+
+                        <div class="chat-input-wrap">
+                            <input type="text" id="chatInput" placeholder="Type your response..." />
+                            <button id="chatSendBtn">Send</button>
+                        </div>
+                    </div>
+
+                    <div class="chat-empty-state" id="chatEmptyState">
+                        <svg viewBox="0 0 60 60" style="width:48px;height:48px;opacity:0.3">
+                            <path d="M10 15h40v25H15l-5 8v-8H10V15z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <circle cx="20" cy="28" r="2" fill="currentColor"/>
+                            <circle cx="30" cy="28" r="2" fill="currentColor"/>
+                            <circle cx="40" cy="28" r="2" fill="currentColor"/>
+                        </svg>
+                        <div style="color: var(--muted); margin-top: 12px; font-size: 13px;">Select a conversation to start</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <section class="section" id="section-settings" data-admin-only="true">
             <div class="section-header">
                 <div>

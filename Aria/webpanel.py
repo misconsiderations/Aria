@@ -227,6 +227,49 @@ class WebPanel:
         with open(self._dashboard_users_path(), "w", encoding="utf-8") as f:
             json.dump(users, f, indent=2)
 
+    # ── Live Chat Support ─────────────────────────────────────────────────────
+    def _dashboard_chat_path(self) -> str:
+        return os.path.join(self._base_dir, "dashboard_chat.json")
+
+    def _load_chat_messages(self) -> dict:
+        """Load all chat sessions and messages. Structure: {session_id: {user_id, username, messages: [], created_at, last_updated}}"""
+        stored = self._store.load_document("dashboard_chat", None)
+        if isinstance(stored, dict):
+            return stored
+        try:
+            with open(self._dashboard_chat_path(), "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_chat_messages(self, chats: dict) -> None:
+        if self._store.save_document("dashboard_chat", chats):
+            return
+        with open(self._dashboard_chat_path(), "w", encoding="utf-8") as f:
+            json.dump(chats, f, indent=2)
+
+    def _get_or_create_chat_session(self, user_id: str, username: str = "") -> str:
+        """Get existing chat session or create new one. Returns session_id."""
+        chats = self._load_chat_messages()
+        session_id = f"chat_{user_id}_{int(time.time())}"
+        
+        # Check if user already has an active session (within last 24h)
+        for sid, chat in chats.items():
+            if chat.get("user_id") == user_id and (int(time.time()) - chat.get("last_updated", 0)) < 86400:
+                return sid
+        
+        # Create new session
+        chats[session_id] = {
+            "user_id": user_id,
+            "username": username or user_id,
+            "messages": [],
+            "created_at": int(time.time()),
+            "last_updated": int(time.time()),
+            "resolved": False,
+        }
+        self._save_chat_messages(chats)
+        return session_id
+
     # ── Discord notification queue ─────────────────────────────────────────────
 
     def push_discord_notification(
@@ -2672,6 +2715,158 @@ class WebPanel:
         @self.app.get("/static/<path:asset_path>")
         def static_assets(asset_path: str) -> Any:
             return send_from_directory(self._webui_static, asset_path)
+
+        # ── Chat Support Endpoints ─────────────────────────────────────────────
+
+        @self.app.get("/api/chat/sessions")
+        def api_chat_sessions() -> Any:
+            """Admin only: Get all active chat sessions."""
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
+            
+            chats = self._load_chat_messages()
+            sessions = []
+            for sid, chat in chats.items():
+                unread = sum(1 for msg in chat.get("messages", []) if msg.get("from") == "user" and not msg.get("read"))
+                sessions.append({
+                    "session_id": sid,
+                    "user_id": chat.get("user_id"),
+                    "username": chat.get("username"),
+                    "unread_count": unread,
+                    "created_at": chat.get("created_at", 0),
+                    "last_updated": chat.get("last_updated", 0),
+                    "resolved": chat.get("resolved", False),
+                    "message_count": len(chat.get("messages", [])),
+                })
+            return jsonify({"ok": True, "sessions": sorted(sessions, key=lambda x: x["last_updated"], reverse=True), "total": len(sessions)})
+
+        @self.app.get("/api/chat/messages/<session_id>")
+        def api_chat_messages(session_id: str) -> Any:
+            """Admin only: Get messages from a chat session."""
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
+            
+            chats = self._load_chat_messages()
+            if session_id not in chats:
+                return jsonify({"ok": False, "error": "Session not found"}), 404
+            
+            chat = chats[session_id]
+            return jsonify({
+                "ok": True,
+                "session_id": session_id,
+                "user_id": chat.get("user_id"),
+                "username": chat.get("username"),
+                "messages": chat.get("messages", []),
+               "resolved": chat.get("resolved", False),
+            })
+
+        @self.app.post("/api/chat/send")
+        def api_chat_send() -> Any:
+            """Admin only: Send a message in a chat session."""
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
+            
+            data = request.get_json(force=True) or {}
+            session_id = str(data.get("session_id", "")).strip()
+            message = str(data.get("message", "")).strip()
+            
+            if not session_id or not message:
+                return jsonify({"ok": False, "error": "session_id and message required"}), 400
+            
+            chats = self._load_chat_messages()
+            if session_id not in chats:
+                return jsonify({"ok": False, "error": "Session not found"}), 404
+            
+            msg_obj = {
+                "from": "admin",
+                "text": message,
+                "ts": int(time.time()),
+                "read": True,
+            }
+            chats[session_id]["messages"].append(msg_obj)
+            chats[session_id]["last_updated"] = int(time.time())
+            self._save_chat_messages(chats)
+            
+            admin_id = str(session.get("user_id") or "")
+            self._record_user_activity(admin_id, "chat_send", f"Sent message in {session_id}", request.remote_addr or "")
+            return jsonify({"ok": True, "message": msg_obj})
+
+        @self.app.post("/api/chat/resolve")
+        def api_chat_resolve() -> Any:
+            """Admin only: Mark a chat session as resolved."""
+            if not self._require_admin():
+                return jsonify({"ok": False, "error": "Admin only"}), 403
+            
+            data = request.get_json(force=True) or {}
+            session_id = str(data.get("session_id", "")).strip()
+            
+            if not session_id:
+                return jsonify({"ok": False, "error": "session_id required"}), 400
+            
+            chats = self._load_chat_messages()
+            if session_id not in chats:
+                return jsonify({"ok": False, "error": "Session not found"}), 404
+            
+            chats[session_id]["resolved"] = True
+            chats[session_id]["last_updated"] = int(time.time())
+            self._save_chat_messages(chats)
+            
+            return jsonify({"ok": True, "resolved": True})
+
+        @self.app.post("/api/support/message")
+        def api_support_message() -> Any:
+            """User: Submit a support message (starts or continues chat session)."""
+            if not self._require_session():
+                return jsonify({"ok": False, "error": "Not logged in"}), 403
+            
+            data = request.get_json(force=True) or {}
+            message = str(data.get("message", "")).strip()
+            
+            if not message:
+                return jsonify({"ok": False, "error": "message required"}), 400
+            
+            user_id = str(session.get("user_id") or "")
+            username = str(session.get("username") or user_id)
+            session_id = self._get_or_create_chat_session(user_id, username)
+            
+            chats = self._load_chat_messages()
+            msg_obj = {
+                "from": "user",
+                "text": message,
+                "ts": int(time.time()),
+                "read": False,
+            }
+            chats[session_id]["messages"].append(msg_obj)
+            chats[session_id]["last_updated"] = int(time.time())
+            self._save_chat_messages(chats)
+            
+            self._record_user_activity(user_id, "support_message", "Sent support message", request.remote_addr or "")
+            return jsonify({"ok": True, "session_id": session_id, "message": msg_obj})
+
+        @self.app.get("/api/support/messages")
+        def api_support_messages() -> Any:
+            """User: Get their chat messages."""
+            if not self._require_session():
+                return jsonify({"ok": False, "error": "Not logged in"}), 403
+            
+            user_id = str(session.get("user_id") or "")
+            chats = self._load_chat_messages()
+            
+            for sid, chat in chats.items():
+                if chat.get("user_id") == user_id:
+                    # Mark all admin messages as read
+                    for msg in chat.get("messages", []):
+                        if msg.get("from") == "admin":
+                            msg["read"] = True
+                    self._save_chat_messages(chats)
+                    return jsonify({
+                        "ok": True,
+                        "session_id": sid,
+                        "messages": chat.get("messages", []),
+                        "resolved": chat.get("resolved", False),
+                    })
+            
+            return jsonify({"ok": True, "messages": [], "resolved": False})
 
     def run(self) -> None:
         try:

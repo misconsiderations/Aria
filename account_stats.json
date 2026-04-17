@@ -1,6 +1,6 @@
 {
   "last_summary": {
-    "captured_at": 1776390817.443379,
+    "captured_at": 1776392620.5454214,
     "account": {
       "premium_type": 0,
       "verified": true,
@@ -29,64 +29,6 @@
     }
   },
   "history": [
-    {
-      "captured_at": 1776240362.798177,
-      "account": {
-        "premium_type": 0,
-        "verified": true,
-        "locale": "en-US",
-        "has_avatar": true,
-        "has_banner": false
-      },
-      "guilds": {
-        "count": 3,
-        "owned_count": 1,
-        "admin_count": 3,
-        "icon_count": 2,
-        "banner_count": 2,
-        "feature_counts": {
-          "ANIMATED_BANNER": 2,
-          "ANIMATED_ICON": 2,
-          "AUDIO_BITRATE_128_KBPS": 2,
-          "AUDIO_BITRATE_256_KBPS": 2,
-          "AUDIO_BITRATE_384_KBPS": 2,
-          "BANNER": 2,
-          "COMMUNITY": 2,
-          "INVITE_SPLASH": 2,
-          "MAX_FILE_SIZE_100_MB": 2,
-          "MAX_FILE_SIZE_50_MB": 2
-        }
-      }
-    },
-    {
-      "captured_at": 1776240494.3240385,
-      "account": {
-        "premium_type": 0,
-        "verified": true,
-        "locale": "en-US",
-        "has_avatar": true,
-        "has_banner": false
-      },
-      "guilds": {
-        "count": 3,
-        "owned_count": 1,
-        "admin_count": 3,
-        "icon_count": 2,
-        "banner_count": 2,
-        "feature_counts": {
-          "ANIMATED_BANNER": 2,
-          "ANIMATED_ICON": 2,
-          "AUDIO_BITRATE_128_KBPS": 2,
-          "AUDIO_BITRATE_256_KBPS": 2,
-          "AUDIO_BITRATE_384_KBPS": 2,
-          "BANNER": 2,
-          "COMMUNITY": 2,
-          "INVITE_SPLASH": 2,
-          "MAX_FILE_SIZE_100_MB": 2,
-          "MAX_FILE_SIZE_50_MB": 2
-        }
-      }
-    },
     {
       "captured_at": 1776240737.3182147,
       "account": {
@@ -2790,11 +2732,69 @@
           "MAX_FILE_SIZE_50_MB": 2
         }
       }
+    },
+    {
+      "captured_at": 1776391718.9586744,
+      "account": {
+        "premium_type": 0,
+        "verified": true,
+        "locale": "en-US",
+        "has_avatar": true,
+        "has_banner": false
+      },
+      "guilds": {
+        "count": 3,
+        "owned_count": 1,
+        "admin_count": 3,
+        "icon_count": 2,
+        "banner_count": 2,
+        "feature_counts": {
+          "ANIMATED_BANNER": 2,
+          "ANIMATED_ICON": 2,
+          "AUDIO_BITRATE_128_KBPS": 2,
+          "AUDIO_BITRATE_256_KBPS": 2,
+          "AUDIO_BITRATE_384_KBPS": 2,
+          "BANNER": 2,
+          "COMMUNITY": 2,
+          "INVITE_SPLASH": 2,
+          "MAX_FILE_SIZE_100_MB": 2,
+          "MAX_FILE_SIZE_50_MB": 2
+        }
+      }
+    },
+    {
+      "captured_at": 1776392620.5454214,
+      "account": {
+        "premium_type": 0,
+        "verified": true,
+        "locale": "en-US",
+        "has_avatar": true,
+        "has_banner": false
+      },
+      "guilds": {
+        "count": 3,
+        "owned_count": 1,
+        "admin_count": 3,
+        "icon_count": 2,
+        "banner_count": 2,
+        "feature_counts": {
+          "ANIMATED_BANNER": 2,
+          "ANIMATED_ICON": 2,
+          "AUDIO_BITRATE_128_KBPS": 2,
+          "AUDIO_BITRATE_256_KBPS": 2,
+          "AUDIO_BITRATE_384_KBPS": 2,
+          "BANNER": 2,
+          "COMMUNITY": 2,
+          "INVITE_SPLASH": 2,
+          "MAX_FILE_SIZE_100_MB": 2,
+          "MAX_FILE_SIZE_50_MB": 2
+        }
+      }
     }
   ],
   "last_export": null,
   "last_auto_scrape": {
-    "captured_at": 1776390818.8140981,
+    "captured_at": 1776392622.1792896,
     "targets": [
       "account",
       "guilds",
@@ -2803,7 +2803,7 @@
       "summary"
     ],
     "summary": {
-      "captured_at": 1776390818.814376,
+      "captured_at": 1776392622.179588,
       "account": {
         "premium_type": 0,
         "verified": true,
@@ -2855,31 +2855,31 @@
         "owner": false,
         "permissions": "18014398509481983",
         "features": [
-          "MAX_FILE_SIZE_100_MB",
-          "AUDIO_BITRATE_128_KBPS",
-          "ANIMATED_BANNER",
-          "AGE_VERIFICATION_LARGE_GUILD",
-          "ANIMATED_ICON",
-          "STAGE_CHANNEL_VIEWERS_150",
+          "GUILD_ONBOARDING_HAS_PROMPTS",
+          "STAGE_CHANNEL_VIEWERS_300",
+          "AUDIO_BITRATE_384_KBPS",
+          "MAX_FILE_SIZE_50_MB",
           "TIERLESS_BOOSTING",
-          "GUILD_ONBOARDING",
-          "ROLE_ICONS",
+          "MAX_FILE_SIZE_100_MB",
           "STAGE_CHANNEL_VIEWERS_50",
           "VIDEO_QUALITY_1080_60FPS",
-          "SOUNDBOARD",
-          "AUDIO_BITRATE_384_KBPS",
-          "NEWS",
-          "GUILD_ONBOARDING_EVER_ENABLED",
-          "BANNER",
-          "STAGE_CHANNEL_VIEWERS_300",
-          "VIDEO_QUALITY_720_60FPS",
-          "AUDIO_BITRATE_256_KBPS",
-          "COMMUNITY",
+          "STAGE_CHANNEL_VIEWERS_150",
           "VIDEO_BITRATE_ENHANCED",
+          "GUILD_ONBOARDING_EVER_ENABLED",
           "VANITY_URL",
-          "GUILD_ONBOARDING_HAS_PROMPTS",
-          "MAX_FILE_SIZE_50_MB",
-          "INVITE_SPLASH"
+          "VIDEO_QUALITY_720_60FPS",
+          "BANNER",
+          "INVITE_SPLASH",
+          "AGE_VERIFICATION_LARGE_GUILD",
+          "ROLE_ICONS",
+          "SOUNDBOARD",
+          "GUILD_ONBOARDING",
+          "NEWS",
+          "AUDIO_BITRATE_128_KBPS",
+          "AUDIO_BITRATE_256_KBPS",
+          "ANIMATED_BANNER",
+          "ANIMATED_ICON",
+          "COMMUNITY"
         ],
         "icon": "13af0d15ec22e1c8931ce9c8bf6a3628",
         "banner": "a_1154e220296566757cfa6c5b8055db5b"
@@ -2890,26 +2890,26 @@
         "owner": false,
         "permissions": "18014398509481983",
         "features": [
-          "MAX_FILE_SIZE_100_MB",
-          "AUDIO_BITRATE_128_KBPS",
-          "ANIMATED_BANNER",
-          "ANIMATED_ICON",
-          "STAGE_CHANNEL_VIEWERS_150",
+          "STAGE_CHANNEL_VIEWERS_300",
+          "AUDIO_BITRATE_384_KBPS",
+          "MAX_FILE_SIZE_50_MB",
           "TIERLESS_BOOSTING",
-          "ROLE_ICONS",
+          "MAX_FILE_SIZE_100_MB",
           "STAGE_CHANNEL_VIEWERS_50",
           "VIDEO_QUALITY_1080_60FPS",
-          "AUDIO_BITRATE_384_KBPS",
-          "NEWS",
-          "VIDEO_QUALITY_720_60FPS",
-          "BANNER",
-          "STAGE_CHANNEL_VIEWERS_300",
-          "AUDIO_BITRATE_256_KBPS",
-          "COMMUNITY",
+          "STAGE_CHANNEL_VIEWERS_150",
           "VIDEO_BITRATE_ENHANCED",
           "VANITY_URL",
-          "MAX_FILE_SIZE_50_MB",
-          "INVITE_SPLASH"
+          "VIDEO_QUALITY_720_60FPS",
+          "BANNER",
+          "INVITE_SPLASH",
+          "ROLE_ICONS",
+          "NEWS",
+          "AUDIO_BITRATE_128_KBPS",
+          "AUDIO_BITRATE_256_KBPS",
+          "ANIMATED_BANNER",
+          "ANIMATED_ICON",
+          "COMMUNITY"
         ],
         "icon": "fd59d9807faf63225defbbe49ad48ebc",
         "banner": "1a7469c7162ead88195f883898e4c8da"
@@ -3015,452 +3015,6 @@
     ]
   },
   "auto_scrape_history": [
-    {
-      "captured_at": 1776288742.20564,
-      "targets": [
-        "account",
-        "guilds",
-        "friends",
-        "dms",
-        "summary"
-      ],
-      "summary": {
-        "captured_at": 1776288742.2059343,
-        "account": {
-          "premium_type": 0,
-          "verified": true,
-          "locale": "en-US",
-          "has_avatar": true,
-          "has_banner": false
-        },
-        "guilds": {
-          "count": 3,
-          "owned_count": 1,
-          "admin_count": 3,
-          "icon_count": 2,
-          "banner_count": 2,
-          "feature_counts": {
-            "ANIMATED_BANNER": 2,
-            "ANIMATED_ICON": 2,
-            "AUDIO_BITRATE_128_KBPS": 2,
-            "AUDIO_BITRATE_256_KBPS": 2,
-            "AUDIO_BITRATE_384_KBPS": 2,
-            "BANNER": 2,
-            "COMMUNITY": 2,
-            "INVITE_SPLASH": 2,
-            "MAX_FILE_SIZE_100_MB": 2,
-            "MAX_FILE_SIZE_50_MB": 2
-          }
-        }
-      },
-      "account": {
-        "id": "299182971213316107",
-        "username": "miscomprehend",
-        "global_name": "ren",
-        "discriminator": "0",
-        "avatar": "1a331613ef76c6a6644bd468c1bae01b",
-        "banner": null,
-        "accent_color": null,
-        "verified": true,
-        "locale": "en-US",
-        "premium_type": 0,
-        "flags": 0,
-        "public_flags": 0,
-        "bio": "",
-        "pronouns": ""
-      },
-      "guild_count": 3,
-      "guilds": [
-        {
-          "id": "1487932668120404119",
-          "name": "/selfbotting",
-          "owner": false,
-          "permissions": "18014398509481983",
-          "features": [
-            "MAX_FILE_SIZE_100_MB",
-            "VIDEO_QUALITY_720_60FPS",
-            "ROLE_ICONS",
-            "GUILD_ONBOARDING",
-            "AUDIO_BITRATE_256_KBPS",
-            "MAX_FILE_SIZE_50_MB",
-            "ANIMATED_ICON",
-            "VIDEO_BITRATE_ENHANCED",
-            "INVITE_SPLASH",
-            "STAGE_CHANNEL_VIEWERS_300",
-            "VIDEO_QUALITY_1080_60FPS",
-            "GUILD_ONBOARDING_EVER_ENABLED",
-            "GUILD_TAGS_BADGE_PACK_CREEPY_CRAWLIES",
-            "VANITY_URL",
-            "COMMUNITY",
-            "TIERLESS_BOOSTING",
-            "AUDIO_BITRATE_384_KBPS",
-            "STAGE_CHANNEL_VIEWERS_50",
-            "NEWS",
-            "STAGE_CHANNEL_VIEWERS_150",
-            "SOUNDBOARD",
-            "GUILD_ONBOARDING_HAS_PROMPTS",
-            "GUILD_TAGS",
-            "ANIMATED_BANNER",
-            "BANNER",
-            "AGE_VERIFICATION_LARGE_GUILD",
-            "AUDIO_BITRATE_128_KBPS"
-          ],
-          "icon": "13af0d15ec22e1c8931ce9c8bf6a3628",
-          "banner": "a_1154e220296566757cfa6c5b8055db5b"
-        },
-        {
-          "id": "1489445119743492240",
-          "name": "/still #2x nitro gw",
-          "owner": false,
-          "permissions": "18014398509481983",
-          "features": [
-            "MAX_FILE_SIZE_100_MB",
-            "VIDEO_QUALITY_720_60FPS",
-            "ROLE_ICONS",
-            "AUDIO_BITRATE_256_KBPS",
-            "MAX_FILE_SIZE_50_MB",
-            "ANIMATED_ICON",
-            "VIDEO_BITRATE_ENHANCED",
-            "INVITE_SPLASH",
-            "STAGE_CHANNEL_VIEWERS_300",
-            "VIDEO_QUALITY_1080_60FPS",
-            "VANITY_URL",
-            "COMMUNITY",
-            "TIERLESS_BOOSTING",
-            "STAGE_CHANNEL_VIEWERS_50",
-            "AUDIO_BITRATE_384_KBPS",
-            "NEWS",
-            "STAGE_CHANNEL_VIEWERS_150",
-            "ANIMATED_BANNER",
-            "BANNER",
-            "AUDIO_BITRATE_128_KBPS"
-          ],
-          "icon": "fd59d9807faf63225defbbe49ad48ebc",
-          "banner": "1a7469c7162ead88195f883898e4c8da"
-        },
-        {
-          "id": "1493523799214133318",
-          "name": "goat",
-          "owner": true,
-          "permissions": "18014398509481983",
-          "features": [],
-          "icon": null,
-          "banner": null
-        }
-      ],
-      "relationship_count": 1,
-      "relationships": [
-        {
-          "id": "1476982678564901007",
-          "type": 1,
-          "nickname": null,
-          "user": {
-            "id": "1476982678564901007",
-            "username": "293f",
-            "global_name": "xom",
-            "avatar": "a_3ae992a2dfe83c54c4d8525b49c4e814",
-            "discriminator": "0",
-            "bot": false
-          }
-        }
-      ],
-      "channel_count": 5,
-      "channels": [
-        {
-          "id": "1217058967239262229",
-          "type": 1,
-          "last_message_id": "1493992857445601311",
-          "recipient_count": 1,
-          "recipients": [
-            {
-              "id": "643945264868098049",
-              "username": "discord",
-              "global_name": "Discord",
-              "avatar": "c6a249645d46209f337279cd2ca998c7"
-            }
-          ]
-        },
-        {
-          "id": "1493530082994815078",
-          "type": 1,
-          "last_message_id": "1494083098911178852",
-          "recipient_count": 1,
-          "recipients": [
-            {
-              "id": "556964104175353887",
-              "username": "traditionally.",
-              "global_name": "ren",
-              "avatar": "f81bd72e186814d214726e814fd64d6c"
-            }
-          ]
-        },
-        {
-          "id": "1493546356336230431",
-          "type": 1,
-          "last_message_id": "1493827217514430464",
-          "recipient_count": 1,
-          "recipients": [
-            {
-              "id": "351719812227137537",
-              "username": "misconsideration",
-              "global_name": "ren",
-              "avatar": "f81bd72e186814d214726e814fd64d6c"
-            }
-          ]
-        },
-        {
-          "id": "1493627182449299518",
-          "type": 1,
-          "last_message_id": "1493997261393232002",
-          "recipient_count": 1,
-          "recipients": [
-            {
-              "id": "1476982678564901007",
-              "username": "293f",
-              "global_name": "xom",
-              "avatar": "a_3ae992a2dfe83c54c4d8525b49c4e814"
-            }
-          ]
-        },
-        {
-          "id": "1493874331640529026",
-          "type": 1,
-          "last_message_id": "1494072925639409765",
-          "recipient_count": 1,
-          "recipients": [
-            {
-              "id": "762819078141902848",
-              "username": "powerkid1382",
-              "global_name": "stackss",
-              "avatar": "1a331613ef76c6a6644bd468c1bae01b"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "captured_at": 1776288910.7823615,
-      "targets": [
-        "account",
-        "guilds",
-        "friends",
-        "dms",
-        "summary"
-      ],
-      "summary": {
-        "captured_at": 1776288910.786202,
-        "account": {
-          "premium_type": 0,
-          "verified": true,
-          "locale": "en-US",
-          "has_avatar": true,
-          "has_banner": false
-        },
-        "guilds": {
-          "count": 3,
-          "owned_count": 1,
-          "admin_count": 3,
-          "icon_count": 2,
-          "banner_count": 2,
-          "feature_counts": {
-            "ANIMATED_BANNER": 2,
-            "ANIMATED_ICON": 2,
-            "AUDIO_BITRATE_128_KBPS": 2,
-            "AUDIO_BITRATE_256_KBPS": 2,
-            "AUDIO_BITRATE_384_KBPS": 2,
-            "BANNER": 2,
-            "COMMUNITY": 2,
-            "INVITE_SPLASH": 2,
-            "MAX_FILE_SIZE_100_MB": 2,
-            "MAX_FILE_SIZE_50_MB": 2
-          }
-        }
-      },
-      "account": {
-        "id": "299182971213316107",
-        "username": "miscomprehend",
-        "global_name": "ren",
-        "discriminator": "0",
-        "avatar": "1a331613ef76c6a6644bd468c1bae01b",
-        "banner": null,
-        "accent_color": null,
-        "verified": true,
-        "locale": "en-US",
-        "premium_type": 0,
-        "flags": 0,
-        "public_flags": 0,
-        "bio": "",
-        "pronouns": ""
-      },
-      "guild_count": 3,
-      "guilds": [
-        {
-          "id": "1487932668120404119",
-          "name": "/selfbotting",
-          "owner": false,
-          "permissions": "18014398509481983",
-          "features": [
-            "MAX_FILE_SIZE_100_MB",
-            "VIDEO_QUALITY_720_60FPS",
-            "ROLE_ICONS",
-            "GUILD_ONBOARDING",
-            "AUDIO_BITRATE_256_KBPS",
-            "MAX_FILE_SIZE_50_MB",
-            "ANIMATED_ICON",
-            "VIDEO_BITRATE_ENHANCED",
-            "INVITE_SPLASH",
-            "STAGE_CHANNEL_VIEWERS_300",
-            "VIDEO_QUALITY_1080_60FPS",
-            "GUILD_ONBOARDING_EVER_ENABLED",
-            "GUILD_TAGS_BADGE_PACK_CREEPY_CRAWLIES",
-            "VANITY_URL",
-            "COMMUNITY",
-            "TIERLESS_BOOSTING",
-            "AUDIO_BITRATE_384_KBPS",
-            "STAGE_CHANNEL_VIEWERS_50",
-            "NEWS",
-            "STAGE_CHANNEL_VIEWERS_150",
-            "SOUNDBOARD",
-            "GUILD_ONBOARDING_HAS_PROMPTS",
-            "GUILD_TAGS",
-            "ANIMATED_BANNER",
-            "BANNER",
-            "AGE_VERIFICATION_LARGE_GUILD",
-            "AUDIO_BITRATE_128_KBPS"
-          ],
-          "icon": "13af0d15ec22e1c8931ce9c8bf6a3628",
-          "banner": "a_1154e220296566757cfa6c5b8055db5b"
-        },
-        {
-          "id": "1489445119743492240",
-          "name": "/still #2x nitro gw",
-          "owner": false,
-          "permissions": "18014398509481983",
-          "features": [
-            "MAX_FILE_SIZE_100_MB",
-            "VIDEO_QUALITY_720_60FPS",
-            "ROLE_ICONS",
-            "AUDIO_BITRATE_256_KBPS",
-            "MAX_FILE_SIZE_50_MB",
-            "ANIMATED_ICON",
-            "VIDEO_BITRATE_ENHANCED",
-            "INVITE_SPLASH",
-            "STAGE_CHANNEL_VIEWERS_300",
-            "VIDEO_QUALITY_1080_60FPS",
-            "VANITY_URL",
-            "COMMUNITY",
-            "TIERLESS_BOOSTING",
-            "STAGE_CHANNEL_VIEWERS_50",
-            "AUDIO_BITRATE_384_KBPS",
-            "NEWS",
-            "STAGE_CHANNEL_VIEWERS_150",
-            "ANIMATED_BANNER",
-            "BANNER",
-            "AUDIO_BITRATE_128_KBPS"
-          ],
-          "icon": "fd59d9807faf63225defbbe49ad48ebc",
-          "banner": "1a7469c7162ead88195f883898e4c8da"
-        },
-        {
-          "id": "1493523799214133318",
-          "name": "goat",
-          "owner": true,
-          "permissions": "18014398509481983",
-          "features": [],
-          "icon": null,
-          "banner": null
-        }
-      ],
-      "relationship_count": 1,
-      "relationships": [
-        {
-          "id": "1476982678564901007",
-          "type": 1,
-          "nickname": null,
-          "user": {
-            "id": "1476982678564901007",
-            "username": "293f",
-            "global_name": "xom",
-            "avatar": "a_3ae992a2dfe83c54c4d8525b49c4e814",
-            "discriminator": "0",
-            "bot": false
-          }
-        }
-      ],
-      "channel_count": 5,
-      "channels": [
-        {
-          "id": "1217058967239262229",
-          "type": 1,
-          "last_message_id": "1493992857445601311",
-          "recipient_count": 1,
-          "recipients": [
-            {
-              "id": "643945264868098049",
-              "username": "discord",
-              "global_name": "Discord",
-              "avatar": "c6a249645d46209f337279cd2ca998c7"
-            }
-          ]
-        },
-        {
-          "id": "1493530082994815078",
-          "type": 1,
-          "last_message_id": "1494083098911178852",
-          "recipient_count": 1,
-          "recipients": [
-            {
-              "id": "556964104175353887",
-              "username": "traditionally.",
-              "global_name": "ren",
-              "avatar": "f81bd72e186814d214726e814fd64d6c"
-            }
-          ]
-        },
-        {
-          "id": "1493546356336230431",
-          "type": 1,
-          "last_message_id": "1493827217514430464",
-          "recipient_count": 1,
-          "recipients": [
-            {
-              "id": "351719812227137537",
-              "username": "misconsideration",
-              "global_name": "ren",
-              "avatar": "f81bd72e186814d214726e814fd64d6c"
-            }
-          ]
-        },
-        {
-          "id": "1493627182449299518",
-          "type": 1,
-          "last_message_id": "1493997261393232002",
-          "recipient_count": 1,
-          "recipients": [
-            {
-              "id": "1476982678564901007",
-              "username": "293f",
-              "global_name": "xom",
-              "avatar": "a_3ae992a2dfe83c54c4d8525b49c4e814"
-            }
-          ]
-        },
-        {
-          "id": "1493874331640529026",
-          "type": 1,
-          "last_message_id": "1494072925639409765",
-          "recipient_count": 1,
-          "recipients": [
-            {
-              "id": "762819078141902848",
-              "username": "powerkid1382",
-              "global_name": "stackss",
-              "avatar": "1a331613ef76c6a6644bd468c1bae01b"
-            }
-          ]
-        }
-      ]
-    },
     {
       "captured_at": 1776289812.4924583,
       "targets": [
@@ -41656,6 +41210,448 @@
             "VANITY_URL",
             "MAX_FILE_SIZE_50_MB",
             "INVITE_SPLASH"
+          ],
+          "icon": "fd59d9807faf63225defbbe49ad48ebc",
+          "banner": "1a7469c7162ead88195f883898e4c8da"
+        },
+        {
+          "id": "1493523799214133318",
+          "name": "goat",
+          "owner": true,
+          "permissions": "18014398509481983",
+          "features": [],
+          "icon": null,
+          "banner": null
+        }
+      ],
+      "relationship_count": 1,
+      "relationships": [
+        {
+          "id": "1476982678564901007",
+          "type": 1,
+          "nickname": null,
+          "user": {
+            "id": "1476982678564901007",
+            "username": "293f",
+            "global_name": "xom",
+            "avatar": "a_3ae992a2dfe83c54c4d8525b49c4e814",
+            "discriminator": "0",
+            "bot": false
+          }
+        }
+      ],
+      "channel_count": 5,
+      "channels": [
+        {
+          "id": "1217058967239262229",
+          "type": 1,
+          "last_message_id": "1494099648128876635",
+          "recipient_count": 1,
+          "recipients": [
+            {
+              "id": "643945264868098049",
+              "username": "discord",
+              "global_name": "Discord",
+              "avatar": "c6a249645d46209f337279cd2ca998c7"
+            }
+          ]
+        },
+        {
+          "id": "1493530082994815078",
+          "type": 1,
+          "last_message_id": "1494083098911178852",
+          "recipient_count": 1,
+          "recipients": [
+            {
+              "id": "556964104175353887",
+              "username": "traditionally.",
+              "global_name": "ren",
+              "avatar": "f81bd72e186814d214726e814fd64d6c"
+            }
+          ]
+        },
+        {
+          "id": "1493546356336230431",
+          "type": 1,
+          "last_message_id": "1493827217514430464",
+          "recipient_count": 1,
+          "recipients": [
+            {
+              "id": "351719812227137537",
+              "username": "misconsideration",
+              "global_name": "ren",
+              "avatar": "f81bd72e186814d214726e814fd64d6c"
+            }
+          ]
+        },
+        {
+          "id": "1493627182449299518",
+          "type": 1,
+          "last_message_id": "1493997261393232002",
+          "recipient_count": 1,
+          "recipients": [
+            {
+              "id": "1476982678564901007",
+              "username": "293f",
+              "global_name": "xom",
+              "avatar": "a_3ae992a2dfe83c54c4d8525b49c4e814"
+            }
+          ]
+        },
+        {
+          "id": "1493874331640529026",
+          "type": 1,
+          "last_message_id": "1494511106402680983",
+          "recipient_count": 1,
+          "recipients": [
+            {
+              "id": "762819078141902848",
+              "username": "powerkid1382",
+              "global_name": "stackss",
+              "avatar": "1a331613ef76c6a6644bd468c1bae01b"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "captured_at": 1776391720.7116709,
+      "targets": [
+        "account",
+        "guilds",
+        "friends",
+        "dms",
+        "summary"
+      ],
+      "summary": {
+        "captured_at": 1776391720.7119365,
+        "account": {
+          "premium_type": 0,
+          "verified": true,
+          "locale": "en-US",
+          "has_avatar": true,
+          "has_banner": false
+        },
+        "guilds": {
+          "count": 3,
+          "owned_count": 1,
+          "admin_count": 3,
+          "icon_count": 2,
+          "banner_count": 2,
+          "feature_counts": {
+            "ANIMATED_BANNER": 2,
+            "ANIMATED_ICON": 2,
+            "AUDIO_BITRATE_128_KBPS": 2,
+            "AUDIO_BITRATE_256_KBPS": 2,
+            "AUDIO_BITRATE_384_KBPS": 2,
+            "BANNER": 2,
+            "COMMUNITY": 2,
+            "INVITE_SPLASH": 2,
+            "MAX_FILE_SIZE_100_MB": 2,
+            "MAX_FILE_SIZE_50_MB": 2
+          }
+        }
+      },
+      "account": {
+        "id": "299182971213316107",
+        "username": "miscomprehend",
+        "global_name": "ren",
+        "discriminator": "0",
+        "avatar": "1a331613ef76c6a6644bd468c1bae01b",
+        "banner": null,
+        "accent_color": null,
+        "verified": true,
+        "locale": "en-US",
+        "premium_type": 0,
+        "flags": 0,
+        "public_flags": 0,
+        "bio": "",
+        "pronouns": ""
+      },
+      "guild_count": 3,
+      "guilds": [
+        {
+          "id": "1487932668120404119",
+          "name": "/selfbotting",
+          "owner": false,
+          "permissions": "18014398509481983",
+          "features": [
+            "STAGE_CHANNEL_VIEWERS_300",
+            "AUDIO_BITRATE_128_KBPS",
+            "SOUNDBOARD",
+            "AGE_VERIFICATION_LARGE_GUILD",
+            "TIERLESS_BOOSTING",
+            "MAX_FILE_SIZE_100_MB",
+            "VIDEO_QUALITY_1080_60FPS",
+            "BANNER",
+            "INVITE_SPLASH",
+            "GUILD_ONBOARDING",
+            "AUDIO_BITRATE_384_KBPS",
+            "ANIMATED_BANNER",
+            "GUILD_ONBOARDING_EVER_ENABLED",
+            "NEWS",
+            "VANITY_URL",
+            "ROLE_ICONS",
+            "ANIMATED_ICON",
+            "STAGE_CHANNEL_VIEWERS_50",
+            "GUILD_ONBOARDING_HAS_PROMPTS",
+            "VIDEO_QUALITY_720_60FPS",
+            "AUDIO_BITRATE_256_KBPS",
+            "MAX_FILE_SIZE_50_MB",
+            "VIDEO_BITRATE_ENHANCED",
+            "STAGE_CHANNEL_VIEWERS_150",
+            "COMMUNITY"
+          ],
+          "icon": "13af0d15ec22e1c8931ce9c8bf6a3628",
+          "banner": "a_1154e220296566757cfa6c5b8055db5b"
+        },
+        {
+          "id": "1489445119743492240",
+          "name": "/still #2x nitro gw",
+          "owner": false,
+          "permissions": "18014398509481983",
+          "features": [
+            "STAGE_CHANNEL_VIEWERS_300",
+            "AUDIO_BITRATE_128_KBPS",
+            "TIERLESS_BOOSTING",
+            "MAX_FILE_SIZE_100_MB",
+            "VIDEO_QUALITY_1080_60FPS",
+            "INVITE_SPLASH",
+            "BANNER",
+            "AUDIO_BITRATE_384_KBPS",
+            "ANIMATED_BANNER",
+            "NEWS",
+            "VANITY_URL",
+            "ROLE_ICONS",
+            "ANIMATED_ICON",
+            "STAGE_CHANNEL_VIEWERS_50",
+            "VIDEO_QUALITY_720_60FPS",
+            "AUDIO_BITRATE_256_KBPS",
+            "MAX_FILE_SIZE_50_MB",
+            "VIDEO_BITRATE_ENHANCED",
+            "STAGE_CHANNEL_VIEWERS_150",
+            "COMMUNITY"
+          ],
+          "icon": "fd59d9807faf63225defbbe49ad48ebc",
+          "banner": "1a7469c7162ead88195f883898e4c8da"
+        },
+        {
+          "id": "1493523799214133318",
+          "name": "goat",
+          "owner": true,
+          "permissions": "18014398509481983",
+          "features": [],
+          "icon": null,
+          "banner": null
+        }
+      ],
+      "relationship_count": 1,
+      "relationships": [
+        {
+          "id": "1476982678564901007",
+          "type": 1,
+          "nickname": null,
+          "user": {
+            "id": "1476982678564901007",
+            "username": "293f",
+            "global_name": "xom",
+            "avatar": "a_3ae992a2dfe83c54c4d8525b49c4e814",
+            "discriminator": "0",
+            "bot": false
+          }
+        }
+      ],
+      "channel_count": 5,
+      "channels": [
+        {
+          "id": "1217058967239262229",
+          "type": 1,
+          "last_message_id": "1494099648128876635",
+          "recipient_count": 1,
+          "recipients": [
+            {
+              "id": "643945264868098049",
+              "username": "discord",
+              "global_name": "Discord",
+              "avatar": "c6a249645d46209f337279cd2ca998c7"
+            }
+          ]
+        },
+        {
+          "id": "1493530082994815078",
+          "type": 1,
+          "last_message_id": "1494083098911178852",
+          "recipient_count": 1,
+          "recipients": [
+            {
+              "id": "556964104175353887",
+              "username": "traditionally.",
+              "global_name": "ren",
+              "avatar": "f81bd72e186814d214726e814fd64d6c"
+            }
+          ]
+        },
+        {
+          "id": "1493546356336230431",
+          "type": 1,
+          "last_message_id": "1493827217514430464",
+          "recipient_count": 1,
+          "recipients": [
+            {
+              "id": "351719812227137537",
+              "username": "misconsideration",
+              "global_name": "ren",
+              "avatar": "f81bd72e186814d214726e814fd64d6c"
+            }
+          ]
+        },
+        {
+          "id": "1493627182449299518",
+          "type": 1,
+          "last_message_id": "1493997261393232002",
+          "recipient_count": 1,
+          "recipients": [
+            {
+              "id": "1476982678564901007",
+              "username": "293f",
+              "global_name": "xom",
+              "avatar": "a_3ae992a2dfe83c54c4d8525b49c4e814"
+            }
+          ]
+        },
+        {
+          "id": "1493874331640529026",
+          "type": 1,
+          "last_message_id": "1494511106402680983",
+          "recipient_count": 1,
+          "recipients": [
+            {
+              "id": "762819078141902848",
+              "username": "powerkid1382",
+              "global_name": "stackss",
+              "avatar": "1a331613ef76c6a6644bd468c1bae01b"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "captured_at": 1776392622.1792896,
+      "targets": [
+        "account",
+        "guilds",
+        "friends",
+        "dms",
+        "summary"
+      ],
+      "summary": {
+        "captured_at": 1776392622.179588,
+        "account": {
+          "premium_type": 0,
+          "verified": true,
+          "locale": "en-US",
+          "has_avatar": true,
+          "has_banner": false
+        },
+        "guilds": {
+          "count": 3,
+          "owned_count": 1,
+          "admin_count": 3,
+          "icon_count": 2,
+          "banner_count": 2,
+          "feature_counts": {
+            "ANIMATED_BANNER": 2,
+            "ANIMATED_ICON": 2,
+            "AUDIO_BITRATE_128_KBPS": 2,
+            "AUDIO_BITRATE_256_KBPS": 2,
+            "AUDIO_BITRATE_384_KBPS": 2,
+            "BANNER": 2,
+            "COMMUNITY": 2,
+            "INVITE_SPLASH": 2,
+            "MAX_FILE_SIZE_100_MB": 2,
+            "MAX_FILE_SIZE_50_MB": 2
+          }
+        }
+      },
+      "account": {
+        "id": "299182971213316107",
+        "username": "miscomprehend",
+        "global_name": "ren",
+        "discriminator": "0",
+        "avatar": "1a331613ef76c6a6644bd468c1bae01b",
+        "banner": null,
+        "accent_color": null,
+        "verified": true,
+        "locale": "en-US",
+        "premium_type": 0,
+        "flags": 0,
+        "public_flags": 0,
+        "bio": "",
+        "pronouns": ""
+      },
+      "guild_count": 3,
+      "guilds": [
+        {
+          "id": "1487932668120404119",
+          "name": "/selfbotting",
+          "owner": false,
+          "permissions": "18014398509481983",
+          "features": [
+            "GUILD_ONBOARDING_HAS_PROMPTS",
+            "STAGE_CHANNEL_VIEWERS_300",
+            "AUDIO_BITRATE_384_KBPS",
+            "MAX_FILE_SIZE_50_MB",
+            "TIERLESS_BOOSTING",
+            "MAX_FILE_SIZE_100_MB",
+            "STAGE_CHANNEL_VIEWERS_50",
+            "VIDEO_QUALITY_1080_60FPS",
+            "STAGE_CHANNEL_VIEWERS_150",
+            "VIDEO_BITRATE_ENHANCED",
+            "GUILD_ONBOARDING_EVER_ENABLED",
+            "VANITY_URL",
+            "VIDEO_QUALITY_720_60FPS",
+            "BANNER",
+            "INVITE_SPLASH",
+            "AGE_VERIFICATION_LARGE_GUILD",
+            "ROLE_ICONS",
+            "SOUNDBOARD",
+            "GUILD_ONBOARDING",
+            "NEWS",
+            "AUDIO_BITRATE_128_KBPS",
+            "AUDIO_BITRATE_256_KBPS",
+            "ANIMATED_BANNER",
+            "ANIMATED_ICON",
+            "COMMUNITY"
+          ],
+          "icon": "13af0d15ec22e1c8931ce9c8bf6a3628",
+          "banner": "a_1154e220296566757cfa6c5b8055db5b"
+        },
+        {
+          "id": "1489445119743492240",
+          "name": "/still #2x nitro gw",
+          "owner": false,
+          "permissions": "18014398509481983",
+          "features": [
+            "STAGE_CHANNEL_VIEWERS_300",
+            "AUDIO_BITRATE_384_KBPS",
+            "MAX_FILE_SIZE_50_MB",
+            "TIERLESS_BOOSTING",
+            "MAX_FILE_SIZE_100_MB",
+            "STAGE_CHANNEL_VIEWERS_50",
+            "VIDEO_QUALITY_1080_60FPS",
+            "STAGE_CHANNEL_VIEWERS_150",
+            "VIDEO_BITRATE_ENHANCED",
+            "VANITY_URL",
+            "VIDEO_QUALITY_720_60FPS",
+            "BANNER",
+            "INVITE_SPLASH",
+            "ROLE_ICONS",
+            "NEWS",
+            "AUDIO_BITRATE_128_KBPS",
+            "AUDIO_BITRATE_256_KBPS",
+            "ANIMATED_BANNER",
+            "ANIMATED_ICON",
+            "COMMUNITY"
           ],
           "icon": "fd59d9807faf63225defbbe49ad48ebc",
           "banner": "1a7469c7162ead88195f883898e4c8da"
