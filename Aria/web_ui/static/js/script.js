@@ -1594,6 +1594,7 @@ function readRpcDraftFromInputs() {
     return {
         type: String(parseInt(document.getElementById('rpcType')?.value, 10) || 0),
         name: val('rpcNameInput'),
+        display_name: val('rpcDisplayNameInput'),
         details: val('rpcDetailsInput'),
         state: val('rpcStateInput'),
         streamUrl: val('rpcStreamUrlInput'),
@@ -1622,6 +1623,7 @@ function applyRpcDraftToInputs(draft) {
     };
     setVal('rpcType', draft.type || '0');
     setVal('rpcNameInput', draft.name || '');
+    setVal('rpcDisplayNameInput', draft.display_name || '');
     setVal('rpcDetailsInput', draft.details || '');
     setVal('rpcStateInput', draft.state || '');
     setVal('rpcStreamUrlInput', draft.streamUrl || '');
@@ -1768,6 +1770,7 @@ async function loadRpc() {
             const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
             setVal('rpcType',            act.type != null ? String(act.type) : '0');
             setVal('rpcNameInput',       act.name    || '');
+            setVal('rpcDisplayNameInput', act.display_name || '');
             setVal('rpcDetailsInput',    act.details || '');
             setVal('rpcStateInput',      act.state   || '');
             setVal('rpcStreamUrlInput',  act.url     || '');
@@ -1807,7 +1810,9 @@ function updateRpcPreview() {
     syncRpcAppIdControls();
     syncRpcStreamingControls();
 
-    const typeVal   = parseInt(document.getElementById('rpcType')?.value) || 0;
+    let typeVal = document.getElementById('rpcType')?.value;
+    if (typeVal === 'custom') typeVal = 'custom';
+    else typeVal = parseInt(typeVal) || 0;
     const name      = (document.getElementById('rpcNameInput')?.value    || '').trim();
     const details   = (document.getElementById('rpcDetailsInput')?.value || '').trim();
     const state     = (document.getElementById('rpcStateInput')?.value   || '').trim();
@@ -1822,14 +1827,34 @@ function updateRpcPreview() {
     if (headerEl) headerEl.textContent = RPC_ACTIVITY_HEADERS[typeVal] || 'Playing a game';
 
     // Text fields in card
-    setText('rpcPreviewName',    name    || '—');
+    // Use spoofed display name if provided, else real name
+    const displayName = (document.getElementById('rpcDisplayNameInput')?.value || '').trim();
+    setText('rpcPreviewName', displayName || name || '—');
     setText('rpcPreviewDetails', details || '');
     setText('rpcPreviewState',   typeVal === 1 ? (streamUrl || state || '') : (state || ''));
+
+    // Mini app id display
+    const miniAppId = document.getElementById('miniAppId');
+    if (miniAppId) {
+        let appId = '';
+        if (typeVal === 'custom') {
+            appId = getEffectiveRpcAppId();
+        } else {
+            appId = inferRpcAppIdFromActivity(name, details, state);
+        }
+        miniAppId.textContent = appId && appId !== '1494507808329171096' ? `App ID: ${appId}` : '';
+    }
 
     // Large image
     const artEl = document.getElementById('rpcDiscordArt');
     if (artEl) {
-        const largePreview = resolveRpcPreviewImage(largeImg, getEffectiveRpcAppId());
+        let appIdForImage = getEffectiveRpcAppId();
+        if (typeVal === 'custom') {
+            appIdForImage = getEffectiveRpcAppId();
+        } else {
+            appIdForImage = inferRpcAppIdFromActivity(name, details, state);
+        }
+        const largePreview = resolveRpcPreviewImage(largeImg, appIdForImage);
         if (largePreview) {
             artEl.style.backgroundImage = `url("${String(largePreview).replace(/"/g, '%22')}")`;
             artEl.style.backgroundSize  = 'cover';
@@ -1843,7 +1868,13 @@ function updateRpcPreview() {
     // Small art visibility
     const smallArtEl = document.getElementById('rpcDiscordSmallArt');
     if (smallArtEl) {
-        const smallPreview = resolveRpcPreviewImage(smallImg, getEffectiveRpcAppId());
+        let appIdForImage = getEffectiveRpcAppId();
+        if (typeVal === 'custom') {
+            appIdForImage = getEffectiveRpcAppId();
+        } else {
+            appIdForImage = inferRpcAppIdFromActivity(name, details, state);
+        }
+        const smallPreview = resolveRpcPreviewImage(smallImg, appIdForImage);
         if (smallPreview) {
             smallArtEl.classList.add('visible');
             smallArtEl.style.backgroundImage = `url("${String(smallPreview).replace(/"/g, '%22')}")`;
@@ -1886,8 +1917,11 @@ function showRpcMsg(msg, ok) {
 }
 
 async function applyRpc() {
-    const type = parseInt(document.getElementById('rpcType').value) || 0;
+    let type = document.getElementById('rpcType').value;
+    if (type === 'custom') type = 0; // fallback to Playing for custom
+    else type = parseInt(type) || 0;
     const name = document.getElementById('rpcNameInput').value.trim();
+    const display_name = (document.getElementById('rpcDisplayNameInput')?.value || '').trim();
     const details = document.getElementById('rpcDetailsInput').value.trim();
     const state = document.getElementById('rpcStateInput').value.trim();
     const streamUrl = (document.getElementById('rpcStreamUrlInput')?.value || '').trim();
@@ -1908,7 +1942,9 @@ async function applyRpc() {
         }
     }
 
+    // Always send real app id, but allow spoofed display name
     const activity = { type, name, application_id: appId };
+    if (display_name) activity.display_name = display_name;
     if (details) activity.details = details;
     if (state) activity.state = state;
     if (type === 1 && streamUrl) activity.url = streamUrl;
