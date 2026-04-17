@@ -902,9 +902,10 @@ class WebPanel:
         """Collect live data from the bot instance."""
         b = self.bot
 
-        # Prefer the logged-in dashboard user's hosted-instance context when available.
+        # Prefer hosted-instance context only for non-admin dashboard sessions.
+        # Admin/owner dashboards should reflect the live main runtime stats.
         try:
-            if self._require_session():
+            if self._require_session() and not self._require_admin():
                 hosted_ctx = self._session_hosted_live_context()
                 primary = hosted_ctx.get("primary")
                 if primary:
