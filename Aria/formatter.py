@@ -17,17 +17,22 @@ VERSION = "v1.1.0"
 AUTHOR = "Misconsideration"
 
 def _block(content: str) -> str:
+    """Wrap content in a single ANSI code block."""
     lines = content.split("\n")
-    result = ["> ```ansi"]
+    result = ["```ansi"]
     for line in lines:
-        result.append(f"> {line}")
-    result.append("> ```")
+        result.append(line)
+    result.append("```")
     return "\n".join(result)
 
+def _compose(*sections) -> str:
+    """Compose multiple sections into a single code block (prevents nested code fences)."""
+    combined = "\n".join(str(s) for s in sections if s)
+    return _block(combined)
+
 def header(subtitle: str) -> str:
-    return _block(
-        f"{PINK}{BOLD}{UNDERLINE}{NAME}{RESET}{DARK} :: {RESET}{GREEN}{VERSION}{DARK} :: {RESET}{PINK}{subtitle}{RESET}"
-    )
+    """Return raw header text (not wrapped in block)."""
+    return f"{PINK}{BOLD}{UNDERLINE}{NAME}{RESET}{DARK} :: {RESET}{GREEN}{VERSION}{DARK} :: {RESET}{PINK}{subtitle}{RESET}"
 
 def _raw_header(subtitle: str) -> str:
     """Header line without the block wrapper."""
@@ -45,10 +50,11 @@ def _raw_footer(text: str) -> str:
     return f"{DARK}{text}{RESET}"
 
 def category_list(categories: dict) -> str:
+    """Return raw category list (not wrapped in block)."""
     lines = []
     for name, desc in categories.items():
         lines.append(f"{PURPLE}{name:<10}{DARK}:: {RESET}{WHITE}{desc}{RESET}")
-    return _block("\n".join(lines))
+    return "\n".join(lines)
 
 def footer_main() -> str:
     return _block(f"{DARK}{NAME} command center{RESET}")
@@ -69,10 +75,11 @@ def command_page(title: str, cmds: list, footer_text: str) -> str:
     return layout(title, _raw_command_list(cmds), footer_text)
 
 def command_list(cmds: list) -> str:
+    """Return raw command list (not wrapped in block)."""
     lines = []
     for name, desc in cmds:
         lines.append(f"{CYAN}{name:<13}{DARK}:: {RESET}{WHITE}{desc}{RESET}")
-    return _block("\n".join(lines))
+    return "\n".join(lines)
 
 def command_usage(name: str, usage: str, description: str, prefix: str) -> str:
     head = _block(
