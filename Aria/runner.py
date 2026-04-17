@@ -13,6 +13,9 @@ from logger import setup_file_logger
 
 setup_file_logger()
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+
 class _SYS:
     def __init__(self):
         self._K = b'wisd0m_m1n1_2024'
@@ -105,7 +108,7 @@ def chk_all():
     print(col("\n[+] Core files:",'b'))
     missing_req = []
     for f in required:
-        if os.path.exists(f):
+        if os.path.exists(os.path.join(BASE_DIR, f)):
             print(col(f"  ✓ {f}",'g'))
         else:
             print(col(f"  ✗ {f}",'r'))
@@ -113,7 +116,7 @@ def chk_all():
     
     print(col("\n[+] Optional files:",'b'))
     for f in optional:
-        if os.path.exists(f):
+        if os.path.exists(os.path.join(BASE_DIR, f)):
             print(col(f"  • {f}",'c'))
         else:
             print(col(f"  ○ {f}",'y'))
@@ -129,7 +132,7 @@ def chk_all():
 
 def mk_cfg():
     print(col("\n[+] Configuration:",'b'))
-    if os.path.exists("config.json"):
+    if os.path.exists(CONFIG_PATH):
         print(col("  ✓ config.json exists",'g'))
         return True
     
@@ -156,7 +159,7 @@ def mk_cfg():
     }
     
     try:
-        with open("config.json","w") as f:
+        with open(CONFIG_PATH,"w") as f:
             json.dump(cfg,f,indent=4)
         print(col("  ✓ Config saved",'g'))
         return True
@@ -166,12 +169,12 @@ def mk_cfg():
 
 def run_bot():
     print(col("\n[+] Starting bot...",'b'))
-    if not os.path.exists("config.json"):
+    if not os.path.exists(CONFIG_PATH):
         print(col("  ✗ No config file",'r'))
         return
     
     try:
-        subprocess.run([sys.executable,"main.py"])
+        subprocess.run([sys.executable, os.path.join(BASE_DIR, "main.py")], cwd=BASE_DIR)
     except KeyboardInterrupt:
         print(col("\n[!] Stopped",'y'))
     except Exception as e:

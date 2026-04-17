@@ -1,6 +1,8 @@
 import json
 import os
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 try:
     from token_encrypter import TokenEncrypter as _TokenEncrypter
     _encrypter = _TokenEncrypter()
@@ -9,7 +11,11 @@ except Exception:
 
 class Config:
     def __init__(self, config_file="config.json"):
-        self.config_file = config_file
+        if os.path.isabs(config_file):
+            self.config_file = config_file
+        else:
+            self.config_file = os.path.join(BASE_DIR, config_file)
+        self.config_dir = os.path.dirname(self.config_file)
         self.default_config = {
             "token": "token here",
             "prefix": ";",
@@ -62,8 +68,9 @@ class Config:
                         config = _encrypter.decrypt_config(config)
 
                     if not config["token"] or config["token"] == "token here":
-                        if os.path.exists("hosted_token.txt"):
-                            with open("hosted_token.txt", "r") as tf:
+                        hosted_token_path = os.path.join(self.config_dir, "hosted_token.txt")
+                        if os.path.exists(hosted_token_path):
+                            with open(hosted_token_path, "r") as tf:
                                 config["token"] = tf.read().strip()
                     
                     return config
@@ -79,6 +86,7 @@ class Config:
             for key in SENSITIVE_KEYS:
                 if key in data and data[key] and not _encrypter.is_encrypted(data[key]):
                     data[key] = _encrypter.encrypt(data[key])
+        os.makedirs(self.config_dir, exist_ok=True)
         with open(self.config_file, 'w') as f:
             json.dump(data, f, indent=4)
 

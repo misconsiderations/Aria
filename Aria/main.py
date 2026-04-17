@@ -1305,12 +1305,13 @@ def main():
         _start_web_panel_early(webpanel_module)
     
     if not token or token == "token here":
-        print("Error: No token found in config.json")
-        print("Edit config.json and add your token")
+        print(f"Error: No token found in {config.config_file}")
+        print(f"Edit {config.config_file} and add your token")
         print("Web panel is running at http://127.0.0.1:8080 for configuration")
-        with open("config.json", 'w') as f:
+        os.makedirs(os.path.dirname(config.config_file), exist_ok=True)
+        with open(config.config_file, 'w') as f:
             json.dump({"token": "token here", "prefix": "$"}, f, indent=4)
-            print("Created config.json - edit it with your token")
+            print(f"Created {config.config_file} - edit it with your token")
         return
     
     bot = DiscordBot(token, config.get("prefix") or "$", config)
