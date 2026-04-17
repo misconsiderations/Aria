@@ -274,33 +274,76 @@ def upload_image_to_discord(api, image_url, application_id=None):
         print(f"[upload_image] error: {e}")
         return None
 
-def upload_n_get_asset_key(bot, image_url, application_id=None):
-    """Return a Discord media-proxy key for any image URL.
+def _normalize_rpc_text(value: str) -> str:
+    text = re.sub(r"[^a-z0-9 ]+", " ", str(value or "").lower())
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
-    Priority:
+_DEFAULT_RPC_APPLICATION_ID = "1494507808329171096"
+_RPC_APP_ID_HINTS = [
+    ({"spotify"}, "1494507808329171096"),
+    ({"crunchyroll", "crunchy roll"}, "463097721130188830"),
+    ({"youtube music", "yt music", "youtube_music"}, "880218394199220334"),
+    ({"youtube", "yt"}, "880218394199220334"),
+    ({"soundcloud", "sound cloud"}, "195323574500409344"),
+    ({"apple music", "applemusic"}, "886578863147192350"),
+    ({"deezer"}, "356268235697553409"),
+    ({"tidal"}, "1041821781058760745"),
+    ({"twitch"}, "488633707456348190"),
+    ({"kick"}, "1096876388377366548"),
+    ({"netflix"}, "883483001462849607"),
+    ({"disneyplus", "disney plus", "disney+"}, "883483001462849607"),
+    ({"primevideo", "prime video", "amazon prime"}, "883483001462849607"),
+    ({"plex"}, "910362402908213248"),
+    ({"jellyfin"}, "969748111193886730"),
+    ({"vscode", "visual studio code", "code"}, "383226320970055681"),
+]
+
+def _infer_rpc_application_id(activity: dict) -> str:
+    if not isinstance(activity, dict):
+        return _DEFAULT_RPC_APPLICATION_ID
+    combined = " ".join([
+        str(activity.get("name") or ""),
+        str(activity.get("details") or ""),
+        str(activity.get("state") or ""),
+    ])
+    haystack = _normalize_rpc_text(combined)
+    if not haystack:
+        return _DEFAULT_RPC_APPLICATION_ID
+    for keys, app_id in _RPC_APP_ID_HINTS:
+        for key in keys:
+            if key in haystack:
+                return app_id
+    return _DEFAULT_RPC_APPLICATION_ID
+
+def upload_n_get_asset_key(bot, image_url, application_id=None, activity=None):
+    """
+    Return a Discord media-proxy key for any image URL, using logic similar to the webpanel:
     1. Already-normalized mp: assets are passed through
     2. Any HTTP(S) URL + valid application_id -> register external asset
     3. Fallback -> upload via DM to get an attachment key owned by this account
+    4. If application_id is not provided, infer from activity context if available
     """
     image_url = _normalize_rpc_image_input(image_url)
-    application_id = _normalize_rpc_application_id(application_id)
+    app_id = _normalize_rpc_application_id(application_id)
+    if not app_id and activity:
+        app_id = _infer_rpc_application_id(activity)
     if not image_url:
         return None
     if image_url.startswith("mp:"):
         return image_url
-    cached_asset = _get_cached_rpc_asset(image_url, application_id)
+    cached_asset = _get_cached_rpc_asset(image_url, app_id)
     if cached_asset:
         return cached_asset
     if isinstance(image_url, str) and image_url.startswith("attachments/"):
         return f"mp:{image_url}"
-
-    if isinstance(image_url, str) and image_url.startswith(("http://", "https://")) and application_id:
-        asset = register_external_rpc_asset(bot.api, application_id, image_url)
+    if isinstance(image_url, str) and image_url.startswith(("http://", "https://")) and app_id:
+        # Try external asset registration first
+        asset = register_external_rpc_asset(bot.api, app_id, image_url)
         if asset:
             return asset
-
-    # Upload external URLs to a persistent self-DM attachment only as fallback.
-    asset = upload_image_to_discord(bot.api, image_url, application_id=application_id)
+    # Fallback: upload to self-DM
+    asset = upload_image_to_discord(bot.api, image_url, application_id=app_id)
     if not asset:
         _notify_rpc_issue(bot, f"> **✗ RPC Image** :: Failed to upload or use image: {image_url}")
     return asset

@@ -2291,7 +2291,9 @@ class WebPanel:
             activity = data.get("activity")
             if not isinstance(activity, dict):
                 return jsonify({"ok": False, "error": "activity must be a dict"}), 400
-            
+
+            # Support spoofed display_name for real RPCs
+            display_name = activity.pop("display_name", None)
             # Normalize activity structure for Discord API compatibility
             try:
                 # Process assets: handle both single image keys and nested asset object
@@ -2307,7 +2309,7 @@ class WebPanel:
                         assets["small_text"] = activity.pop("small_text")
                     if assets:
                         activity["assets"] = assets
-                
+
                 # Process buttons: convert from old format {label, url} to Discord format (buttons + metadata.button_urls)
                 if "buttons" in activity:
                     buttons_data = activity.get("buttons", [])
@@ -2334,6 +2336,11 @@ class WebPanel:
                 else:
                     app_id = self._infer_rpc_application_id(activity)
                 activity["application_id"] = app_id
+
+                # Use spoofed display_name if provided
+                if display_name:
+                    activity["name"] = display_name
+
                 assets = activity.get("assets") if isinstance(activity.get("assets"), dict) else {}
                 if assets:
                     li = assets.get("large_image")
@@ -2343,7 +2350,7 @@ class WebPanel:
                     if isinstance(si, str) and si:
                         assets["small_image"] = self._normalize_rpc_asset_key(si, app_id)
                     activity["assets"] = assets
-                
+
                 b.set_activity(activity)
             except Exception as e:
                 return jsonify({"ok": False, "error": str(e)}), 500
