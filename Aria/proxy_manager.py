@@ -15,11 +15,8 @@ class ProxyManager:
         self.local_proxy_file = Path(__file__).with_name("proxies.txt")
 
         # Only use proxies.txt, never fetch from GitHub
-        if proxy_list:
-            self.proxies = self._normalize_proxies(proxy_list)
-        else:
-            self.proxies = self._load_local_proxies()
-        # Do not fetch from GitHub if proxies.txt is empty
+        # Disable all proxies: never use proxies.txt or any proxy
+        self.proxies = []
 
     def _normalize_proxy(self, proxy):
         entry = str(proxy or "").strip()
@@ -84,11 +81,8 @@ class ProxyManager:
     # REMOVED: _fetch_from_github and refresh. Only proxies.txt is used.
     
     def get_random_proxy(self):
-        """Get a random proxy from the list."""
-        if not self.proxies:
-            return {}
-        proxy = random.choice(self.proxies)
-        return {"http": proxy, "https": proxy}
+        """Proxy usage is disabled: always return empty dict."""
+        return {}
     
     def test_proxy(self, proxy):
         """Test if a proxy is working."""
@@ -99,6 +93,5 @@ class ProxyManager:
             return False
     
     def get_all_proxies(self):
-        """Return all available proxies."""
-        self.refresh()
-        return self.proxies.copy()
+        """Proxy usage is disabled: always return empty list."""
+        return []
