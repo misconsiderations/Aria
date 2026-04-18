@@ -1030,6 +1030,7 @@ def configure_rpc_keepalive(bot, mode, refresh_fn=None, interval=120):
     thread = threading.Thread(target=_worker, daemon=True, name="rpc-keepalive")
     RPC_KEEPALIVE["thread"] = thread
     thread.start()
+    bot._rpc_keepalive_thread = thread  # Attach to bot for shutdown
     return True, "RPC keepalive started"
 
 
@@ -1044,6 +1045,11 @@ def stop_rpc_keepalive(bot=None, clear_activity=False):
             bot.set_activity(None)
         except Exception:
             pass
+    # Wait for keepalive thread to finish
+    if bot is not None and hasattr(bot, "_rpc_keepalive_thread"):
+        t = bot._rpc_keepalive_thread
+        if t and t.is_alive():
+            t.join(timeout=5)
     return (True, "RPC keepalive stopped") if was_running else (False, "RPC keepalive is not running")
 
 
@@ -1377,6 +1383,16 @@ def main():
             print("✓ Web panel context attached to live bot")
     except Exception as e:
         print(f"[webpanel] context attach failed: {e}")
+
+    # Register atexit handler to stop background threads cleanly
+    import atexit
+    def _shutdown_threads():
+        try:
+            stop_rpc_keepalive(bot, clear_activity=False)
+        except Exception:
+            pass
+        # Add other thread shutdowns here as needed
+    atexit.register(_shutdown_threads)
 
     # Restore optional persisted runtime settings (client profile / RPC).
     _restore_runtime_state(bot)
