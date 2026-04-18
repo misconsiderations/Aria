@@ -14,13 +14,12 @@ class ProxyManager:
         self.fetch_interval = 3600  # Refresh every hour
         self.local_proxy_file = Path(__file__).with_name("proxies.txt")
 
+        # Only use proxies.txt, never fetch from GitHub
         if proxy_list:
             self.proxies = self._normalize_proxies(proxy_list)
         else:
             self.proxies = self._load_local_proxies()
-
-        if not self.proxies:
-            self._fetch_from_github()
+        # Do not fetch from GitHub if proxies.txt is empty
 
     def _normalize_proxy(self, proxy):
         entry = str(proxy or "").strip()
@@ -82,29 +81,10 @@ class ProxyManager:
             print(f"[PROXY] Failed to load local proxies: {e}")
             return []
     
-    def _fetch_from_github(self):
-        """Fetch free proxies from GitHub repo."""
-        try:
-            url = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/proxies.txt"
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                lines = response.text.strip().split('\n')
-                self.proxies = self._normalize_proxies(lines)
-                self.last_fetch = time.time()
-                if self.proxies and not ProxyManager._github_load_logged:
-                    print(f"[PROXY] Loaded {len(self.proxies)} proxies from GitHub")
-                    ProxyManager._github_load_logged = True
-        except Exception as e:
-            print(f"[PROXY] Failed to fetch from GitHub: {e}")
-    
-    def refresh(self):
-        """Refresh proxies if interval has passed."""
-        if time.time() - self.last_fetch > self.fetch_interval:
-            self._fetch_from_github()
+    # REMOVED: _fetch_from_github and refresh. Only proxies.txt is used.
     
     def get_random_proxy(self):
         """Get a random proxy from the list."""
-        self.refresh()
         if not self.proxies:
             return {}
         proxy = random.choice(self.proxies)
