@@ -46,7 +46,8 @@ class CaptchaSolver:
         self.solver = None
         self.last_solve_time = 0
         self.session = requests.Session() if REQUESTS_AVAILABLE else None
-        self.spoof_only = self.service in {"spoof", "none"}
+        # Spoof/rotation fallback is always allowed if no key is set
+        self.spoof_only = (not api_key) or self.service in {"spoof", "none"}
 
         if api_key and self.service == "2captcha":
             if TWOCAPTCHA_AVAILABLE and TwoCaptcha:
@@ -70,7 +71,7 @@ class CaptchaSolver:
             else:
                 print("[ERROR] CapSolver support requires capsolver library or requests.")
         elif self.spoof_only:
-            print("[DEBUG] Captcha spoof-only mode enabled; no solver key required.")
+            print("[DEBUG] Captcha spoof/rotation fallback enabled; no solver key required.")
         else:
             if not CaptchaSolver._missing_config_logged:
                 print("[DEBUG] Captcha support not configured or API key missing.")
@@ -81,6 +82,8 @@ class CaptchaSolver:
         return bool(self.spoof_only or (self.api_key and (self.solver is not None or REQUESTS_AVAILABLE)))
 
     def can_bypass_with_spoof(self) -> bool:
+        if self.spoof_only:
+            print("[CAPTCHA] No captcha key set or spoof mode enabled. Using header rotation/client transfer fallback.")
         return self.spoof_only
 
     def _build_captcha_response(self, response_data: Dict[str, Any], **values: Any) -> Dict[str, Any]:

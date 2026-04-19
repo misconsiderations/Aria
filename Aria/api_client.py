@@ -249,13 +249,17 @@ class DiscordAPIClient:
     def request(self, method: str, endpoint: str, data: Optional[Any] = None,
                 params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None,
                 max_retries: int = 3, retry_count: int = 0,
-                json: Optional[Any] = None) -> Optional[Any]:
+                json: Optional[Any] = None, _global_retry: int = 0) -> Optional[Any]:
         if json is not None and data is None:
             data = json
         """
         Enhanced request handler with comprehensive captcha support for all Discord API operations.
         Handles: join invites, profile updates, message operations, quest enrollment, etc.
         """
+        # Global recursion guard: hard limit to prevent infinite recursion
+        if _global_retry > 10:
+            print(f"[REQUEST-ERROR] {method} {endpoint}: exceeded global retry limit, aborting.")
+            return None
         if self.auth_failed:
             return None
 
@@ -322,7 +326,7 @@ class DiscordAPIClient:
                     self.header_spoofer.rotate_profile()
                     self.header_spoofer._update_session_headers()
                     time.sleep(0.1)
-                    return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
+                    return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1, _global_retry=_global_retry+1)
 
             # Handle 400 errors - often include captcha challenges
             if response.status_code == 400 and retry_count < max_retries:
@@ -335,14 +339,14 @@ class DiscordAPIClient:
                             print(f"[CAPTCHA] {endpoint} requested a client refresh; rotating spoofed client profile.")
                             self._refresh_client_identity()
                             time.sleep(0.1)
-                            return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
+                            return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1, _global_retry=_global_retry+1)
 
                         if self.captcha_solver.can_bypass_with_spoof():
                             print(f"[CAPTCHA] Detected {captcha_info.get('type', 'unknown')} in {endpoint} and no solver key is configured.")
                             print("[CAPTCHA] Rotating spoofed headers and retrying request...")
                             self._refresh_client_identity()
                             time.sleep(0.1)
-                            return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1)
+                            return self.request(method, endpoint, data, params, headers, max_retries, retry_count + 1, _global_retry=_global_retry+1)
 
                         if self.captcha_solver.is_enabled():
                             print(f"[CAPTCHA] Detected in {endpoint}: {captcha_info.get('type', 'unknown')}")
@@ -356,7 +360,7 @@ class DiscordAPIClient:
                                     retry_data["captcha_rqtoken"] = str(captcha_info["rqtoken"])
                                 retry_headers = self._captcha_retry_headers(headers, captcha_info, captcha_token)
                                 time.sleep(0.5)
-                                return self.request(method, endpoint, retry_data, params, retry_headers, max_retries, retry_count + 1)
+                                return self.request(method, endpoint, retry_data, params, retry_headers, max_retries, retry_count + 1, _global_retry=_global_retry+1)
                             else:
                                 print(f"[CAPTCHA] Failed to solve captcha for {endpoint}")
                         else:
@@ -387,7 +391,7 @@ class DiscordAPIClient:
                     print(f"[RATE-LIMIT] Waiting {retry_after}s before retrying {endpoint}...")
                     self._rate_limit_log_times[endpoint] = now
                 time.sleep(min(retry_after, 5))
-                return self.request(method, endpoint, data, params, headers, max_retries, retry_count)
+                return self.request(method, endpoint, data, params, headers, max_retries, retry_count, _global_retry=_global_retry+1)
 
             # Update rate limit buckets
             if "X-RateLimit-Bucket" in response.headers:

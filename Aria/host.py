@@ -404,9 +404,24 @@ subprocess.run([sys.executable, os.path.join(TEMP_DIR, "main.py")], cwd=TEMP_DIR
                 else:
                     break  # failed to restart — give up silently
 
-        threading.Thread(target=_monitor, daemon=True, name=f"keepalive-{token_id}").start()
+        t = threading.Thread(target=_monitor, name=f"keepalive-{token_id}")
+        t.start()
+        self._stop_events[token_id] = stop_event
+        self._keepalive_threads = getattr(self, '_keepalive_threads', {})
+        self._keepalive_threads[token_id] = t
     
     def stop_hosting(self, owner_id):
+        # Join keepalive threads for this owner
+        self._keepalive_threads = getattr(self, '_keepalive_threads', {})
+        to_join = []
+        with self.lock:
+            for token_id, data in self.active_tokens.items():
+                if str(data["owner"]) == str(owner_id):
+                    t = self._keepalive_threads.pop(token_id, None)
+                    if t and t.is_alive():
+                        to_join.append(t)
+        for t in to_join:
+            t.join(timeout=5)
         with self.lock:
             to_stop = []
             for token_id, data in self.active_tokens.items():

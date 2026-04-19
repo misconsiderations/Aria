@@ -93,7 +93,7 @@ class GatewayBridge:
             return
 
         self.running = True
-        self.thread = threading.Thread(target=self._run_async_loop, daemon=True, name="AsyncGatewayBridge")
+        self.thread = threading.Thread(target=self._run_async_loop, name="AsyncGatewayBridge")
         self.thread.start()
 
         # Wait for connection

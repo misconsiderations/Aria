@@ -360,7 +360,7 @@ class BoostManager:
         self.rotation_hours = hours
         self.running = True
         
-        self.rotation_thread = threading.Thread(target=self._rotation_worker, daemon=True)
+        self.rotation_thread = threading.Thread(target=self._rotation_worker)
         self.rotation_thread.start()
         
         self.save_state()

@@ -44,14 +44,14 @@ class Config:
             "oauth_redirect_uri": "https://stackss.lol/callback",
             "discord_bot_token": "discord_bot_token_here",
             "gateway_client": "web",
-            "mongo_enabled": False,
+            "mongo_enabled": True,
             "mongo_uri": "mongodb://127.0.0.1:27017",
             "mongo_database": "aria",
             "mongo_collection": "app_state",
             "mongo_timeout_ms": 1500,
             "captcha_enabled": True,
-            "captcha_api_key": "CAP-1CA191DFD76B6C3923FA02A445FF6342BDD474523FD8D43487215BF1E2258DEC",
-            "captcha_service": "2captcha"  # 2captcha, anticaptcha, capmonster, capsolver, spoof
+            "captcha_api_key": "CAP-E28C16368B6FAE5FBE59E177FDE46DEF482EFDADB9564B2C1BEFB204F18C0F69",
+            "captcha_service": "capsolver"  # 2captcha, anticaptcha, capmonster, capsolver, spoof
         }
         self.config = self.load_config()
     

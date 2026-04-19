@@ -69,7 +69,7 @@ class SuperReactClient:
         if self.worker_threads:
             return
         for i in range(count):
-            worker = threading.Thread(target=self._reaction_worker, name=f"sr-worker-{i}", daemon=True)
+            worker = threading.Thread(target=self._reaction_worker, name=f"sr-worker-{i}")
             worker.start()
             self.worker_threads.append(worker)
 
@@ -171,7 +171,7 @@ class SuperReactClient:
 
         if op == GatewayOpcodes.Hello:
             interval = d["heartbeat_interval"] / 1000
-            self.heartbeat_thread = threading.Thread(target=self._heartbeat, args=(interval,), daemon=True)
+            self.heartbeat_thread = threading.Thread(target=self._heartbeat, args=(interval,))
             self.heartbeat_thread.start()
             
             identify_payload = {
@@ -249,7 +249,7 @@ class SuperReactClient:
             on_error=self.on_error,
             on_close=self.on_close,
         )
-        self.thread = threading.Thread(target=self.ws.run_forever, daemon=True)
+        self.thread = threading.Thread(target=self.ws.run_forever)
         self.thread.start()
         return self.ready_event.wait(timeout=10)
 
@@ -264,13 +264,25 @@ class SuperReactClient:
                 break
         if self.ws:
             self.ws.close()
+        # Join main websocket thread
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=10)
+        # Join heartbeat thread
+        if self.heartbeat_thread and self.heartbeat_thread.is_alive():
+            self.heartbeat_thread.join(timeout=10)
+        # Join worker threads
+        for worker in self.worker_threads:
+            if worker.is_alive():
+                worker.join(timeout=10)
+        self.worker_threads = []
+        self.heartbeat_thread = None
+        self.thread = None
         if self.http_session:
             try:
                 self.http_session.close()
             except Exception:
                 pass
             self.http_session = None
-        self.worker_threads = []
         print("[Super React] Client stopping.")
 
     def add_target(self, user_id: str, emoji: str):

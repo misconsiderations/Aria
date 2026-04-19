@@ -304,7 +304,7 @@ class VRRPC:
                         self._wait_with_cancel(5)
                 self._wait_with_cancel(5)
 
-        self.supervisor_thread = threading.Thread(target=supervise, daemon=True, name="VRRPCSupervisor")
+        self.supervisor_thread = threading.Thread(target=supervise, name="VRRPCSupervisor")
         self.supervisor_thread.start()
 
     def _wait_with_cancel(self, seconds):
@@ -353,7 +353,7 @@ class VRRPC:
                 self.running = False
                 self._gateway_connected = False
 
-        self.thread = threading.Thread(target=run_client, daemon=True, name="VRRPCClient")
+        self.thread = threading.Thread(target=run_client, name="VRRPCClient")
         self.thread.start()
 
     def _detect_auth_mode(self, token):
@@ -477,12 +477,17 @@ class VRRPC:
             self._mark_gateway_disconnected()
             self._close_client(timeout=10)
 
+            # Join client thread
             if self.thread and self.thread.is_alive():
                 self.thread.join(timeout=10)
+            # Join supervisor thread
+            if self.supervisor_thread and self.supervisor_thread.is_alive():
+                self.supervisor_thread.join(timeout=10)
 
             self.running = False
             self.client = None
             self.thread = None
+            self.supervisor_thread = None
             self._last_launch_time = None
             print(f"[VR RPC] Stopped")
             return True, "VR RPC stopped"

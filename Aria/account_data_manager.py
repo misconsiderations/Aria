@@ -139,7 +139,7 @@ class AccountDataManager:
 
         self.stats_interval = max(60, int(interval_seconds))
         self.stats_active = True
-        self.stats_thread = threading.Thread(target=self._stats_worker, daemon=True)
+        self.stats_thread = threading.Thread(target=self._stats_worker)
         self.stats_thread.start()
         return True, f"Local stats job started ({self.stats_interval}s interval)"
 
@@ -221,7 +221,7 @@ class AccountDataManager:
         self.auto_scrape_interval = max(60, int(interval_seconds))
         self.auto_scrape_targets = self._normalize_targets(targets)
         self.auto_scrape_active = True
-        self.auto_scrape_thread = threading.Thread(target=self._auto_scrape_worker, daemon=True)
+        self.auto_scrape_thread = threading.Thread(target=self._auto_scrape_worker)
         self.auto_scrape_thread.start()
         target_text = ", ".join(self.auto_scrape_targets)
         return True, f"Background auto scrape started ({self.auto_scrape_interval}s, targets: {target_text})"

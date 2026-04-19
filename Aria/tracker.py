@@ -151,7 +151,7 @@ class TrackerStore:
             while self._running:
                 time.sleep(30)
                 self._flush_flat()
-        self._flush_thread = threading.Thread(target=_loop, daemon=True, name="tracker-flush")
+        self._flush_thread = threading.Thread(target=_loop, name="tracker-flush")
         self._flush_thread.start()
 
     def _flush_flat(self):
@@ -344,6 +344,8 @@ class TrackerStore:
 
     def stop(self):
         self._running = False
+        if self._flush_thread and self._flush_thread.is_alive():
+            self._flush_thread.join(timeout=10)
         self._flush_flat()
 
 
